@@ -9,7 +9,8 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from timeline_model import (control_groups, regroup_motion, motion_settings, save_timeline,
                             validate_timeline, timeline_rows, lifecycle_settings,
-                            transition_duration, timeline_action_data)
+                            transition_duration, timeline_action_data,
+                            load_snapshot_reference, resolve_timeline_steps)
 from timeline_window import TimelineWindow
 
 
@@ -24,13 +25,31 @@ class TimelineTest(unittest.TestCase):
         self.joints = ["servo_11", "servo_12"]
         self.bounds = {j: (-1, 1) for j in self.joints}
 
+    def reference_steps(self, directory, steps):
+        referenced = copy.deepcopy(steps)
+        for step in referenced:
+            if step.get("kind") == "wait":
+                continue
+            snapshot = step["snapshot"]
+            if isinstance(snapshot, dict):
+                filename = snapshot["name"] + ".json"
+                (directory / filename).write_text(json.dumps(snapshot))
+                step["snapshot"] = filename
+        return referenced
+
+    def resolver(self, directory):
+        return lambda reference: load_snapshot_reference(reference, directory)
+
     def test_transition_duration_defaults_roundtrip_and_validation(self):
         self.assertEqual(transition_duration(self.step)["mode"], "until_reached")
         self.step["duration"] = {"mode": "seconds", "seconds": 2.5}
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "timeline.json"
-            save_timeline(path, [self.step])
-            loaded = validate_timeline(json.loads(path.read_text()))
+            root = Path(directory)
+            steps = self.reference_steps(root, [self.step])
+            resolver = self.resolver(root)
+            save_timeline(path, steps, snapshot_resolver=resolver)
+            loaded = validate_timeline(json.loads(path.read_text()), snapshot_resolver=resolver)
             self.assertEqual(loaded[0]["duration"], self.step["duration"])
         for duration in ({"mode": "unknown"}, {"mode": "seconds", "seconds": -1},
                          {"mode": "seconds", "seconds": float("nan")},
@@ -65,10 +84,13 @@ class TimelineTest(unittest.TestCase):
     def test_lifecycle_roundtrip_and_validation(self):
         self.assertEqual(lifecycle_settings(self.document), {"on_end": "on"})
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "timeline.json"
-            save_timeline(path, [self.step], "off")
+            root = Path(directory)
+            path = root / "timeline.json"
+            steps = self.reference_steps(root, [self.step])
+            resolver = self.resolver(root)
+            save_timeline(path, steps, "off", snapshot_resolver=resolver)
             document = json.loads(path.read_text())
-            validate_timeline(document)
+            validate_timeline(document, snapshot_resolver=resolver)
             self.assertEqual(document["on_end"], "off")
             self.assertNotIn("on_start", document)
             self.assertEqual(lifecycle_settings(document), {"on_end": "off"})
@@ -81,8 +103,10 @@ class TimelineTest(unittest.TestCase):
 
     def test_loop_setting_roundtrip_and_validation(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "timeline.json"
-            save_timeline(path, [self.step], loop=True)
+            root = Path(directory)
+            path = root / "timeline.json"
+            steps = self.reference_steps(root, [self.step])
+            save_timeline(path, steps, loop=True, snapshot_resolver=self.resolver(root))
             document = json.loads(path.read_text())
             validate_timeline(document)
             self.assertIs(document["loop"], True)
@@ -97,9 +121,13 @@ class TimelineTest(unittest.TestCase):
         self.assertEqual(timeline_rows(steps), [(0, "transition"), (0, "snapshot"),
                          (1, "wait"), (2, "transition"), (2, "snapshot"), (3, "wait")])
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "timeline.json"
-            save_timeline(path, steps)
-            self.assertEqual(validate_timeline(json.loads(path.read_text()), self.joints, self.bounds), steps)
+            root = Path(directory)
+            path = root / "timeline.json"
+            referenced = self.reference_steps(root, steps)
+            resolver = self.resolver(root)
+            save_timeline(path, referenced, snapshot_resolver=resolver)
+            self.assertEqual(validate_timeline(json.loads(path.read_text()), self.joints,
+                                               self.bounds, resolver), referenced)
 
     def test_invalid_wait_rejected_before_playback(self):
         for seconds in (-1, float("nan"), float("inf"), True, "2", None):
@@ -122,12 +150,22 @@ class TimelineTest(unittest.TestCase):
         app.move(-1)
         self.assertEqual(app.steps[0]["kind"], "wait")
 
-    def test_roundtrip_embeds_repeated_snapshots_and_overrides(self):
+    def test_roundtrip_stores_references_and_uses_updated_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "timeline.json"
-            save_timeline(path, self.document["steps"])
-            result = validate_timeline(json.loads(path.read_text()), self.joints, self.bounds)
-            self.assertEqual(result, self.document["steps"])
+            root = Path(directory)
+            path = root / "timeline.json"
+            steps = self.reference_steps(root, self.document["steps"])
+            resolver = self.resolver(root)
+            save_timeline(path, steps, snapshot_resolver=resolver)
+            document = json.loads(path.read_text())
+            self.assertEqual(document["steps"][0]["snapshot"], "pose.json")
+            self.assertNotIn("positions", document["steps"][0]["snapshot"])
+            updated = copy.deepcopy(self.step["snapshot"])
+            updated["positions"]["servo_11"] = 0.8
+            (root / "pose.json").write_text(json.dumps(updated))
+            stored_steps = validate_timeline(document, self.joints, self.bounds, resolver)
+            result = resolve_timeline_steps(stored_steps, resolver)
+            self.assertEqual(result[0]["snapshot"]["positions"]["servo_11"], 0.8)
             result[0]["motion"]["speed"] = 10
             self.assertEqual(result[1]["motion"]["speed"], 200)
 
@@ -184,10 +222,13 @@ class TimelineTest(unittest.TestCase):
         custom = regroup_motion(legs, "Custom Control")
         self.assertEqual(motion_settings(custom, joints), motion_settings(legs, joints))
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "timeline.json"
-            save_timeline(path, [legs, custom])
-            loaded = validate_timeline(json.loads(path.read_text()))
-        self.assertEqual(loaded, [legs, custom])
+            root = Path(directory)
+            path = root / "timeline.json"
+            steps = self.reference_steps(root, [legs, custom])
+            resolver = self.resolver(root)
+            save_timeline(path, steps, snapshot_resolver=resolver)
+            loaded = validate_timeline(json.loads(path.read_text()), snapshot_resolver=resolver)
+        self.assertEqual(loaded, steps)
 
     def test_combining_unequal_values_averages_per_group(self):
         legs = regroup_motion(self.step, "Leg Control")
