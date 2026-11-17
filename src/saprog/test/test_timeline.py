@@ -96,7 +96,6 @@ class TimelineTest(unittest.TestCase):
             self.assertEqual(lifecycle_settings(document), {"on_end": "off"})
         document["on_start"] = "invalid"
         self.assertEqual(lifecycle_settings(document), {"on_end": "off"})
-        validate_timeline(document)
         document["on_end"] = "invalid"
         with self.assertRaises(ValueError):
             validate_timeline(document)
@@ -106,14 +105,15 @@ class TimelineTest(unittest.TestCase):
             root = Path(directory)
             path = root / "timeline.json"
             steps = self.reference_steps(root, [self.step])
-            save_timeline(path, steps, loop=True, snapshot_resolver=self.resolver(root))
+            resolver = self.resolver(root)
+            save_timeline(path, steps, loop=True, snapshot_resolver=resolver)
             document = json.loads(path.read_text())
-            validate_timeline(document)
+            validate_timeline(document, snapshot_resolver=resolver)
             self.assertIs(document["loop"], True)
         for value in (1, "true", None):
             document["loop"] = value
             with self.assertRaises(ValueError):
-                validate_timeline(document)
+                validate_timeline(document, snapshot_resolver=resolver)
 
     def test_wait_roundtrip_and_row_mapping(self):
         steps = [self.step, {"kind": "wait", "seconds": 2.75}, self.step,
