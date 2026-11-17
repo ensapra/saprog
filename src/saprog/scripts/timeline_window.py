@@ -416,10 +416,7 @@ class TimelineWindow(SnapshotPlayer):
         if self.run_steps is not None or not self._ready() or not self.apply():
             return
         try:
-            steps = validate_timeline(
-                {"kind": "saprog_timeline", "schema_version": 2, "steps": self.steps},
-                self.joints, self.bounds, self._load_snapshot)
-            steps = resolve_timeline_steps(steps, self._load_snapshot)
+            steps = resolve_timeline_steps(self.steps, self._load_snapshot)
             validate_timeline(
                 {"kind": "saprog_timeline", "schema_version": 1, "steps": steps},
                 self.joints, self.bounds)
@@ -442,7 +439,7 @@ class TimelineWindow(SnapshotPlayer):
             self.timeline_goal_future = self.timeline_client.send_goal_async(
                 goal, feedback_callback=self._timeline_feedback)
             self.timeline_goal_future.add_done_callback(self._timeline_goal_response)
-        except (ValueError, TypeError, RuntimeError) as exc:
+        except (OSError, ValueError, TypeError, RuntimeError) as exc:
             self.status.set(f"Timeline rejected; no commands sent: {exc}")
 
     def _timeline_feedback(self, feedback_message):

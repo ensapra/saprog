@@ -169,6 +169,22 @@ class TimelineTest(unittest.TestCase):
             result[0]["motion"]["speed"] = 10
             self.assertEqual(result[1]["motion"]["speed"], 200)
 
+    def test_add_snapshot_stores_only_its_file_reference(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "pose.json"
+            path.write_text(json.dumps(self.step["snapshot"]))
+            app = TimelineWindow.__new__(TimelineWindow)
+            app.directory = directory
+            app.joints = []
+            app.bounds = {}
+            app.steps = []
+            app.dirty = False
+            app.apply = lambda: True
+            app.redraw = lambda _index: None
+            app.add(path)
+            self.assertEqual(app.steps[0]["snapshot"], "pose.json")
+            self.assertNotIn("positions", app.steps[0]["snapshot"])
+
     def test_global_and_override_resolution(self):
         self.assertEqual(motion_settings(self.step, self.joints), {
             "servo_11": {"speed": 200, "torque": 500},
