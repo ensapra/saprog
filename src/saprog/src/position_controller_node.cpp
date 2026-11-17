@@ -22,6 +22,7 @@ constexpr double kNoProgressSeconds = 8.0;
 constexpr double kTelemetryFreshSeconds = 2.5;
 constexpr auto kTimelineFeedbackInterval = std::chrono::milliseconds(100);
 constexpr auto kTimelineDeadlineLateness = std::chrono::milliseconds(20);
+constexpr auto kTimelineBusLockTimeout = std::chrono::milliseconds(250);
 }
 
 PositionControllerNode::PositionControllerNode(
@@ -524,7 +525,7 @@ void PositionControllerNode::execute_timeline(
         publish_timeline_feedback(goal_handle, step_number, step_count, "Sending synchronized joint command", 0.0);
         bool commanded = false;
         if (dispatch_deadline) {
-          const auto latest_start = *dispatch_deadline + kTimelineDeadlineLateness;
+          const auto latest_start = std::chrono::steady_clock::now() + kTimelineBusLockTimeout;
           commanded = bus_->set_positions_before(config_.servo_ids, targets, speeds,
             torque_limits, config_.target_tolerance, latest_start, error);
         } else {
@@ -573,7 +574,7 @@ void PositionControllerNode::execute_timeline(
         {
           canceled = timeline_cancelled();
         } else {
-          latest_start = *next_command_deadline + kTimelineDeadlineLateness;
+          latest_start = std::chrono::steady_clock::now() + kTimelineBusLockTimeout;
         }
       }
       if (!canceled && error.empty()) {

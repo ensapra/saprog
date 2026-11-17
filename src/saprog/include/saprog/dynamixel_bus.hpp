@@ -2,10 +2,10 @@
 
 #include <array>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <map>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -41,6 +41,19 @@ public:
     std::chrono::steady_clock::time_point latest_start, std::string & error);
 
 private:
+  class TimelinePriorityGuard
+  {
+  public:
+    explicit TimelinePriorityGuard(DynamixelBus & bus);
+    ~TimelinePriorityGuard();
+
+    TimelinePriorityGuard(const TimelinePriorityGuard &) = delete;
+    TimelinePriorityGuard & operator=(const TimelinePriorityGuard &) = delete;
+
+  private:
+    DynamixelBus & bus_;
+  };
+
   struct ServoSettings
   {
     // -1 means the register value is unknown and must be written and verified.
@@ -61,11 +74,14 @@ private:
     std::string & error);
   bool set_positions_locked(const std::vector<uint8_t> & ids,
     const std::vector<uint16_t> & positions, const std::vector<int> & speeds,
-    const std::vector<int> & torque_limits, double tolerance_rad, std::string & error,
-    std::optional<std::chrono::steady_clock::time_point> latest_start = std::nullopt);
+    const std::vector<int> & torque_limits, double tolerance_rad, std::string & error);
+  std::unique_lock<std::timed_mutex> lock_bus();
   int status_return_level_;
   bool verify_goal_registers_;
   std::timed_mutex bus_mutex_;
+  std::mutex timeline_priority_mutex_;
+  std::condition_variable timeline_priority_cv_;
+  bool timeline_priority_requested_{false};
   std::map<uint8_t, ServoSettings> settings_;
   dynamixel::PortHandler * port_handler_{nullptr};
   dynamixel::PacketHandler * packet_handler_{nullptr};

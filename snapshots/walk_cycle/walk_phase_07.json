@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "name": "walk_phase_07",
+  "positions": {
+    "servo_11": 0.0,
+    "servo_12": 0.10,
+    "servo_13": 0.40,
+    "servo_21": 0.0,
+    "servo_22": -0.25,
+    "servo_23": 0.58,
+    "servo_31": 0.0,
+    "servo_32": -0.90,
+    "servo_33": 0.40,
+    "servo_41": 0.0,
+    "servo_42": -0.40,
+    "servo_43": 0.40
+  }
+}

@@ -31,9 +31,32 @@ DynamixelBus::~DynamixelBus()
   }
 }
 
+std::unique_lock<std::timed_mutex> DynamixelBus::lock_bus()
+{
+  std::unique_lock<std::mutex> priority_lock(timeline_priority_mutex_);
+  timeline_priority_cv_.wait(priority_lock, [this]() {return !timeline_priority_requested_;});
+  return std::unique_lock<std::timed_mutex>(bus_mutex_);
+}
+
+DynamixelBus::TimelinePriorityGuard::TimelinePriorityGuard(DynamixelBus & bus)
+: bus_(bus)
+{
+  std::lock_guard<std::mutex> lock(bus_.timeline_priority_mutex_);
+  bus_.timeline_priority_requested_ = true;
+}
+
+DynamixelBus::TimelinePriorityGuard::~TimelinePriorityGuard()
+{
+  {
+    std::lock_guard<std::mutex> lock(bus_.timeline_priority_mutex_);
+    bus_.timeline_priority_requested_ = false;
+  }
+  bus_.timeline_priority_cv_.notify_all();
+}
+
 bool DynamixelBus::read(uint8_t id, std::array<uint8_t, 8> & data, std::string & error)
 {
-  std::lock_guard<std::timed_mutex> lock(bus_mutex_);
+  auto lock = lock_bus();
   uint8_t device_error = 0;
   const int result = packet_handler_->readTxRx(
     port_handler_, id, 36, static_cast<uint16_t>(data.size()), data.data(), &device_error);
@@ -52,7 +75,7 @@ bool DynamixelBus::read(uint8_t id, std::array<uint8_t, 8> & data, std::string &
 
 bool DynamixelBus::get_torque(uint8_t id, bool & enabled, std::string & error)
 {
-  std::lock_guard<std::timed_mutex> lock(bus_mutex_);
+  auto lock = lock_bus();
   uint8_t value = 0;
   uint8_t device_error = 0;
   const int result = packet_handler_->read1ByteTxRx(port_handler_, id, 24, &value, &device_error);
@@ -78,7 +101,7 @@ bool DynamixelBus::get_torque(uint8_t id, bool & enabled, std::string & error)
 
 bool DynamixelBus::get_limits(uint8_t id, uint16_t & lower, uint16_t & upper, std::string & error)
 {
-  std::lock_guard<std::timed_mutex> lock(bus_mutex_);
+  auto lock = lock_bus();
   error.clear();
   std::array<uint8_t, 4> data{};
   uint8_t device_error = 0;
@@ -100,7 +123,7 @@ bool DynamixelBus::get_limits(uint8_t id, uint16_t & lower, uint16_t & upper, st
 bool DynamixelBus::set_position(
   uint8_t id, uint16_t position, int speed, int torque_limit, std::string & error)
 {
-  std::lock_guard<std::timed_mutex> lock(bus_mutex_);
+  auto lock = lock_bus();
   if (!set_setting(id, 34, static_cast<uint16_t>(torque_limit), 2, error) ||
     !set_setting(id, 32, static_cast<uint16_t>(speed), 2, error) ||
     !write_register(id, 30, position, 2, error))
@@ -112,7 +135,7 @@ bool DynamixelBus::set_position(
 
 bool DynamixelBus::set_torque(uint8_t id, bool enabled, std::string & error)
 {
-  std::lock_guard<std::timed_mutex> lock(bus_mutex_);
+  auto lock = lock_bus();
   return set_setting(id, 24, enabled ? 1 : 0, 1, error);
 }
 
@@ -129,7 +152,7 @@ bool DynamixelBus::set_positions(
   const std::vector<int> & speeds, const std::vector<int> & torque_limits,
   double tolerance_rad, std::string & error)
 {
-  std::lock_guard<std::timed_mutex> lock(bus_mutex_);
+  auto lock = lock_bus();
   return set_positions_locked(ids, positions, speeds, torque_limits, tolerance_rad, error);
 }
 
@@ -139,19 +162,19 @@ bool DynamixelBus::set_positions_before(
   double tolerance_rad, std::chrono::steady_clock::time_point latest_start,
   std::string & error)
 {
+  TimelinePriorityGuard priority(*this);
   std::unique_lock<std::timed_mutex> lock(bus_mutex_, std::defer_lock);
   if (!lock.try_lock_until(latest_start) || std::chrono::steady_clock::now() > latest_start) {
-    error = "Serial bus was not available by the timeline command deadline";
+    error = "Serial bus remained busy past the timeline command bus-wait deadline";
     return false;
   }
-  return set_positions_locked(ids, positions, speeds, torque_limits, tolerance_rad, error, latest_start);
+  return set_positions_locked(ids, positions, speeds, torque_limits, tolerance_rad, error);
 }
 
 bool DynamixelBus::set_positions_locked(
   const std::vector<uint8_t> & ids, const std::vector<uint16_t> & positions,
   const std::vector<int> & speeds, const std::vector<int> & torque_limits,
-  double tolerance_rad, std::string & error,
-  std::optional<std::chrono::steady_clock::time_point> latest_start)
+  double tolerance_rad, std::string & error)
 {
   if (ids.empty() || positions.size() != ids.size() || speeds.size() != ids.size() ||
     torque_limits.size() != ids.size())
@@ -185,11 +208,6 @@ bool DynamixelBus::set_positions_locked(
       group.clearParam();
       return false;
     }
-  }
-  if (latest_start && std::chrono::steady_clock::now() > *latest_start) {
-    error = "Serial bus preparation missed the timeline command deadline; position command was not sent";
-    group.clearParam();
-    return false;
   }
   const int result = group.txPacket();
   group.clearParam();
@@ -229,7 +247,7 @@ bool DynamixelBus::set_positions_locked(
 
 bool DynamixelBus::set_torques(const std::vector<uint8_t> & ids, bool enabled, std::string & error)
 {
-  std::lock_guard<std::timed_mutex> lock(bus_mutex_);
+  auto lock = lock_bus();
   if (ids.empty()) {
     error = "Synchronized torque command needs at least one servo";
     return false;
@@ -241,9 +259,10 @@ bool DynamixelBus::set_torques_before(
   const std::vector<uint8_t> & ids, bool enabled,
   std::chrono::steady_clock::time_point latest_start, std::string & error)
 {
+  TimelinePriorityGuard priority(*this);
   std::unique_lock<std::timed_mutex> lock(bus_mutex_, std::defer_lock);
   if (!lock.try_lock_until(latest_start) || std::chrono::steady_clock::now() > latest_start) {
-    error = "Serial bus was not available for the timeline torque action by its deadline";
+    error = "Serial bus remained busy past the timeline torque-action bus-wait deadline";
     return false;
   }
   if (ids.empty()) {

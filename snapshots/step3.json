@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "name": "stand",
+  "name": "step3",
   "positions": {
     "servo_11": 0.0,
     "servo_12": -0.4,
