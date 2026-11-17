@@ -1,0 +1,98 @@
+{
+  "kind": "saprog_timeline",
+  "schema_version": 1,
+  "steps": [
+    {
+      "snapshot": {
+        "schema_version": 1,
+        "name": "step1",
+        "positions": {
+          "servo_11": 0.0,
+          "servo_12": 0.5,
+          "servo_13": 0.4,
+          "servo_21": 0.0,
+          "servo_22": 0.0,
+          "servo_23": 0.7,
+          "servo_31": 0.0,
+          "servo_32": 0.0,
+          "servo_33": 0.7,
+          "servo_41": 0.0,
+          "servo_42": 0.5,
+          "servo_43": 0.4
+        }
+      },
+      "motion": {
+        "speed": 178,
+        "torque": 814
+      },
+      "overrides": {},
+      "control_mode": "Global Control",
+      "duration": {
+        "mode": "until_reached",
+        "seconds": 1.0
+      }
+    },
+    {
+      "snapshot": {
+        "schema_version": 1,
+        "name": "step2",
+        "positions": {
+          "servo_11": 0.0,
+          "servo_12": 0.5,
+          "servo_13": 0.4,
+          "servo_21": 0.0,
+          "servo_22": -0.4,
+          "servo_23": 0.3,
+          "servo_31": 0.0,
+          "servo_32": -0.4,
+          "servo_33": 0.3,
+          "servo_41": 0.0,
+          "servo_42": 0.5,
+          "servo_43": 0.4
+        }
+      },
+      "motion": {
+        "speed": 160,
+        "torque": 814
+      },
+      "overrides": {},
+      "control_mode": "Global Control",
+      "duration": {
+        "mode": "until_reached",
+        "seconds": 1.0
+      }
+    },
+    {
+      "snapshot": {
+        "schema_version": 1,
+        "name": "stand",
+        "positions": {
+          "servo_11": 0.0,
+          "servo_12": 0.5,
+          "servo_13": 0.4,
+          "servo_21": 0.0,
+          "servo_22": 0.5,
+          "servo_23": 0.4,
+          "servo_31": 0.0,
+          "servo_32": 0.5,
+          "servo_33": 0.4,
+          "servo_41": 0.0,
+          "servo_42": 0.5,
+          "servo_43": 0.4
+        }
+      },
+      "motion": {
+        "speed": 142,
+        "torque": 837
+      },
+      "overrides": {},
+      "control_mode": "Global Control",
+      "duration": {
+        "mode": "until_reached",
+        "seconds": 1.0
+      }
+    }
+  ],
+  "on_end": "on",
+  "loop": true
+}

@@ -1,0 +1,17 @@
+/**:
+  ros__parameters:
+    device_name: /dev/ttyUSB0
+    baud_rate: 1000000
+    poll_rate: 1.0
+    protocol_version: 1.0
+    moving_speed: 1023
+    torque_limit: 1023
+    target_tolerance: 0.1  # Radians: target arrival and optional goal-register verification
+    status_return_level: 1  # Must match the servos' EEPROM configuration
+    verify_goal_registers: false  # Enable for per-servo Sync Write diagnostics
+    servo_ids: [11, 12, 13, 21, 22, 23, 31, 32, 33, 41, 42, 43]
+    directions: [ -1, -1, -1, 
+                  1, -1, -1, 
+                  1, 1, 1, 
+                  -1, 1, 1]
+    zero_positions: [512, 512, 512, 512, 512, 512, 512, 512, 512, 512, 512, 512]

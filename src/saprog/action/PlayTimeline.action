@@ -1,0 +1,19 @@
+string[] joint_names
+uint8[] step_kinds
+uint8[] duration_modes
+float64[] durations
+float64[] positions
+int32[] speeds
+int32[] torque_limits
+bool loop
+bool run_end_action
+bool end_torque_enabled
+---
+bool success
+string message
+uint32 completed_steps
+---
+uint32 current_step
+uint32 step_count
+string status
+float64 seconds_remaining

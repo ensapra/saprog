@@ -1,0 +1,9 @@
+/.venv/
+/build/
+/install/
+/log/
+/.vscode/
+
+.saprog-build.lock
+__pycache__/
+*.py[cod]

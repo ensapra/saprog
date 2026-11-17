@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "name": "stand",
+  "positions": {
+    "servo_11": 0.0,
+    "servo_12": -0.4,
+    "servo_13": 0.3,
+  
+    "servo_21": 0.0,
+    "servo_22": 0.5,
+    "servo_23": 0.4,
+    "servo_31": 0.0,
+    "servo_32": 0.5,
+    "servo_33": 0.4,
+    
+    "servo_41": 0.0,
+    "servo_42": -0.4,
+    "servo_43": 0.3
+  }
+}

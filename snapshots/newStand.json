@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "name": "newStand",
+  "positions": {
+    "servo_11": 0.0,
+    "servo_12": 1.0,
+    "servo_13": 0.75,
+    "servo_21": 0.0,
+    "servo_22": 1.0,
+    "servo_23": 0.75,
+    "servo_31": 0.0,
+    "servo_32": 1.0,
+    "servo_33": 0.75,
+    "servo_41": 0.0,
+    "servo_42": 1.0,
+    "servo_43": 0.75
+  }
+}
