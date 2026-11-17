@@ -12,14 +12,17 @@ The supplied Creator screenshot shows these limits:
 | Servo group | IDs | Limit (rad) |
 | --- | --- | --- |
 | First joint | 11, 21, 31, 41 | -0.450 to 1.085 |
-| Second (fore-aft) joint | 12, 22, 32, 42 | -0.962 to 1.085 |
-| Third (knee) joint | 13, 23, 33, 43 | 0.266 to 0.880 |
+| Second (fore-aft) joint | 12, 22, 42 | -0.962 to 1.085 |
+| Second (fore-aft) joint, inverted | 32 | -1.085 to 0.962 |
+| Third (knee) joint | 13, 23, 43 | 0.266 to 0.880 |
+| Third (knee) joint, inverted | 33 | -0.880 to -0.266 |
 
-You confirmed that decreasing the second joint angle moves the foot forward.
-The gait now sweeps that joint from -0.90 rad at its forward extreme to
-0.35 rad during stance. The forward target stays 0.062 rad inside the observed
-lower limit instead of commanding the servo against its hard stop. First-joint
-targets remain at 0.0 rad; knee targets remain at 0.40 and 0.58 rad.
+The configuration now inverts the direction of `servo_32` and `servo_33`.
+Their targets in all snapshots and embedded sequences are sign-inverted as
+well, preserving the same hardware goals while making larger `servo_32` values
+move forward and larger `servo_33` values extend the leg. The walk cycle's
+`servo_32` forward extreme is now +0.90 rad, 0.062 rad inside its transformed
+upper limit. Its `servo_33` knee targets are -0.40 and -0.58 rad.
 
 ## Leg map and motion
 
