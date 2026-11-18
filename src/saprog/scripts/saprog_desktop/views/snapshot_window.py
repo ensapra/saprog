@@ -379,14 +379,21 @@ class SnapshotWindow:
         )
 
     def torque(self, joint, enabled):
-        if self.external_busy():
+        if enabled and self.external_busy():
             self.status.set("Wait for snapshot playback to finish before changing torque")
             return
-        if self.playback_state is not None:
+        if enabled and self.playback_state is not None:
             self.status.set("Wait for the current snapshot operation to finish")
             return
         if joint in self.pending:
-            return
+            if enabled:
+                return
+            self.torque_adapters[joint].close()
+            self.torque_adapters[joint] = TorqueBatch(
+                {joint: self.services[joint]}, self.dependencies.SetBool, timeout=TORQUE_TIMEOUT
+            )
+        if not enabled:
+            self._wait_post_fix.pop(joint, None)
         self.fixed.discard(joint)
         self.torque_state[joint] = "torque operation pending"
         token = object()
@@ -482,15 +489,18 @@ class SnapshotWindow:
         return self._post_fix
 
     def release_all(self):
-        if self.external_busy():
-            if self.stop_external_operation is not None:
-                self.stop_external_operation()
-            else:
-                self.status.set("Wait for snapshot playback to finish before releasing torque")
-            return
+        was_playing = self.playback_state is not None
+        self.playback_state = None
+        if was_playing:
+            self._set_playback_controls(False)
+        external_release = self.external_busy() and self.stop_external_operation is not None
+        if external_release:
+            self.stop_external_operation()
         for joint in self.joints:
-            if joint not in self.pending:
+            if not external_release or joint in self.pending:
                 self.torque(joint, False)
+        if not self.joints:
+            self.status.set("Cannot release torque: joint configuration is not available")
 
     def refresh_files(self):
         if self.combo is None:
@@ -608,7 +618,6 @@ class SnapshotWindow:
             self.refresh_button,
             self.browse_button,
             self.load_button,
-            self.release_all_button,
             self.fixed_toggle,
             self.speed_scale,
             self.torque_scale,
@@ -672,18 +681,13 @@ class SnapshotWindow:
         )
         if not self.playback_state and self.load_button is not None:
             configure_changed(self.load_button, state="normal" if can_load else "disabled")
-        if self.external_busy():
-            configure_changed(self.release_all_button, state="disabled")
-        elif not self.playback_state:
-            configure_changed(
-                self.release_all_button,
-                state="disabled" if self.pending or not self.joints else "normal",
-            )
+        configure_changed(self.release_all_button, state="normal")
         shared_state = (
             "disabled" if self.external_busy() or self.playback_state is not None else "normal"
         )
         for widget in (self.speed_scale, self.torque_scale, self.fixed_toggle):
-            configure_changed(widget, state=shared_state)
+            if widget is not None:
+                configure_changed(widget, state=shared_state)
         for joint in self.joints:
             self._update_joint_buttons(joint)
         self.root.after(30, self._poll)

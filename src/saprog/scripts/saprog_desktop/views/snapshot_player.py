@@ -331,10 +331,11 @@ class SnapshotPlayer:
             self.hold_toggle,
             self.torque_scale,
             self.speed_scale,
-            self.disable_torque_button,
         ):
             if widget is not None:
                 configure_changed(widget, state=state)
+        if self.disable_torque_button is not None:
+            configure_changed(self.disable_torque_button, state="normal")
 
     def select_snapshot(self, path):
         self.selected_path = path
@@ -343,30 +344,24 @@ class SnapshotPlayer:
         self._update_buttons()
 
     def disable_all_torque(self):
-        if not self._ready() or self.playback is not None or self.torque_batch is not None:
-            self.status.set("Wait for the controller and any current operation to finish")
-            return
-        self._start_disable_all_torque()
+        self.stop_playback_and_disable_all_torque()
 
     def stop_playback_and_disable_all_torque(self):
-        """Cancel pose arrival tracking and release torque on every configured joint."""
+        """Discard queued pose commands and attempt release on every configured joint."""
         if self.torque_batch is not None:
-            self.status.set("Wait for torque disable to finish")
-            return
+            self.torque_adapter.close()
+            self.torque_adapter = TorqueBatch(
+                self.torque_clients, self.dependencies.SetBool, timeout=TORQUE_TIMEOUT
+            )
+            self.torque_batch = None
         if self.playback is not None:
             release_adapter = self.playback.get("release_adapter")
             if release_adapter is not None:
                 release_adapter.close()
             self.playback = None
             self._update_buttons()
-        try:
-            services_ready = bool(self.joints) and all(
-                client.service_is_ready() for client in self.torque_clients.values()
-            )
-        except Exception:
-            services_ready = False
-        if not services_ready:
-            self.status.set("Cannot stop: torque services are not ready for every joint")
+        if not self.joints:
+            self.status.set("Cannot release torque: joint configuration is not available")
             return
         self._start_disable_all_torque()
 

@@ -222,3 +222,5 @@ Keep installed resource registration in [CMakeLists.txt](../src/saprog/CMakeList
 and [description installation](../urdf/CMakeLists.txt) aligned with moves.
 #8/#25 cover packaging and clean-install validation; the source checkout alone
 does not establish that an entry point will work after installation.
+
+Creator [release_all()](../src/saprog/scripts/saprog_desktop/views/snapshot_window.py) and Player [stop_playback_and_disable_all_torque()](../src/saprog/scripts/saprog_desktop/views/snapshot_player.py) discard queued poses and issue torque-off requests without telemetry or playback-readiness gates. Static Animator calls the Player method through the Creator external-operation callback. Pending requests are retired through TorqueBatch.close() and replaced; late responses cannot mark a replaced operation successful. These UI-thread methods take no arguments and return no value; per-joint acknowledgements remain asynchronous. They supersede the previous wait-until-idle release behavior.

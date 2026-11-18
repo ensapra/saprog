@@ -87,6 +87,7 @@ Both tools default to [snapshots/](../snapshots/); `--directory PATH` overrides 
   strength in `saprog/snapshot_player.json` under `$XDG_CONFIG_HOME`/`~/.config`
   (Windows: `%APPDATA%`). Windows keep independent slider settings.
 - Pose playback sends one synchronized command and immediately unlocks controls for further commands. It does not wait for arrival telemetry or automatically release torque. Use the manual torque-release controls when needed; command publication does not confirm physical arrival.
+- **Release all joints** stays available during playback and pending torque operations. It discards queued pose commands and retries torque-off requests, including when only some joint services are available. Unavailable services are reported; already transmitted motion cannot be undone.
 - Torque operations require acknowledgements; missing responses report unknown
   state. Closing a snapshot window does not change torque.
 - Schema 1 saves `schema_version: 1`, `name` and `positions` keyed by joint
