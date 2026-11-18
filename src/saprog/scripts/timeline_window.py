@@ -18,6 +18,7 @@ from timeline_model import (
     load_snapshot_reference,
     make_snapshot_reference,
     motion_settings,
+    reference_for_legacy_snapshot,
     regroup_motion,
     resolve_timeline_steps,
     save_timeline,
@@ -432,17 +433,12 @@ class TimelineWindow(SnapshotPlayer):
         return snapshot if isinstance(snapshot, dict) else self._load_snapshot(snapshot)
 
     def _reference_for_legacy_snapshot(self, snapshot):
-        name = snapshot.get("name")
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError("Legacy timeline snapshot has no name")
-        for path in Path(self.directory).glob("*.json"):
-            try:
-                candidate = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError, TypeError):
-                continue
-            if isinstance(candidate, dict) and candidate.get("name") == name:
-                return make_snapshot_reference(path, self.directory)
-        raise ValueError(f"Snapshot '{name}' is not present in {self.directory}")
+        return reference_for_legacy_snapshot(
+            snapshot,
+            self.directory,
+            self.joints if self.joints else None,
+            self.bounds if self.joints else None,
+        )
 
     def remove(self):
         if self.selected_index is not None:

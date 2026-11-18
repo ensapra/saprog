@@ -132,6 +132,27 @@ def make_snapshot_reference(path, directory):
         return str(path)
 
 
+def reference_for_legacy_snapshot(snapshot, directory, joints=None, bounds=None):
+    """Find a file equivalent to an embedded legacy pose, rejecting ambiguity."""
+    name, positions = validate_snapshot(snapshot, joints, bounds)
+    matches = []
+    for path in Path(directory).glob("*.json"):
+        try:
+            with path.open(encoding="utf-8") as stream:
+                candidate = json.load(stream)
+            candidate_name, candidate_positions = validate_snapshot(candidate, joints, bounds)
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+        if candidate_name != name or candidate_positions.keys() != positions.keys():
+            continue
+        if all(math.isclose(candidate_positions[j], positions[j], rel_tol=0, abs_tol=1e-9) for j in positions):
+            matches.append(path)
+    if not matches:
+        raise ValueError(f"No matching snapshot pose named '{name}' is present in {directory}")
+    # Duplicate files with the same pose are interchangeable; choose in stable order.
+    return make_snapshot_reference(sorted(matches, key=lambda path: path.name)[0], directory)
+
+
 def load_snapshot_reference(reference, directory, joints=None, bounds=None):
     """Read and validate the current contents of a referenced snapshot file."""
     if not isinstance(reference, str) or not reference.strip():

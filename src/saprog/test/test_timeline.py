@@ -12,6 +12,7 @@ from timeline_model import (
     lifecycle_settings,
     load_snapshot_reference,
     motion_settings,
+    reference_for_legacy_snapshot,
     regroup_motion,
     resolve_timeline_steps,
     save_timeline,
@@ -220,6 +221,54 @@ class TimelineTest(unittest.TestCase):
             app.add(path)
             self.assertEqual(app.steps[0]["snapshot"], "pose.json")
             self.assertNotIn("positions", app.steps[0]["snapshot"])
+
+    def test_legacy_migration_matches_pose_not_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            other = copy.deepcopy(self.step["snapshot"])
+            other["positions"]["servo_11"] = 0.7
+            (root / "a-different-pose.json").write_text(json.dumps(other))
+            (root / "z-same-pose.json").write_text(json.dumps(self.step["snapshot"]))
+            (root / "broken.json").write_text("not json")
+            self.assertEqual(
+                reference_for_legacy_snapshot(self.step["snapshot"], root, self.joints, self.bounds),
+                "z-same-pose.json",
+            )
+
+    def test_legacy_migration_accepts_identical_duplicate_poses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for filename in ("second.json", "first.json"):
+                (root / filename).write_text(json.dumps(self.step["snapshot"]))
+            self.assertEqual(
+                reference_for_legacy_snapshot(self.step["snapshot"], root, self.joints, self.bounds),
+                "first.json",
+            )
+
+    def test_legacy_migration_rejects_missing_or_invalid_snapshots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "No matching snapshot"):
+                reference_for_legacy_snapshot(self.step["snapshot"], directory, self.joints, self.bounds)
+            invalid = copy.deepcopy(self.step["snapshot"])
+            invalid["positions"]["servo_11"] = 4
+            with self.assertRaises(ValueError):
+                reference_for_legacy_snapshot(invalid, directory, self.joints, self.bounds)
+
+    def test_legacy_normalized_migration_requires_measured_limits(self):
+        legacy = {
+            "schema_version": 2,
+            "units": "normalized",
+            "name": "pose",
+            "positions": {"servo_11": 0, "servo_12": 0},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "pose.json").write_text(json.dumps(legacy))
+            with self.assertRaisesRegex(ValueError, "hardware joint limits"):
+                reference_for_legacy_snapshot(legacy, directory)
+            self.assertEqual(
+                reference_for_legacy_snapshot(legacy, directory, self.joints, self.bounds),
+                "pose.json",
+            )
 
     def test_global_and_override_resolution(self):
         self.assertEqual(
