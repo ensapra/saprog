@@ -31,7 +31,7 @@ def snapshot_player_main(argv=None, entrypoint=None):
     try:
         directory = os.path.abspath(os.path.expanduser(args.directory))
         if args.timeline:
-            from timeline_window import TimelineWindow
+            from .views.timeline_window import TimelineWindow
 
             TimelineWindow(
                 root,
@@ -41,7 +41,7 @@ def snapshot_player_main(argv=None, entrypoint=None):
                 on_close=scheduler.request_close,
             )
         else:
-            from snapshot_player import SnapshotPlayer
+            from .views.snapshot_player import SnapshotPlayer
 
             SnapshotPlayer(root, node, directory, dependencies=dependencies)
             root.protocol("WM_DELETE_WINDOW", scheduler.request_close)
@@ -68,7 +68,7 @@ def snapshot_creator_main(argv=None, entrypoint=None):
     root = dependencies.tk.Tk()
     scheduler = RootRosScheduler(root, dependencies, [node])
     try:
-        from snapshot_window import SnapshotWindow
+        from .views.snapshot_window import SnapshotWindow
 
         SnapshotWindow(
             root,
@@ -98,7 +98,7 @@ def temperature_monitor_main(argv=None, entrypoint=None):
     root = dependencies.tk.Tk()
     scheduler = RootRosScheduler(root, dependencies, [node])
     try:
-        from temperature_monitor import TemperatureMonitor
+        from .views.temperature_monitor import TemperatureMonitor
         from .desktop_style import apply_style
 
         apply_style(root)
@@ -137,7 +137,7 @@ def imu_monitor_main(argv=None, entrypoint=None):
     node = dependencies.Node("saprog_imu_monitor")
     scheduler = RootRosScheduler(root, dependencies, [node])
     try:
-        from imu_monitor import ImuMonitor
+        from .views.imu_monitor import ImuMonitor
 
         app = ImuMonitor(root, node, dependencies=dependencies)
         root.protocol("WM_DELETE_WINDOW", scheduler.request_close)
@@ -166,7 +166,7 @@ def home_main(argv=None, entrypoint=None):
     node = dependencies.Node("saprog_home_temperature_monitor")
     scheduler = RootRosScheduler(root, dependencies, [node])
     try:
-        from home import Home
+        from .apps.home import Home
 
         app = Home(root, node, dependencies, scheduler)
         signal.signal(signal.SIGTERM, lambda *_args: app.close())

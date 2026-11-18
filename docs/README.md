@@ -21,10 +21,10 @@ For any desktop tab, window, or Tk UI change, follow the current
 | Hardware | [dynamixel_bus.cpp](../src/saprog/src/dynamixel_bus.cpp) | Serial locking, synchronized writes, verified register cache |
 | Commands | [position_controller_node.cpp](../src/saprog/src/position_controller_node.cpp) | Limits, torque services, position commands and timeline worker |
 | Units/config | [servo_units.hpp](../src/saprog/include/saprog/servo_units.hpp), [saprog.yaml](../src/saprog/config/saprog.yaml) | AX conversions, IDs, zero positions, directions and defaults |
-| Desktop | [home.py](../src/saprog/scripts/home.py), [scripts/](../src/saprog/scripts/) | Tk windows and ROS clients |
-| Documents | [snapshot_units.py](../src/saprog/scripts/saprog_desktop/snapshot_units.py), [timeline_model.py](../src/saprog/scripts/timeline_model.py), [snapshot_files.py](../src/saprog/scripts/saprog_desktop/snapshot_files.py) | Validation, reference resolution and atomic JSON storage |
+| Desktop | [home.py](../src/saprog/scripts/saprog_desktop/apps/home.py), [scripts/](../src/saprog/scripts/) | Tk windows and ROS clients |
+| Documents | [snapshot_units.py](../src/saprog/scripts/saprog_desktop/snapshot_units.py), [timeline_model.py](../src/saprog/scripts/saprog_desktop/compat/timeline_model.py), [snapshot_files.py](../src/saprog/scripts/saprog_desktop/snapshot_files.py) | Validation, reference resolution and atomic JSON storage |
 | IMU | [imu_node.cpp](../src/saprog/src/imu_node.cpp), [imu_filter.hpp](../src/saprog/include/saprog/imu_filter.hpp) | Serial lifecycle, estimation, calibration and zero |
-| Visualization | [robot_view.py](../src/saprog/scripts/robot_view.py), [robot_view_session.py](../src/saprog/scripts/saprog_desktop/robot_view_session.py), [robot_view_bridge.py](../src/saprog/scripts/robot_view_bridge.py), [urdf/](../urdf/) | Tk viewport, owned ROS 2 renderer process, and servo/IMU state to robot transforms |
+| Visualization | [robot_view.py](../src/saprog/scripts/saprog_desktop/views/robot_view.py), [robot_view_session.py](../src/saprog/scripts/saprog_desktop/robot_view_session.py), [robot_view_bridge.py](../src/saprog/scripts/saprog_desktop/ros/robot_view_bridge.py), [urdf/](../urdf/) | Tk viewport, owned ROS 2 renderer process, and servo/IMU state to robot transforms |
 
 See [robot-view.md](robot-view.md) for installed launch behavior, display frame
 limitations and the X11 smoke-check procedure.

@@ -2,7 +2,7 @@
 
 [imu_node.cpp](../src/saprog/src/imu_node.cpp) owns the serial device, USB helper,
 parsing and ROS services. [imu_filter.hpp](../src/saprog/include/saprog/imu_filter.hpp)
-owns attitude, gyro bias and zero. The [monitor](../src/saprog/scripts/imu_monitor.py)
+owns attitude, gyro bias and zero. The [monitor](../src/saprog/scripts/saprog_desktop/views/imu_monitor.py)
 only displays data/calls services; closing it preserves backend state. Reconnect
 or backend restart resets calibration and zero. Home starts/stops its own backend.
 
