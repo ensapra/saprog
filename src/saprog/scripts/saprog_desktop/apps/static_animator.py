@@ -64,7 +64,7 @@ def build_animator_views(
     snapshots_tab, timeline_tab = (ttk.Frame(notebook) for _ in range(2))
     notebook.add(snapshots_tab, text="Creator / Player")
     notebook.add(timeline_tab, text="Timeline")
-    snapshots_split = ttk.Panedwindow(snapshots_tab, orient="vertical")
+    snapshots_split = ttk.Panedwindow(snapshots_tab, orient="horizontal")
     snapshots_split.pack(fill="both", expand=True)
     creator_panel, player_panel = ttk.Frame(snapshots_split), ttk.Frame(snapshots_split)
     snapshots_split.add(creator_panel, weight=3)

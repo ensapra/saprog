@@ -7,6 +7,7 @@ if __name__ == "__main__":
     raise SystemExit(home_main(entrypoint=__file__))
 
 import os
+import signal
 import subprocess
 import tkinter as tk
 from pathlib import Path
