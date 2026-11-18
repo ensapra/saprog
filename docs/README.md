@@ -37,7 +37,7 @@ limitations and the X11 smoke-check procedure.
   later timeline steps but does not undo motion already transmitted.
 - ROS positions are radians. AX encoders cover 300 degrees in 0..1023 ticks;
   commands apply configured zero/direction and measured hardware limits.
-- ROS owns timeline timing; Creator/Player still own snapshot arrival/release.
+- ROS owns timeline timing; Creator/Player send poses once and immediately unlock controls.
   Never equate publishing a command or reading its goal register with arrival.
 - IMU state belongs to its backend. A display closing must not reset calibration
   or zero. Sensor-relative orientation is not a calibrated robot mounting transform.

@@ -31,7 +31,7 @@ class SnapshotWindowTest(unittest.TestCase):
             app.selected, app.selected_path = Value("pose"), str(path)
             app.pending, app.playback_state = {}, None
             app._complete_state = lambda: True
-            app.hold_after_load, app.status = Value(True), Value()
+            app.hold_after_load, app.status = Value(False), Value()
             app.moving_speed, app.torque_strength = Value(250), Value(600)
             app.fixed, app.torque_state = set(), {}
             app._set_playback_controls = lambda locked: None
@@ -48,7 +48,7 @@ class SnapshotWindowTest(unittest.TestCase):
             self.assertEqual(dict(zip(messages[0].name, messages[0].position)), targets)
             self.assertEqual(messages[0].effort, [600.0] * len(targets))
             self.assertAlmostEqual(messages[0].velocity[0], 250 * 0.111 * 2 * math.pi / 60)
-            self.assertEqual(app.playback_state["phase"], "waiting")
+            self.assertIsNone(app.playback_state)
             self.assertEqual(app.target_edited, set(targets))
 
     def test_save_uses_typed_targets_without_telemetry(self):

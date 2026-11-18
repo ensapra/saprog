@@ -1,9 +1,7 @@
 import unittest
 from types import SimpleNamespace as NS
-from unittest.mock import patch
 
 from saprog_desktop.snapshot_arrival import arrival_progress
-from saprog_desktop.playback import PlaybackCoordinator
 from snapshot_player import SnapshotPlayer
 
 
@@ -29,43 +27,46 @@ class ArrivalTest(unittest.TestCase):
         arrival_progress(playback, {"servo_13": -0.5}, ["servo_13"], 0.1, 7)
         self.assertFalse(arrival_progress(playback, {"servo_13": -0.5}, ["servo_13"], 0.1, 9)[1])
 
-    def test_player_completes_fresh_stable_samples_near_limit(self):
+    def test_player_sends_once_and_unlocks_without_telemetry(self):
         app = SnapshotPlayer.__new__(SnapshotPlayer)
         app.joints = ["servo_11"]
-        app.bounds = {"servo_11": (0, 1)}
-        app.target_tolerance = 0.1
+        app.torque_strength = NS(get=lambda: 600)
+        app.moving_speed = NS(get=lambda: 250)
+        app.hold_after_load = NS(get=lambda: False)
         app.status = NS(set=lambda text: None)
-        finished = []
-        app._finish_playback = finished.append
-        app.playback = dict(
-            phase="waiting",
-            targets={"servo_11": 0},
-            deadline=30,
-            sent_stamp=1_000_000_000,
-            last_sample_stamp=0,
-            stable_count=0,
-            stable_since=None,
-            stable_first_stamp=0,
-            release_after=False,
-        )
-        app.playback["coordinator"] = PlaybackCoordinator(
-            app.joints,
-            app.playback["targets"],
-            app.target_tolerance,
-            started_at=1.0,
-            sent_stamp=1_000_000_000,
-        )
-        for now in (2, 3, 4):
-            app.node = NS(get_clock=lambda: NS(now=lambda: NS(nanoseconds=now * 1_000_000_000)))
-            message = NS(
-                name=["servo_11"], position=[-0.002], header=NS(stamp=NS(sec=now, nanosec=0))
-            )
-            with patch("snapshot_player.time.monotonic", return_value=now):
-                app._on_state(message)
-                app._playback_tick()
-        self.assertEqual(len(finished), 1)
-        self.assertIn("reached and stable", finished[0])
+        app.dependencies = NS(JointState=lambda: NS(header=NS()))
+        app.node = NS(get_clock=lambda: NS(now=lambda: NS(to_msg=lambda: None)))
+        locks, messages = [], []
+        app._set_playback_controls = locks.append
+        app.command_pub = NS(publish=messages.append)
+        for target in (0.1, 0.2):
+            app._start_playback("pose", {"servo_11": target})
+            app._playback_tick()
+            self.assertIsNone(app.playback)
+            app._playback_tick()
+        self.assertEqual([message.position for message in messages], [[0.1], [0.2]])
+        self.assertEqual(locks, [True, False, True, False])
 
+    def test_player_publication_failure_unlocks(self):
+        app = SnapshotPlayer.__new__(SnapshotPlayer)
+        app.joints = ["servo_11"]
+        app.torque_strength = NS(get=lambda: 600)
+        app.moving_speed = NS(get=lambda: 250)
+        statuses, locks = [], []
+        app.status = NS(set=statuses.append)
+        app.dependencies = NS(JointState=lambda: NS(header=NS()))
+        app.node = NS(get_clock=lambda: NS(now=lambda: NS(to_msg=lambda: None)))
+        app._set_playback_controls = locks.append
+
+        def fail(message):
+            raise RuntimeError("publisher unavailable")
+
+        app.command_pub = NS(publish=fail)
+        app._start_playback("pose", {"servo_11": 0.1})
+        app._playback_tick()
+        self.assertIsNone(app.playback)
+        self.assertEqual(locks, [True, False])
+        self.assertIn("publication failed", statuses[-1])
 
 if __name__ == "__main__":
     unittest.main()

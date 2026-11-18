@@ -14,7 +14,6 @@ from saprog_desktop.player_preferences import (
     player_settings_path,
     save_torque_strength,
 )
-from saprog_desktop.playback import PlaybackCoordinator
 from saprog_desktop.snapshot_config import SnapshotConfigurationClient
 from saprog_desktop.snapshot_units import validate_snapshot
 from saprog_desktop.torque import TorqueBatch
@@ -26,7 +25,7 @@ TORQUE_TIMEOUT = 8.0
 class SnapshotPlayer:
     """Tk view and ROS client driven by its root owner's event scheduler.
 
-    Snapshot playback advances through sending, waiting, and releasing phases.
+    Snapshot playback finishes immediately after command publication.
     The root owner injects ROS/Tk dependencies and owns node scheduling/teardown.
     """
 
@@ -149,15 +148,9 @@ class SnapshotPlayer:
         self.hold_toggle = self.speed_scale = self.torque_scale = None
         self.disable_torque_button = None
         if not self.shared_controls:
-            self.hold_toggle = self.dependencies.ttk.Checkbutton(
-                outer,
-                text="Fixed: keep torque holding the loaded targets",
-                variable=self.hold_after_load,
-            )
-            self.hold_toggle.pack(anchor="w", pady=4)
             self.dependencies.ttk.Label(
                 outer,
-                text="Snapshot targets are in radians. Fixed off releases torque only after every joint arrives and holds stable.",
+                text="Snapshot targets are in radians. Playback sends one command; release torque manually when needed.",
                 wraplength=560,
             ).pack(anchor="w")
             self.speed_scale = add_slider(
@@ -439,27 +432,12 @@ class SnapshotPlayer:
                 "Set Torque strength above zero before playback; zero cannot drive the servos"
             )
             return
-        release_after = not self.hold_after_load.get()
-        if release_after:
-            try:
-                ready = all(self.torque_clients[j].service_is_ready() for j in self.joints)
-            except Exception:
-                ready = False
-            if not ready:
-                self.status.set(
-                    "Cannot start: torque release services are not ready for every joint"
-                )
-                return
         self.playback = {
             "name": name,
             "targets": positions,
             "queue": [(list(self.joints), [positions[joint] for joint in self.joints])],
-            "release_after": release_after,
             "phase": "sending",
             "last_send": 0.0,
-            "sent_stamp": 0,
-            "release_pending": {},
-            "release_results": {},
         }
         self._set_playback_controls(True)
         self.status.set(f"Sending commands for '{name}'...")
@@ -502,54 +480,14 @@ class SnapshotPlayer:
         self.current_positions = found
         valid = bool(self.joints) and set(found) == set(self.joints)
         self.latest_state_complete = valid
-        playback = self.playback
 
     def _finish_playback(self, status):
         self.status.set(status)
         self.playback = None
         self._set_playback_controls(False)
 
-    def _begin_release(self, playback):
-        playback["phase"] = "releasing"
-        playback["release_adapter"] = TorqueBatch(
-            self.torque_clients, self.dependencies.SetBool, timeout=TORQUE_TIMEOUT
-        )
-        playback["release_adapter"].start(False)
-        playback["release_pending"] = {
-            joint: (object(), time.monotonic())
-            for joint in self.joints
-            if playback["release_adapter"].outcomes[joint] == "pending"
-        }
-        playback["release_results"] = {
-            joint: (None if result == "pending" else result.split(": ", 1)[-1])
-            for joint, result in playback["release_adapter"].outcomes.items()
-        }
-        if not playback["release_pending"]:
-            self._complete_release(playback)
-        else:
-            self.status.set(
-                "All targets reached; waiting for acknowledged torque release on every joint"
-            )
-
-    def _complete_release(self, playback):
-        failures = {j: reason for j, reason in playback["release_results"].items() if reason}
-        if failures:
-            self._finish_playback(
-                "Targets reached; torque release incomplete: "
-                + "; ".join(f"{joint}: {reason}" for joint, reason in failures.items())
-            )
-        else:
-            self._finish_playback(
-                f"Targets reached; torque release acknowledged for all {len(self.joints)} joints"
-            )
-
     def _apply_motion(self, message):
         set_motion(message, self.moving_speed.get(), self.torque_strength.get())
-
-    def _targets_reached(self):
-        self._finish_playback(
-            f"All targets reached and stable; torque remains holding all {len(self.joints)} joints"
-        )
 
     def _playback_tick(self):
         playback = self.playback
@@ -572,70 +510,10 @@ class SnapshotPlayer:
                     return
                 playback["last_send"] = now
                 if not playback["queue"]:
-                    playback["sent_stamp"] = self.node.get_clock().now().nanoseconds
-                    playback["coordinator"] = PlaybackCoordinator(
-                        self.joints,
-                        playback["targets"],
-                        self.target_tolerance,
-                        started_at=now,
-                        sent_stamp=playback["sent_stamp"],
-                        release_after=playback["release_after"],
-                    )
-                    playback["phase"] = "waiting"
-                    self.status.set(
-                        "Commands sent; waiting for all joints to reach their targets and hold stable"
+                    self._finish_playback(
+                        "Pose command sent; controls ready. No automatic torque release."
                     )
             return
-        if playback["phase"] == "waiting":
-            coordinator = playback["coordinator"]
-            if self.latest_state_complete:
-                state = coordinator.observe(
-                    self.current_positions,
-                    received_at=self.last_state_received,
-                    stamp=self.last_state_stamp,
-                    controller_now=self.node.get_clock().now().nanoseconds,
-                    now=now,
-                )
-            else:
-                state = coordinator.observe(
-                    {},
-                    received_at=self.last_state_received,
-                    stamp=self.last_state_stamp,
-                    controller_now=self.node.get_clock().now().nanoseconds,
-                    now=now,
-                )
-            state = coordinator.tick(now)
-            playback["arrival_detail"] = coordinator.detail
-            if state == "failed":
-                self._finish_playback(
-                    "Movement incomplete: "
-                    + coordinator.detail
-                    + (
-                        ". Check controller errors and torque strength. Torque unchanged."
-                        if "No progress" in coordinator.detail
-                        else ""
-                    )
-                )
-                return
-            if state == "release":
-                self._begin_release(playback)
-            elif state == "arrived":
-                self._targets_reached()
-            else:
-                self.status.set(coordinator.detail)
-            return
-        if playback["phase"] == "releasing":
-            outcomes = playback["release_adapter"].poll()
-            for joint, result in outcomes.items():
-                if result == "pending":
-                    continue
-                playback["release_pending"].pop(joint, None)
-                playback["release_results"][joint] = (
-                    None if result == "success" else result.split(": ", 1)[-1]
-                )
-            if not playback["release_pending"]:
-                self._complete_release(playback)
-        self._update_buttons()
 
     def _tick(self):
         self.configuration.poll()

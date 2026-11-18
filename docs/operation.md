@@ -34,7 +34,7 @@ bash ./tabs/launch_static_animator.sh
 
 Home includes a **Static Animator** tab with **Creator / Player** and **Timeline**
 tabs. Creator and Player are visible together in an adjustable vertical split.
-They share movement speed, torque strength and hold settings. Selecting a pose
+They share movement speed and torque strength settings. Selecting a pose
 loads its values into the Creator without sending commands; use **Play selected
 pose** to move the robot. The Timeline has its own tab. The standalone Static
 Animator launcher uses the same layout, and the individual launchers above
@@ -86,10 +86,7 @@ Both tools default to [snapshots/](../snapshots/); `--directory PATH` overrides 
   is rejected before GUI movement. Fix uses controller defaults. Player persists
   strength in `saprog/snapshot_player.json` under `$XDG_CONFIG_HOME`/`~/.config`
   (Windows: `%APPDATA%`). Windows keep independent slider settings.
-- **Fixed** holds the loaded pose. With it off, release requires fresh complete
-  post-command telemetry: three samples spanning one second within
-  `target_tolerance` plus half an encoder tick. No progress for eight seconds or
-  no arrival within 30 seconds fails without releasing torque.
+- Pose playback sends one synchronized command and immediately unlocks controls for further commands. It does not wait for arrival telemetry or automatically release torque. Use the manual torque-release controls when needed; command publication does not confirm physical arrival.
 - Torque operations require acknowledgements; missing responses report unknown
   state. Closing a snapshot window does not change torque.
 - Schema 1 saves `schema_version: 1`, `name` and `positions` keyed by joint
