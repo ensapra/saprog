@@ -8,6 +8,16 @@ Before creating or changing any desktop tab, window, or UI, read and follow
 Use the judge/developer workflow only when the user explicitly invokes `$work`
 or selects it through `/skills`. Ordinary requests and follow-ups do not enable it.
 
+## Issue workflow
+
+Before implementing a requested change or tweak, create a GitHub issue that
+describes the problem and its acceptance criteria. Implement the change against
+that issue, then commit the completed work with a descriptive message and an
+issue-closing reference (for example, `Closes #123`). Include a concise summary
+of the change in the commit body or issue-closing comment. Close the issue only
+after the change is committed. If issue creation or closure is unavailable,
+report the blocker and do not claim the workflow is complete.
+
 ## Commits
 
 When relevant task changes form a coherent completed unit, validate as
