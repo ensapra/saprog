@@ -4,6 +4,12 @@ Read [operation.md](operation.md) for setup, controls and file formats, and
 [imu.md](imu.md) for the sensor contract. Keep durable project knowledge here;
 implementation tasks and acceptance criteria belong in the linked GitHub issues.
 
+Read the [reusable API and usage map](reusability.md) before adding shared code.
+The [project refactoring review](refactor-review.md) records responsibility
+boundaries, source findings, issue dependencies and validation limits. Its
+[tracking issue #7](https://github.com/ensapra/saprog/issues/7) links the focused
+implementation backlog; existing broad issues below remain open.
+
 ## Code map
 
 For any desktop tab, window, or Tk UI change, follow the current

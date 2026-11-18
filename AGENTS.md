@@ -5,6 +5,19 @@ validation limits and open issues. Keep project context in [docs/](docs/README.m
 Before creating or changing any desktop tab, window, or UI, read and follow
 [docs/desktop-style.md](docs/desktop-style.md).
 
+Before adding helpers or dependencies between modules, read
+[docs/reusability.md](docs/reusability.md) and check the linked source for an
+existing owner to reuse. Prefer small modules with one clear responsibility and
+explicit dependencies; avoid duplicated behavior, generic utility buckets and
+wrappers that only forward calls. Keep code concise without removing validation,
+error handling, resource cleanup or hardware safeguards.
+
+When shared functions/classes are added, moved, changed or removed, update the
+reuse map in the same commit with source links, responsibility, inputs/outputs
+and units, a caller/usage example, dependency/lifetime constraints and replaced
+APIs. Keep proposed APIs in issues until implemented. See the
+[refactoring review](docs/refactor-review.md) for the implementation backlog.
+
 Use the judge/developer workflow only when the user explicitly invokes `$work`
 or selects it through `/skills`. Ordinary requests and follow-ups do not enable it.
 
