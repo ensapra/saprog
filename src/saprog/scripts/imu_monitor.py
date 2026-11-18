@@ -6,7 +6,7 @@ import math
 import signal
 import time
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import ttk
 
 import rclpy
 from rclpy.node import Node
@@ -16,7 +16,6 @@ from sensor_msgs.msg import Imu, MagneticField
 from std_msgs.msg import String
 from std_srvs.srv import Trigger, SetBool
 from saprog.msg import ImuStatus
-from saprog.srv import ConnectImu
 from desktop_style import apply_style
 
 
@@ -51,23 +50,6 @@ class ImuMonitor:
             text="ROS IMU monitor · sensor processing runs in the C++ backend",
             style="Muted.TLabel",
         ).pack(anchor="w", pady=(2, 12))
-
-        connection = ttk.Frame(body)
-        connection.pack(fill="x", pady=(0, 10))
-        ttk.Label(connection, text="Serial port").pack(side="left")
-        self.port_name = tk.StringVar(value="")
-        self.port_picker = ttk.Combobox(
-            connection, textvariable=self.port_name, width=24
-        )
-        self.port_picker.pack(side="left", padx=(8, 10))
-        ttk.Button(connection, text="Refresh", command=self.refresh_ports).pack(side="left")
-        ttk.Label(connection, text="Baud").pack(side="left", padx=(14, 6))
-        self.baud = tk.StringVar(value="115200")
-        ttk.Entry(connection, textvariable=self.baud, width=9).pack(side="left")
-        self.connect_button = ttk.Button(
-            connection, text="Connect", command=self.connect
-        )
-        self.connect_button.pack(side="left", padx=(10, 0))
 
         actions = ttk.Frame(body)
         actions.pack(fill="x", pady=(0, 10))
@@ -145,9 +127,8 @@ class ImuMonitor:
         root.after(50, self.poll_messages)
         self.render_model()
 
-        for name in ("disconnect", "refresh_ports", "toggle_readings", "zero", "clear_zero", "calibrate"):
+        for name in ("toggle_readings", "zero", "clear_zero", "calibrate"):
             self.clients[name] = node.create_client(Trigger, "/saprog/imu/" + name)
-        self.clients["connect"] = node.create_client(ConnectImu, "/saprog/imu/connect")
         self.clients["use_magnetometer"] = node.create_client(SetBool, "/saprog/imu/use_magnetometer")
         self.subscriptions = [
             node.create_subscription(ImuStatus, "/saprog/imu/status", self.receive_status, 10),
@@ -312,25 +293,6 @@ class ImuMonitor:
         self.requests.append((future, time.monotonic() + 5, client))
         self.status.set("Request sent: " + name)
 
-    def refresh_ports(self):
-        self.request("refresh_ports")
-
-    def connect(self):
-        if self.connected:
-            self.request("disconnect")
-            return
-        try:
-            baud = int(self.baud.get())
-            if baud not in (9600, 19200, 38400, 57600, 115200, 230400):
-                raise ValueError
-        except ValueError:
-            messagebox.showerror("Invalid baud", "Use 9600, 19200, 38400, 57600, 115200 or 230400.", parent=self.root)
-            return
-        request = ConnectImu.Request()
-        request.device = self.port_name.get().strip()
-        request.baud_rate = baud
-        self.request("connect", request)
-
     def toggle_readings(self):
         self.request("toggle_readings")
 
@@ -367,11 +329,8 @@ class ImuMonitor:
         self.last_status_at = time.monotonic()
         self.backend_status = msg
         if msg.connected and not self.connected:
-            self.port_name.set(msg.device)
-            self.baud.set(str(msg.baud_rate))
         self.connected = msg.connected
         self.zeroed = msg.zeroed
-        self.port_picker["values"] = msg.ports
         self.use_magnetometer.set(msg.magnetic_heading)
         self.status.set(msg.message)
         self.calibration_status.set(msg.calibration_message)
@@ -433,7 +392,6 @@ class ImuMonitor:
         valid = available and self.backend_status.orientation_valid
         idle = not self.requests
         can_zero = valid and not self.backend_status.calibrating and idle
-        self.connect_button.configure(text="Disconnect" if self.connected else "Connect", state="normal" if available and idle else "disabled")
         self.toggle_button.configure(state="normal" if available and self.connected and idle else "disabled")
         self.zero_button.configure(state="normal" if can_zero else "disabled")
         self.calibrate_button.configure(state="normal" if can_zero else "disabled")
