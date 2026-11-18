@@ -36,7 +36,8 @@ blocker and do not claim the workflow is complete.
 Use the GitHub CLI (`gh`) for GitHub tasks when the needed operation is
 supported, including issues, pull requests, reviews and repository queries.
 Use browser workflows only when `gh` does not support the operation or access
-through the CLI is unavailable.
+through the CLI is unavailable. If a `gh` command fails because sandbox network
+access is blocked, retry it with network escalation before changing workflows.
 
 ## Commits
 
