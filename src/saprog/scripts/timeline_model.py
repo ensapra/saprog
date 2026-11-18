@@ -2,9 +2,8 @@
 import copy
 import json
 import math
-import os
-import tempfile
 from pathlib import Path
+from snapshot_files import write_json_atomic
 from snapshot_units import validate_snapshot
 
 CONTROL_MODES = ("Global Control", "Leg Control", "Custom Control")
@@ -39,8 +38,11 @@ def transition_duration(step):
 
 def timeline_rows(steps):
     """Map visible rows to entries while keeping transition/snapshot pairs intact."""
-    return [(index, kind) for index, step in enumerate(steps)
-            for kind in (("wait",) if step.get("kind") == "wait" else ("transition", "snapshot"))]
+    rows = []
+    for index, step in enumerate(steps):
+        kinds = ("wait",) if step.get("kind") == "wait" else ("transition", "snapshot")
+        rows.extend((index, kind) for kind in kinds)
+    return rows
 
 
 def control_groups(mode, joints):
@@ -76,23 +78,27 @@ def regroup_motion(step, mode, joints=None):
     return result
 
 
+def _motion_pair(value):
+    """Validate the common shape used by global settings and joint overrides."""
+    if not isinstance(value, dict):
+        raise ValueError("Motion settings must be objects")
+    for key in ("speed", "torque"):
+        if type(value.get(key)) is not int or not 1 <= value[key] <= 1023:
+            raise ValueError(f"{key} must be an integer from 1 to 1023")
+    if value.get("enabled", True) is not True:
+        raise ValueError("Legacy torque-off transitions are no longer supported; use a timeline with torque on")
+    return {"speed": value["speed"], "torque": value["torque"]}
+
+
 def motion_settings(step, joints):
-    def pair(value):
-        if not isinstance(value, dict):
-            raise ValueError("Motion settings must be objects")
-        for key in ("speed", "torque"):
-            if type(value.get(key)) is not int or not 1 <= value[key] <= 1023:
-                raise ValueError(f"{key} must be an integer from 1 to 1023")
-        if value.get("enabled", True) is not True:
-            raise ValueError("Legacy torque-off transitions are no longer supported; use a timeline with torque on")
-        return {"speed": value["speed"], "torque": value["torque"]}
+    """Resolve each joint's override, falling back to global motion settings."""
     if step.get("control_mode", "Global Control") not in CONTROL_MODES:
         raise ValueError("Unknown control mode")
-    global_motion = pair(step.get("motion"))
+    global_motion = _motion_pair(step.get("motion"))
     overrides = step.get("overrides", {})
     if not isinstance(overrides, dict) or set(overrides) - set(joints):
         raise ValueError("Unknown servo in transition overrides")
-    return {joint: pair(overrides[joint]) if joint in overrides else dict(global_motion)
+    return {joint: _motion_pair(overrides[joint]) if joint in overrides else dict(global_motion)
             for joint in joints}
 
 
@@ -126,14 +132,7 @@ def load_snapshot_reference(reference, directory, joints=None, bounds=None):
             raise ValueError("Snapshot reference must stay inside the snapshot directory") from exc
     with path.open(encoding="utf-8") as stream:
         document = json.load(stream)
-    if not isinstance(document, dict):
-        raise ValueError("Snapshot must be a JSON object")
-    names = joints if joints is not None else list(document.get("positions", {}))
-    if not names:
-        raise ValueError("Snapshot has no servos")
-    limits = bounds if bounds is not None else {
-        joint: (-float("inf"), float("inf")) for joint in names}
-    name, positions = validate_snapshot(document, names, limits)
+    name, positions = validate_snapshot(document, joints, bounds)
     return {"schema_version": 1, "name": name, "positions": positions}
 
 
@@ -162,6 +161,7 @@ def timeline_action_data(steps, joints, loop=False, run_end_action=True, end_tor
     }
     for step in steps:
         if step.get("kind") == "wait":
+            # The ROS action uses one fixed-width row per step, including waits.
             data["step_kinds"].append(WAIT_STEP)
             data["duration_modes"].append(FIXED_SECONDS)
             data["durations"].append(wait_seconds(step))
@@ -182,6 +182,7 @@ def timeline_action_data(steps, joints, loop=False, run_end_action=True, end_tor
 
 
 def validate_timeline(document, joints=None, bounds=None, snapshot_resolver=None):
+    """Validate file structure, referenced poses, and motion before playback/save."""
     if (not isinstance(document, dict) or document.get("kind") != "saprog_timeline"
             or type(document.get("schema_version")) is not int
             or document["schema_version"] not in (1, 2)):
@@ -206,11 +207,8 @@ def validate_timeline(document, joints=None, bounds=None, snapshot_resolver=None
             snapshot = snapshot_resolver(snapshot_value)
         else:
             raise ValueError("Each step needs a valid snapshot reference")
-        names = joints if joints is not None else list(snapshot.get("positions", {}))
-        if not names:
-            raise ValueError("Snapshot has no servos")
-        limits = bounds if bounds is not None else {j: (-float("inf"), float("inf")) for j in names}
-        validate_snapshot(snapshot, names, limits)
+        _, positions = validate_snapshot(snapshot, joints, bounds)
+        names = list(positions)
         motion_settings(step, names)
         transition_duration(step)
     return copy.deepcopy(steps)
@@ -220,14 +218,4 @@ def save_timeline(path, steps, on_end="on", loop=False, snapshot_resolver=None):
     document = {"kind": "saprog_timeline", "schema_version": 2, "steps": steps}
     document.update(on_end=on_end, loop=loop)
     validate_timeline(document, snapshot_resolver=snapshot_resolver)
-    path = Path(path)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
-            temporary = stream.name
-            json.dump(document, stream, indent=2, allow_nan=False)
-            stream.write("\n")
-        os.replace(temporary, path)
-    finally:
-        if temporary and os.path.exists(temporary):
-            os.unlink(temporary)
+    write_json_atomic(path, document)

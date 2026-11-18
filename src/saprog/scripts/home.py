@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Discover and launch the desktop tools in the workspace tabs directory."""
+"""Show live temperatures and launch the desktop tools in the workspace."""
 import os
 from pathlib import Path
 import signal
@@ -7,6 +7,11 @@ import subprocess
 import tkinter as tk
 from tkinter import messagebox, ttk
 from desktop_style import apply_style
+import rclpy
+from rclpy.node import Node
+from temperature_monitor import TemperatureMonitor
+from imu_monitor import ImuMonitor
+from robot_view import RobotView
 
 
 WORKSPACE = Path(__file__).resolve().parents[3]
@@ -14,35 +19,58 @@ TABS = WORKSPACE / "tabs"
 
 
 class Home:
-    def __init__(self, root):
+    def __init__(self, root, node):
         self.root = root
+        self.node = node
+        self.closed = False
         self.children = {}
         self.backend = None
+        self.imu_backend = None
         self._scripts = None
         apply_style(root)
-        root.title("Saprog home")
-        root.geometry("420x420")
+        root.title("Saprog")
+        root.geometry("1440x900")
+        root.minsize(900, 650)
         outer = ttk.Frame(root, padding=16)
         outer.pack(fill="both", expand=True)
-        ttk.Label(outer, text="Saprog tools", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(outer, text="Choose a window to open", style="Muted.TLabel").pack(anchor="w", pady=(2, 16))
-        self.buttons = ttk.Frame(outer)
-        self.buttons.pack(fill="both", expand=True)
-        controls = ttk.Frame(outer)
-        controls.pack(fill="x", pady=(8, 0))
-        ttk.Button(controls, text="Refresh", command=self.refresh).pack(side="left")
+        ttk.Label(outer, text="Saprog workspace", style="Title.TLabel").pack(anchor="w", pady=(0, 8))
+        self.panels = ttk.Notebook(outer)
+        self.panels.pack(fill="both", expand=True)
+        home_panel = ttk.Frame(self.panels)
+        robot_panel = ttk.Frame(self.panels, padding=14)
+        tools_panel = ttk.Frame(self.panels, padding=14)
+        self.panels.add(home_panel, text="Home")
+        self.panels.add(robot_panel, text="Robot")
+        self.panels.add(tools_panel, text="Other panels")
+        workspace = ttk.Panedwindow(home_panel, orient="horizontal")
+        workspace.pack(fill="both", expand=True)
+        temperature_panel = ttk.Frame(workspace)
+        imu_panel = ttk.Frame(workspace)
+        workspace.add(temperature_panel, weight=1)
+        workspace.add(imu_panel, weight=1)
+        ttk.Label(tools_panel, text="Open another tool", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(tools_panel, text="These tools open in their own windows.", style="Muted.TLabel").pack(anchor="w", pady=(2, 10))
+        self.buttons = ttk.Frame(tools_panel)
+        self.buttons.pack(fill="x")
+        ttk.Button(tools_panel, text="Refresh tools", command=self.refresh).pack(anchor="w", pady=(8, 0))
         self.status = tk.StringVar(value="")
         ttk.Label(outer, textvariable=self.status, wraplength=380).pack(anchor="w", pady=(10, 0))
+        self.monitor = TemperatureMonitor(temperature_panel, self.node)
+        self.imu_monitor = ImuMonitor(imu_panel, self.node, embedded=True)
+        self.robot_view = RobotView(robot_panel, WORKSPACE)
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh()
-        self.root.after(1000, self.watch)
+        self._ensure_backend()
+        self._ensure_imu_backend()
+        self.root.after(100, self.watch)
 
     @staticmethod
     def title(script):
         return script.stem.removeprefix("launch_").replace("_", " ").title()
 
     def refresh(self):
-        scripts = sorted((item for item in TABS.glob("*.sh") if item.is_file()), key=lambda item: item.name.casefold())
+        scripts = sorted((item for item in TABS.glob("*.sh") if item.is_file()
+                          and item.name != "launch_imu_monitor.sh"), key=lambda item: item.name.casefold())
         if scripts == self._scripts:
             return
         self._scripts = scripts
@@ -55,6 +83,11 @@ class Home:
             ttk.Button(self.buttons, text=self.title(script), command=lambda path=script: self.launch(path)).pack(fill="x", pady=3)
 
     def watch(self):
+        if self.closed:
+            return
+        for _ in range(100):
+            rclpy.spin_once(self.node, timeout_sec=0)
+        self.monitor.poll()
         self.refresh()
         for script, (process, notified) in list(self.children.items()):
             result = process.poll()
@@ -67,11 +100,14 @@ class Home:
         if self.backend is not None and self.backend.poll() is not None:
             self.backend = None
             self.status.set("Shared controller stopped")
+        if self.imu_backend is not None and self.imu_backend.poll() is not None:
+            self.imu_backend = None
+            self.status.set("IMU ROS backend stopped; reopen the IMU monitor to restart it")
         if self.backend is not None and self.children and not any(
             process.poll() is None for process, _notified in self.children.values()
         ):
             self._stop_backend()
-        self.root.after(1000, self.watch)
+        self.root.after(100, self.watch)
 
     def _ensure_backend(self):
         if self.backend is not None and self.backend.poll() is None:
@@ -100,6 +136,20 @@ class Home:
                 self.backend.wait()
         self.backend = None
 
+    def _ensure_imu_backend(self):
+        if self.imu_backend is not None and self.imu_backend.poll() is None:
+            return True
+        try:
+            self.imu_backend = subprocess.Popen(
+                ["ros2", "launch", "saprog", "imu.launch.py", "gui:=false"],
+                cwd=str(WORKSPACE), env=os.environ.copy(), start_new_session=True,
+            )
+            return True
+        except OSError as error:
+            self.imu_backend = None
+            self.status.set(f"Could not start the IMU backend: {error}")
+            return False
+
     def launch(self, script):
         process, _notified = self.children.get(script, (None, False))
         if process and process.poll() is None:
@@ -110,7 +160,9 @@ class Home:
         try:
             env = os.environ.copy()
             env["SAPROG_HOME_BACKEND_PID"] = str(self.backend.pid)
-            process = subprocess.Popen(["bash", str(script)], cwd=str(WORKSPACE), env=env)
+            process = subprocess.Popen(
+                ["bash", str(script)], cwd=str(WORKSPACE), env=env,
+            )
             self.children[script] = (process, False)
             self.status.set(f"Opened {self.title(script)}")
         except OSError as error:
@@ -120,28 +172,43 @@ class Home:
                 self._stop_backend()
 
     def close(self):
-        for process, _notified in self.children.values():
+        if self.closed:
+            return
+        self.closed = True
+        for script, (process, _notified) in self.children.items():
             if process.poll() is None:
                 process.terminate()
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     process.kill()
+                    process.wait()
+        self.imu_monitor.close()
+        self.robot_view.close()
         self._stop_backend()
+        if self.imu_backend is not None and self.imu_backend.poll() is None:
+            try:
+                os.killpg(self.imu_backend.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                self.imu_backend.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(self.imu_backend.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self.imu_backend.wait()
+        self.node.destroy_node()
+        rclpy.shutdown()
         self.root.destroy()
 
 
 def main():
-    helper = TABS / "_launch_window.bash"
-    try:
-        result = subprocess.run(["bash", str(helper), "build"], cwd=str(WORKSPACE), check=False)
-    except OSError as error:
-        print(f"Could not start the workspace build: {error}", file=sys.stderr)
-        return 1
-    if result.returncode:
-        return result.returncode
+    rclpy.init()
     root = tk.Tk()
-    app = Home(root)
+    node = Node("saprog_home_temperature_monitor")
+    app = Home(root, node)
     signal.signal(signal.SIGTERM, lambda *_args: app.close())
     signal.signal(signal.SIGINT, lambda *_args: app.close())
     root.mainloop()

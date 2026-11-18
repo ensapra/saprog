@@ -4,11 +4,10 @@ import argparse
 import json
 import math
 import os
-from pathlib import Path
 from snapshot_arrival import arrival_progress, AX_TICK_RADIANS
 from snapshot_units import joint_bounds, to_radians, validate_snapshot
+from snapshot_files import default_snapshot_directory, write_json_atomic
 import re
-import tempfile
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -414,26 +413,16 @@ class SnapshotWindow:
         except ValueError as exc:
             self.status.set(f"Save rejected: {exc}")
             return
-        temp_path = None
         try:
             os.makedirs(self.directory, exist_ok=True)
             path = os.path.join(self.directory, safe_filename(name) + ".json")
             if os.path.exists(path) and not messagebox.askyesno("Overwrite snapshot?", f"Replace {os.path.basename(path)}?"):
                 return
-            fd, temp_path = tempfile.mkstemp(dir=self.directory, suffix=".tmp")
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                json.dump(doc, stream, indent=2, allow_nan=False)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temp_path, path)
-            temp_path = None
+            write_json_atomic(path, doc)
             self.status.set(f"Saved target values '{name}'")
             self.refresh_files()
         except Exception as exc:
             self.status.set(f"Save failed: {exc}")
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
 
     def load(self):
         if self.torque_strength.get() <= 0:
@@ -644,14 +633,6 @@ class SnapshotWindow:
         if not self.playback_state:
             configure_changed(self.load_button, state="normal" if can_load else "disabled")
         self.root.after(30, self._poll)
-
-
-def default_snapshot_directory():
-    # Resolve both source scripts and colcon-installed executables to this workspace.
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "src" / "saprog" / "config" / "saprog.yaml").is_file():
-            return str(parent / "snapshots")
-    return str(Path.cwd() / "snapshots")
 
 
 def main():

@@ -29,8 +29,8 @@ SERVO_CELL = {name: (row, column + 1)
 
 
 class TemperatureMonitor:
-    def __init__(self, root, node):
-        self.root, self.node = root, node
+    def __init__(self, parent, node):
+        self.parent, self.root, self.node = parent, parent.winfo_toplevel(), node
         self.history = {}
         self.selected = {}
         self.labels = {}
@@ -38,11 +38,7 @@ class TemperatureMonitor:
         self.select_new = True
         self.closed = False
         self.window_seconds = HISTORY_SECONDS
-        apply_style(root)
-        root.title("Temperature Monitor")
-        root.geometry("1050x700")
-        root.minsize(700, 450)
-        outer = ttk.Frame(root, padding=14)
+        outer = ttk.Frame(parent, padding=14)
         outer.pack(fill="both", expand=True)
         ttk.Label(outer, text="Servo temperatures", style="Title.TLabel").pack(anchor="w")
         ttk.Label(outer, text="Live °C · last 5 minutes · toggle any combination of servos",
@@ -80,8 +76,6 @@ class TemperatureMonitor:
             node.create_subscription(Temperature, "/saprog/temperatures", self.temperature, 100),
             node.create_subscription(JointState, "/saprog/joint_states", self.joints, 10),
         ]
-        root.protocol("WM_DELETE_WINDOW", self.close)
-        root.after(50, self.poll)
 
     def add_servo(self, name):
         if name in self.history:
@@ -191,10 +185,8 @@ class TemperatureMonitor:
     def poll(self):
         if self.closed:
             return
-        for _ in range(100):
-            rclpy.spin_once(self.node, timeout_sec=0)
         self.draw()
-        self.root.after(100, self.poll)
+        return True
 
     def close(self):
         if not self.closed:
@@ -207,7 +199,20 @@ def main():
     node = Node("saprog_temperature_monitor")
     try:
         root = tk.Tk()
+        apply_style(root)
+        root.title("Temperature Monitor")
+        root.geometry("1050x700")
+        root.minsize(700, 450)
         app = TemperatureMonitor(root, node)
+        def poll():
+            if app.closed:
+                return
+            for _ in range(100):
+                rclpy.spin_once(node, timeout_sec=0)
+            app.poll()
+            root.after(100, poll)
+        root.protocol("WM_DELETE_WINDOW", app.close)
+        root.after(100, poll)
         signal.signal(signal.SIGTERM, lambda *_args: app.close())
         signal.signal(signal.SIGINT, lambda *_args: app.close())
         root.mainloop()

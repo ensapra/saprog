@@ -7,16 +7,14 @@ import os
 from pathlib import Path
 from snapshot_arrival import arrival_progress, AX_TICK_RADIANS
 from snapshot_units import joint_bounds, validate_snapshot
+from snapshot_files import default_snapshot_directory, write_json_atomic
 import platform
 import sys
-import tempfile
 import time
 from desktop_style import BACKGROUND, apply_style, configure_changed
 from motion_controls import add_slider, set_motion
 
 
-SCHEMA = 2
-AX_RANGE = 5.0 * math.pi / 3.0
 FRESH_SECONDS = 2.5
 TARGET_TOLERANCE = 0.05
 STABLE_SAMPLES = 3
@@ -43,17 +41,7 @@ def load_torque_strength(path):
 
 def save_torque_strength(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
-                                         delete=False) as stream:
-            temporary = stream.name
-            json.dump({"torque_strength": value}, stream)
-            stream.write("\n")
-        os.replace(temporary, path)
-    finally:
-        if temporary is not None and os.path.exists(temporary):
-            os.unlink(temporary)
+    write_json_atomic(path, {"torque_strength": value})
 
 
 class SnapshotPlayer:
@@ -613,14 +601,6 @@ def _load_runtime(args, require_timeline=False):
         f"Build the workspace, install ROS 2 {distro} with its Python packages and python3-tk, then source "
         f"/opt/ros/{distro}/setup.bash. Details: {detail}"
     )
-
-
-def default_snapshot_directory():
-    # Resolve both source scripts and colcon-installed executables to this workspace.
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "src" / "saprog" / "config" / "saprog.yaml").is_file():
-            return str(parent / "snapshots")
-    return str(Path.cwd() / "snapshots")
 
 
 def main():

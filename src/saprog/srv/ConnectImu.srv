@@ -1,0 +1,6 @@
+# Empty device asks the backend to detect the SparkFun IMU. Baud 0 uses its parameter.
+string device
+uint32 baud_rate
+---
+bool success
+string message

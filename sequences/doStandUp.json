@@ -1,26 +1,9 @@
 {
   "kind": "saprog_timeline",
-  "schema_version": 1,
+  "schema_version": 2,
   "steps": [
     {
-      "snapshot": {
-        "schema_version": 1,
-        "name": "rest",
-        "positions": {
-          "servo_11": 0.0,
-          "servo_12": 0.3,
-          "servo_13": 0.75,
-          "servo_21": 0.0,
-          "servo_22": 0.3,
-          "servo_23": 0.75,
-          "servo_31": 0.0,
-          "servo_32": -0.3,
-          "servo_33": -0.75,
-          "servo_41": 0.0,
-          "servo_42": 0.3,
-          "servo_43": 0.75
-        }
-      },
+      "snapshot": "rest.json",
       "motion": {
         "speed": 134,
         "torque": 755
@@ -33,24 +16,7 @@
       }
     },
     {
-      "snapshot": {
-        "schema_version": 1,
-        "name": "newStand",
-        "positions": {
-          "servo_11": 0.0,
-          "servo_12": 1.0,
-          "servo_13": 0.75,
-          "servo_21": 0.0,
-          "servo_22": 1.0,
-          "servo_23": 0.75,
-          "servo_31": 0.0,
-          "servo_32": -1.0,
-          "servo_33": -0.75,
-          "servo_41": 0.0,
-          "servo_42": 1.0,
-          "servo_43": 0.75
-        }
-      },
+      "snapshot": "newStand.json",
       "motion": {
         "speed": 1023,
         "torque": 1023
@@ -63,26 +29,9 @@
       }
     },
     {
-      "snapshot": {
-        "schema_version": 1,
-        "name": "stand",
-        "positions": {
-          "servo_11": 0.0,
-          "servo_12": 0.5,
-          "servo_13": 0.4,
-          "servo_21": 0.0,
-          "servo_22": 0.5,
-          "servo_23": 0.4,
-          "servo_31": 0.0,
-          "servo_32": -0.5,
-          "servo_33": -0.4,
-          "servo_41": 0.0,
-          "servo_42": 0.5,
-          "servo_43": 0.4
-        }
-      },
+      "snapshot": "stand.json",
       "motion": {
-        "speed": 192,
+        "speed": 137,
         "torque": 814
       },
       "overrides": {},
@@ -93,7 +42,6 @@
       }
     }
   ],
-  "on_start": "off",
   "on_end": "on",
-  "loop": true
+  "loop": false
 }
