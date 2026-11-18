@@ -80,20 +80,22 @@ class Home:
             snapshot_player.Node("saprog_static_animator_timeline"),
         ]
         directory = default_snapshot_directory()
-        creator_tab, player_tab, timeline_tab = (
-            ttk.Frame(animator_panel) for _ in range(3)
-        )
-        animator_notebook = ttk.Notebook(animator_panel)
-        animator_notebook.pack(fill="both", expand=True)
-        animator_notebook.add(creator_tab, text="Snapshot Creator")
-        animator_notebook.add(player_tab, text="Snapshot Player")
-        animator_notebook.add(timeline_tab, text="Timeline")
-        SnapshotWindow(root, self.animator_nodes[0], directory, container=creator_tab)
+        animator_panel.columnconfigure(0, weight=1, uniform="animator")
+        animator_panel.columnconfigure(1, weight=1, uniform="animator")
+        animator_panel.rowconfigure(0, weight=2)
+        animator_panel.rowconfigure(1, weight=3)
+        creator_panel = ttk.Frame(animator_panel)
+        player_panel = ttk.Frame(animator_panel)
+        timeline_panel = ttk.Frame(animator_panel)
+        creator_panel.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 6), pady=6)
+        player_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=(6, 3))
+        timeline_panel.grid(row=1, column=1, sticky="nsew", padx=(6, 0), pady=(3, 6))
+        SnapshotWindow(root, self.animator_nodes[0], directory, container=creator_panel)
         snapshot_player.SnapshotPlayer(
-            root, self.animator_nodes[1], directory, container=player_tab
+            root, self.animator_nodes[1], directory, container=player_panel
         )
         self.timeline = TimelineWindow(
-            root, self.animator_nodes[2], directory, container=timeline_tab
+            root, self.animator_nodes[2], directory, container=timeline_panel
         )
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh()
