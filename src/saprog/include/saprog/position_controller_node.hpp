@@ -14,6 +14,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "saprog/action/play_timeline.hpp"
 #include "saprog/config.hpp"
 #include "saprog/dynamixel_bus.hpp"
@@ -55,6 +56,8 @@ private:
                                  std::string &error);
   bool timeline_cancelled() const;
   bool limits_ready_{false};
+  std::atomic_bool setting_measured_limits_{false};
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameter_callback_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr limits_service_;
   void set_goal_position(const sensor_msgs::msg::JointState::ConstSharedPtr &message);
   void set_joint_torque(uint8_t id, const std_srvs::srv::SetBool::Request::SharedPtr request,

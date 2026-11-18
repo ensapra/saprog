@@ -33,9 +33,17 @@ def write_json_atomic(path, document):
             temporary.unlink(missing_ok=True)
 
 
-def default_snapshot_directory():
-    """Find the workspace from either source scripts or installed executables."""
+def source_workspace():
+    """Return the source workspace root, or None for an installed package."""
     for parent in Path(__file__).resolve().parents:
         if (parent / "src" / "saprog" / "config" / "saprog.yaml").is_file():
-            return str(parent / "snapshots")
+            return parent
+    return None
+
+
+def default_snapshot_directory():
+    """Use source workspace snapshots, otherwise an external cwd data folder."""
+    workspace = source_workspace()
+    if workspace is not None:
+        return str(workspace / "snapshots")
     return str(Path.cwd() / "snapshots")

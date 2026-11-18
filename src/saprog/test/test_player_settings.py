@@ -1,10 +1,8 @@
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from snapshot_player import load_torque_strength, save_torque_strength
+from saprog_desktop.player_preferences import load_torque_strength, save_torque_strength
 
 
 class PlayerSettingsTest(unittest.TestCase):

@@ -2,10 +2,10 @@
 
 This guide records the current Tk desktop presentation so new tabs, windows,
 and UI changes fit the project. Read it before changing the desktop UI. The
-shared presentation source is [`desktop_style.py`](../src/saprog/scripts/desktop_style.py);
+shared presentation source is [`desktop_style.py`](../src/saprog/scripts/saprog_desktop/desktop_style.py);
 keep shared style decisions there and reuse its helpers rather than creating a
 second palette or styling system. Shared slider rows are built by
-[`motion_controls.py`](../src/saprog/scripts/motion_controls.py).
+[`motion_controls.py`](../src/saprog/scripts/saprog_desktop/motion_controls.py).
 
 ## Shared appearance
 
@@ -101,6 +101,11 @@ processes/windows; the helper classes also accept a `container` or `embedded`
 mode so geometry and root styling are only set by the standalone root owner.
 Follow that ownership rule when adding an embedded surface: do not set the
 parent root's title, geometry, protocol, or global style from a child pane.
+Home and standalone Static Animator share the assembly in
+[`static_animator.py`](../src/saprog/scripts/static_animator.py). The assembly
+retains its child views and delegates close decisions to Timeline; Home and the
+standalone launcher tear down their root-owned resources only after Timeline
+reports a safe close outcome. Unknown action outcomes keep the root alive.
 Launcher scripts in [`tabs/`](../tabs/) show which tools run as separate
 processes.
 

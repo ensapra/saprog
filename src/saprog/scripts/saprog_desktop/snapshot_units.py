@@ -3,6 +3,13 @@
 import math
 
 AX_RANGE = 5 * math.pi / 3
+AX_TICK_RADIANS = AX_RANGE / 1023
+LEG_JOINTS = (
+    ("Front Left Leg", ("servo_31", "servo_32", "servo_33")),
+    ("Front Right Leg", ("servo_11", "servo_12", "servo_13")),
+    ("Back Left Leg", ("servo_41", "servo_42", "servo_43")),
+    ("Back Right Leg", ("servo_21", "servo_22", "servo_23")),
+)
 
 
 def joint_bounds(ids, zeros, directions, lower, upper):

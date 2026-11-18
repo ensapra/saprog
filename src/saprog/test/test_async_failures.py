@@ -1,14 +1,12 @@
 """UI recovery after lost service responses and failed action submissions."""
 
-import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from snapshot_player import SnapshotPlayer
 from timeline_window import TimelineWindow
+from saprog_desktop.torque import TorqueBatch
 
 
 class AsyncFailuresTest(unittest.TestCase):
@@ -17,25 +15,55 @@ class AsyncFailuresTest(unittest.TestCase):
         app.joints = ["servo_11", "servo_12"]
         app._update_buttons = Mock()
         app.status = NS(set=Mock())
-        batch = {"pending": set(app.joints), "failed": {}, "deadline": 8.0}
+        now = [0.0]
+        class Request:
+            def __init__(self):
+                self.data = None
+
+        class Future:
+            def __init__(self, result=None):
+                self.value, self.callback = result, None
+
+            def done(self):
+                return self.value is not None
+
+            def result(self):
+                return self.value
+
+            def cancel(self):
+                pass
+
+            def add_done_callback(self, callback):
+                self.callback = callback
+                if self.done():
+                    callback(self)
+
+        success = Future(NS(success=True, message=""))
+        late = Future()
+        clients = {}
+        for joint, future in zip(app.joints, (success, late)):
+            client = Mock()
+            client.service_is_ready.return_value = True
+            client.call_async.return_value = future
+            clients[joint] = client
+        adapter = TorqueBatch(clients, Request, clock=lambda: now[0])
+        adapter.start(False)
+        batch = {"pending": set(app.joints), "failed": {}, "adapter": adapter}
         app.torque_batch = batch
-        with patch("snapshot_player.time.monotonic", return_value=7.9):
-            app._check_torque_timeout()
+        now[0] = 7.9
+        app._check_torque_timeout()
         self.assertIs(app.torque_batch, batch)
-        # One joint acknowledged; the other never answered.
-        completed = Mock()
-        completed.result.return_value = NS(success=True)
-        app._disable_torque_done(batch, "servo_11", completed)
-        with patch("snapshot_player.time.monotonic", return_value=8.0):
-            app._check_torque_timeout()
+        now[0] = 8.0
+        app._check_torque_timeout()
         self.assertIsNone(app.torque_batch)
         self.assertEqual(set(batch["failed"]), {"servo_12"})
         self.assertIn("state unknown", app.status.set.call_args.args[0])
         app._update_buttons.assert_called_once()
 
-        new_batch = {"pending": set(app.joints), "failed": {}, "deadline": 20.0}
+        new_batch = {"pending": set(app.joints), "failed": {}, "adapter": adapter}
         app.torque_batch = new_batch
-        app._disable_torque_done(batch, "servo_12", completed)
+        late.value = NS(success=True, message="late")
+        late.callback(late)
         self.assertIs(app.torque_batch, new_batch)
         self.assertEqual(new_batch["pending"], set(app.joints))
 

@@ -1,14 +1,12 @@
 import json
 import math
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from snapshot_units import from_radians, joint_bounds, to_radians, validate_snapshot
+from saprog_desktop.snapshot_units import from_radians, joint_bounds, to_radians, validate_snapshot
 from snapshot_window import SnapshotWindow
 
 

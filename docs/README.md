@@ -22,9 +22,12 @@ For any desktop tab, window, or Tk UI change, follow the current
 | Commands | [position_controller_node.cpp](../src/saprog/src/position_controller_node.cpp) | Limits, torque services, position commands and timeline worker |
 | Units/config | [servo_units.hpp](../src/saprog/include/saprog/servo_units.hpp), [saprog.yaml](../src/saprog/config/saprog.yaml) | AX conversions, IDs, zero positions, directions and defaults |
 | Desktop | [home.py](../src/saprog/scripts/home.py), [scripts/](../src/saprog/scripts/) | Tk windows and ROS clients |
-| Documents | [snapshot_units.py](../src/saprog/scripts/snapshot_units.py), [timeline_model.py](../src/saprog/scripts/timeline_model.py), [snapshot_files.py](../src/saprog/scripts/snapshot_files.py) | Validation, reference resolution and atomic JSON storage |
+| Documents | [snapshot_units.py](../src/saprog/scripts/saprog_desktop/snapshot_units.py), [timeline_model.py](../src/saprog/scripts/timeline_model.py), [snapshot_files.py](../src/saprog/scripts/saprog_desktop/snapshot_files.py) | Validation, reference resolution and atomic JSON storage |
 | IMU | [imu_node.cpp](../src/saprog/src/imu_node.cpp), [imu_filter.hpp](../src/saprog/include/saprog/imu_filter.hpp) | Serial lifecycle, estimation, calibration and zero |
-| Visualization | [robot_view_bridge.py](../src/saprog/scripts/robot_view_bridge.py), [urdf/](../urdf/) | Servo/IMU data to robot-state transforms and RViz2 |
+| Visualization | [robot_view.py](../src/saprog/scripts/robot_view.py), [robot_view_session.py](../src/saprog/scripts/saprog_desktop/robot_view_session.py), [robot_view_bridge.py](../src/saprog/scripts/robot_view_bridge.py), [urdf/](../urdf/) | Tk viewport, owned ROS 2 renderer process, and servo/IMU state to robot transforms |
+
+See [robot-view.md](robot-view.md) for installed launch behavior, display frame
+limitations and the X11 smoke-check procedure.
 
 ## Behavior to preserve
 
@@ -46,7 +49,7 @@ For any desktop tab, window, or Tk UI change, follow the current
 | High | Extract/test timeline execution; bound durations, final torque actions and runtime parameter changes | [#1](https://github.com/ensapra/saprog/issues/1) |
 | High | Compose views/ROS clients/shared playback; bound pending requests | [#2](https://github.com/ensapra/saprog/issues/2) |
 | High | Reject ambiguous legacy migration: matching a snapshot name alone can select a different pose | [#3](https://github.com/ensapra/saprog/issues/3) |
-| Medium | Resolve ROS 1 export leftovers, joint naming and IMU-to-base mounting/reference frames | [#4](https://github.com/ensapra/saprog/issues/4) |
+| Medium | Validate a measured sensor-to-base mounting transform and display reference | [#4](https://github.com/ensapra/saprog/issues/4) |
 | Medium | Separate IMU transport/estimation; evaluate maintained fusion and trajectory libraries with regression evidence | [#5](https://github.com/ensapra/saprog/issues/5) |
 
 Domain/storage helpers have clear responsibilities. The controller and window

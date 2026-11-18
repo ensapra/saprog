@@ -16,7 +16,7 @@ together and avoid one-line wrappers or a generic utilities directory.
 | High | [Player](../src/saprog/scripts/snapshot_player.py), [Creator](../src/saprog/scripts/snapshot_window.py) | 785/797 lines combine views, configuration, telemetry, commands, file selection and playback. Sending/waiting/releasing state, freshness checks, stability counters and torque callbacks are duplicated. Fixing one path can leave the other inconsistent. | #10, #11, #12 |
 | High | [Timeline](../src/saprog/scripts/timeline_window.py) | 669 lines; inherits Player, overrides its build/readiness/refresh/tick behavior, and obtains action types from another module's runtime globals. Construction brings in Player resources/settings the action editor does not need. | #9, #14, #15 |
 | High | [Timeline callbacks](../src/saprog/scripts/timeline_window.py), [limits client](../src/saprog/scripts/snapshot_limits_client.py) | Goal/result/cancel waits and post-refresh parameter fetch lack complete bounds. A timeout must not be mistaken for confirmed cancellation or permission to send conflicting motion. | #10, #15 |
-| High | [Home](../src/saprog/scripts/home.py), [Animator](../src/saprog/scripts/static_animator.py) | Duplicate three-tool assembly. Home retains the timeline but not Creator/Player objects; shutdown destroys nodes without coordinating timeline dirty/cancel state through the view's closure flow. | #16 |
+| High | [Home](../src/saprog/scripts/home.py), [Animator](../src/saprog/scripts/static_animator.py) | Baseline finding addressed by #16: both entry points now use `AnimatorViews`, retain all three child views and wait for Timeline's safe close callback before host teardown. | Completed in #16; root/node/backend ownership remains with each host. |
 | High | [Controller](../src/saprog/src/position_controller_node.cpp) | 721 lines mix ROS arbitration, command validation, configuration, telemetry and threaded timeline scheduling. Locking, cancellation and final hold semantics need explicit test seams. Existing #1 identifies duration overflow, final-action deadline/limit checks and runtime-parameter consistency. | #17, #18 |
 | Medium | [Bus](../src/saprog/src/dynamixel_bus.cpp) | 434 lines combine SDK/register details, cache verification, batching and priority/deadline arbitration. Share transport/error machinery while preserving transaction ordering and the single serial owner. | #19 |
 | Medium | [IMU backend](../src/saprog/src/imu_node.cpp), [filter](../src/saprog/include/saprog/imu_filter.hpp) | 576-line backend owns descriptors, USB discovery/helper process, framing, ROS publication and connection state. Filter header also owns CSV parsing/math. These have distinct test and dependency needs. | #20, #21 |
@@ -24,7 +24,7 @@ together and avoid one-line wrappers or a generic utilities directory.
 | Medium | [Robot view](../src/saprog/scripts/robot_view.py), [bridge](../src/saprog/scripts/robot_view_bridge.py), [description](../urdf/) | Process-group cleanup/readiness lives in the view; joint mapping and sensor reference/mounting need authoritative contracts. Existing #4 also covers installed ROS 1 export leftovers. | #23 |
 | Medium | [CMake](../src/saprog/CMakeLists.txt), [tests](../src/saprog/test/) | Flat helper installation, duplicate program/module copies, test path injection and runtime-global bootstrap complicate moves. RViz/Qt/X11 are unconditional build dependencies. Pure tests are mixed with view/ROS tests. | #8, #9, #25 |
 | Medium | [USB helpers](../scripts/), [launchers](../tabs/) | Repeated WSL/usbipd selection/attach logic; shared launch script combines build, verification, readiness and cleanup. Device selection and stdout contracts differ and must stay explicit. | #24 |
-| Medium | [Operation](operation.md), [style guide](desktop-style.md) | Documentation still describes the old Static Animator launcher arrangement; Home embeds it with combined Creator / Player and separate Timeline tabs under active #6. Correct the observed layout during composition work. | #16 |
+| Medium | [Operation](operation.md), [style guide](desktop-style.md) | Baseline layout and ownership documentation was updated with the shared animator composition and deferred shutdown behavior. | Completed in #16. |
 
 Line counts describe this review's baseline, not acceptance limits.
 Known behavior defects inherited from #1/#4 are tracked explicitly; extraction
@@ -127,11 +127,11 @@ Library replacement evaluation in #5 is separate from structural extraction;
 shorter code alone does not justify a fusion or trajectory-stack change.
 
 Already useful boundaries include
-[snapshot_units](../src/saprog/scripts/snapshot_units.py),
-[snapshot_files](../src/saprog/scripts/snapshot_files.py),
-[snapshot_arrival](../src/saprog/scripts/snapshot_arrival.py),
-[desktop_style](../src/saprog/scripts/desktop_style.py),
-[motion_controls](../src/saprog/scripts/motion_controls.py) and
+[snapshot_units](../src/saprog/scripts/saprog_desktop/snapshot_units.py),
+[snapshot_files](../src/saprog/scripts/saprog_desktop/snapshot_files.py),
+[snapshot_arrival](../src/saprog/scripts/saprog_desktop/snapshot_arrival.py),
+[desktop_style](../src/saprog/scripts/saprog_desktop/desktop_style.py),
+[motion_controls](../src/saprog/scripts/saprog_desktop/motion_controls.py) and
 [servo_units](../src/saprog/include/saprog/servo_units.hpp).
 Reuse and relocate these rather than creating replacements.
 

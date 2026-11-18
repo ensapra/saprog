@@ -4,16 +4,13 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
 #include <vector>
 
-namespace dynamixel
-{
-class PacketHandler;
-class PortHandler;
-} // namespace dynamixel
+#include "saprog/dynamixel_register_transport.hpp"
 
 // Owns the shared serial connection. Public methods lock the bus; *_locked
 // helpers require that lock. Cached settings describe verified register values.
@@ -37,11 +34,13 @@ public:
   bool set_positions_before(const std::vector<uint8_t> &ids, const std::vector<uint16_t> &positions,
                             const std::vector<int> &speeds, const std::vector<int> &torque_limits,
                             double tolerance_rad,
-                            std::chrono::steady_clock::time_point latest_start, std::string &error);
+                            std::chrono::steady_clock::time_point latest_start, std::string &error,
+                            const std::function<bool()> &cancellation_requested = {});
   bool set_torque(uint8_t id, bool enabled, std::string &error);
   bool set_torques(const std::vector<uint8_t> &ids, bool enabled, std::string &error);
   bool set_torques_before(const std::vector<uint8_t> &ids, bool enabled,
-                          std::chrono::steady_clock::time_point latest_start, std::string &error);
+                          std::chrono::steady_clock::time_point latest_start, std::string &error,
+                          const std::function<bool()> &cancellation_requested = {});
 
 private:
   class TimelinePriorityGuard
@@ -78,13 +77,11 @@ private:
                             const std::vector<int> &speeds, const std::vector<int> &torque_limits,
                             double tolerance_rad, std::string &error);
   std::unique_lock<std::timed_mutex> lock_bus();
-  int status_return_level_;
   bool verify_goal_registers_;
+  DynamixelRegisterTransport transport_;
   std::timed_mutex bus_mutex_;
   std::mutex timeline_priority_mutex_;
   std::condition_variable timeline_priority_cv_;
   bool timeline_priority_requested_{false};
   std::map<uint8_t, ServoSettings> settings_;
-  dynamixel::PortHandler *port_handler_{nullptr};
-  dynamixel::PacketHandler *packet_handler_{nullptr};
 };

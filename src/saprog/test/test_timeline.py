@@ -1,12 +1,11 @@
 import copy
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import timeline_window as timeline_window_module
 from timeline_model import (
     control_groups,
     lifecycle_settings,
@@ -22,6 +21,45 @@ from timeline_model import (
     validate_timeline,
 )
 from timeline_window import TimelineWindow
+from saprog_desktop.timeline_presenter import TimelineEditorPresenter
+
+
+class FakeFuture:
+    def __init__(self, value=None, error=None):
+        self.value = value
+        self.error = error
+        self.callbacks = []
+
+    def add_done_callback(self, callback):
+        self.callbacks.append(callback)
+
+    def complete(self, value=None, error=None):
+        self.value, self.error = value, error
+        for callback in self.callbacks:
+            callback(self)
+
+    def result(self):
+        if self.error:
+            raise self.error
+        return self.value
+
+
+class FakeRoot:
+    def __init__(self):
+        self.callbacks = {}
+        self.next_id = 0
+
+    def after(self, _milliseconds, callback):
+        self.next_id += 1
+        callback_id = f"after-{self.next_id}"
+        self.callbacks[callback_id] = callback
+        return callback_id
+
+    def after_cancel(self, callback_id):
+        self.callbacks.pop(callback_id, None)
+
+    def fire(self, callback_id):
+        self.callbacks.pop(callback_id)()
 
 
 class TimelineTest(unittest.TestCase):
@@ -42,6 +80,26 @@ class TimelineTest(unittest.TestCase):
         }
         self.joints = ["servo_11", "servo_12"]
         self.bounds = {j: (-1, 1) for j in self.joints}
+
+    def action_window(self):
+        app = TimelineWindow.__new__(TimelineWindow)
+        app.root = FakeRoot()
+        app.run_steps = [copy.deepcopy(self.step)]
+        app.run_index = 0
+        app.timeline_session_id = 1
+        app.timeline_timeout_ms = 8000
+        app.timeline_timeout_callbacks = {}
+        app.timeline_state = "goal_pending"
+        app.timeline_goal_future = None
+        app.timeline_goal_handle = None
+        app.timeline_result_future = None
+        app.cancel_when_accepted = False
+        app.timeline_close_state = "open"
+        app.status = SimpleNamespace(messages=[], set=lambda value: app.status.messages.append(value))
+        app._update_buttons = lambda: None
+        app._close_view = lambda: setattr(app, "closed", True)
+        app.closed = False
+        return app
 
     def reference_steps(self, directory, steps):
         referenced = copy.deepcopy(steps)
@@ -187,6 +245,72 @@ class TimelineTest(unittest.TestCase):
         app.move(-1)
         self.assertEqual(app.steps[0]["kind"], "wait")
 
+    def test_editor_presenter_moves_whole_steps_and_duplicates_deeply(self):
+        presenter = TimelineEditorPresenter([self.step, {"kind": "wait", "seconds": 1.0}])
+        duplicate_index = presenter.duplicate(0)
+        self.assertEqual(duplicate_index, 1)
+        presenter.steps[1]["motion"]["speed"] = 77
+        self.assertEqual(presenter.steps[0]["motion"]["speed"], 200)
+        moved_index = presenter.move(1, 1)
+        self.assertEqual(moved_index, 2)
+        self.assertEqual(presenter.steps[2]["snapshot"], self.step["snapshot"])
+        self.assertEqual(presenter.steps[1]["kind"], "wait")
+        self.assertTrue(presenter.dirty)
+
+    def test_failed_edit_restores_selection_to_transition_pair(self):
+        app = TimelineWindow.__new__(TimelineWindow)
+        app.run_steps = None
+        app.steps = [copy.deepcopy(self.step), copy.deepcopy(self.step)]
+        app.rows = [(0, "transition"), (0, "snapshot"), (1, "transition"), (1, "snapshot")]
+        app.editor_index = app.selected_index = 0
+        app.sequence = SimpleNamespace(
+            curselection=lambda: (2,),
+            selection_clear=lambda *_args: setattr(app, "cleared", True),
+            selection_set=lambda row: setattr(app, "restored_row", row),
+        )
+        app.apply = lambda: False
+
+        app.select()
+
+        self.assertTrue(app.cleared)
+        self.assertEqual(app.restored_row, 0)
+        self.assertEqual(app.editor_index, 0)
+        self.assertEqual(app.selected_index, 0)
+
+    def test_discard_prompt_preserves_cancel_and_accepts_confirmed_discard(self):
+        answers = iter((False, True))
+        app = TimelineWindow.__new__(TimelineWindow)
+        app.dirty = True
+        app.apply = lambda: True
+        app.dependencies = SimpleNamespace(
+            messagebox=SimpleNamespace(askyesno=lambda *_args, **_kwargs: next(answers))
+        )
+
+        self.assertFalse(app.discard())
+        self.assertTrue(app.discard())
+
+    def test_running_action_locks_editor_and_playback_controls(self):
+        changes = []
+        original = timeline_window_module.configure_changed
+        timeline_window_module.configure_changed = lambda widget, **options: changes.append((widget, options))
+        try:
+            app = TimelineWindow.__new__(TimelineWindow)
+            widgets = [object(), object()]
+            app.run_steps = [self.step]
+            app.edit_widgets = [widgets[0]]
+            app.transition_widgets = [widgets[1]]
+            app.dependencies = SimpleNamespace(ttk=SimpleNamespace(Combobox=type("Combo", (), {})))
+            app.sequence = SimpleNamespace(configure=lambda **options: changes.append(("sequence", options)))
+            app.play_button, app.test_button = object(), object()
+            app._ready = lambda: True
+            app.steps = [self.step]
+
+            app._update_buttons()
+
+            self.assertTrue(all(options["state"] == "disabled" for _, options in changes))
+        finally:
+            timeline_window_module.configure_changed = original
+
     def test_roundtrip_stores_references_and_uses_updated_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -244,6 +368,197 @@ class TimelineTest(unittest.TestCase):
                 reference_for_legacy_snapshot(self.step["snapshot"], root, self.joints, self.bounds),
                 "first.json",
             )
+
+    def test_failed_load_restores_editor_state_after_discard_applies_form(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "broken.json"
+            path.write_text("not json")
+            app = TimelineWindow.__new__(TimelineWindow)
+            app.steps = [copy.deepcopy(self.step)]
+            original = copy.deepcopy(app.steps)
+            app.dirty = False
+            app.directory = directory
+            app.joints = self.joints
+            app.bounds = self.bounds
+            app.discard = lambda: (app.steps[0].update(motion={"speed": 99, "torque": 99}) or True)
+            app.dependencies = SimpleNamespace(
+                filedialog=SimpleNamespace(askopenfilename=lambda **_kwargs: str(path))
+            )
+            app.status = SimpleNamespace(set=lambda _value: None)
+
+            app.load()
+
+            self.assertEqual(app.steps, original)
+            self.assertFalse(app.dirty)
+
+    def test_goal_response_timeout_keeps_lock_and_accepts_late_identity(self):
+        app = self.action_window()
+        app._bound_timeline_wait("goal", 1)
+        app.root.fire(app.timeline_timeout_callbacks["goal"])
+        self.assertEqual(app.timeline_state, "goal_unknown")
+        self.assertIsNotNone(app.run_steps)
+
+        result = FakeFuture()
+        handle = SimpleNamespace(accepted=True, get_result_async=lambda: result)
+        app._timeline_goal_response(SimpleNamespace(result=lambda: handle), 1)
+        self.assertEqual(app.timeline_state, "active")
+        self.assertIsNotNone(app.run_steps)
+        self.assertIn("result", app.timeline_timeout_callbacks)
+
+    def test_synchronous_goal_submission_failure_unlocks_without_backend_goal(self):
+        app = self.action_window()
+        app.run_steps = None
+        app._ready = lambda: True
+        app.apply = lambda: True
+        app.steps = [copy.deepcopy(self.step)]
+        app.joints = self.joints
+        app.bounds = self.bounds
+        app.loop = SimpleNamespace(get=lambda: False)
+        app.on_end = SimpleNamespace(get=lambda: "Torque on")
+        app.selected_index = 0
+        app.dependencies = SimpleNamespace(PlayTimeline=SimpleNamespace(Goal=type("Goal", (), {})))
+        app.timeline_client = SimpleNamespace(
+            send_goal_async=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("submit failed"))
+        )
+
+        app.play_timeline()
+
+        self.assertIsNone(app.run_steps)
+        self.assertEqual(app.timeline_state, "idle")
+        self.assertIn("submit failed", app.status.messages[-1])
+
+    def test_goal_response_error_and_rejection_are_distinct(self):
+        app = self.action_window()
+        app._timeline_goal_response(SimpleNamespace(result=lambda: (_ for _ in ()).throw(RuntimeError("lost"))), 1)
+        self.assertEqual(app.timeline_state, "goal_unknown")
+        self.assertIsNotNone(app.run_steps)
+
+        app = self.action_window()
+        app._timeline_goal_response(SimpleNamespace(result=lambda: SimpleNamespace(accepted=False)), 1)
+        self.assertEqual(app.timeline_state, "idle")
+        self.assertIsNone(app.run_steps)
+        self.assertIn("rejected", app.status.messages[-1])
+
+    def test_stop_before_goal_acceptance_cancels_only_after_acceptance(self):
+        app = self.action_window()
+        app.timeline_client = SimpleNamespace(server_is_ready=lambda: True)
+        app.cancel_when_accepted = False
+        app._request_timeline_cancel()
+        self.assertTrue(app.cancel_when_accepted)
+        cancel_future = FakeFuture()
+        result_future = FakeFuture()
+        handle = SimpleNamespace(
+            accepted=True,
+            get_result_async=lambda: result_future,
+            cancel_goal_async=lambda: cancel_future,
+        )
+        app._timeline_goal_response(SimpleNamespace(result=lambda: handle), 1)
+        self.assertEqual(app.timeline_state, "cancel_pending")
+        self.assertIsNotNone(app.run_steps)
+        cancel_future.complete(SimpleNamespace(goals_canceling=[object()]))
+        self.assertEqual(app.timeline_state, "cancel_acknowledged")
+        self.assertIsNotNone(app.run_steps)
+
+    def test_cancel_rejection_timeout_and_terminal_result(self):
+        app = self.action_window()
+        result_future = FakeFuture()
+        cancel_future = FakeFuture()
+        app.timeline_goal_handle = SimpleNamespace(cancel_goal_async=lambda: cancel_future)
+        app.timeline_state = "active"
+        app._request_timeline_cancel()
+        cancel_future.complete(SimpleNamespace(goals_canceling=[]))
+        self.assertEqual(app.timeline_state, "active")
+        self.assertIsNotNone(app.run_steps)
+
+        app._request_timeline_cancel()
+        app.root.fire(app.timeline_timeout_callbacks["cancel"])
+        self.assertEqual(app.timeline_state, "cancel_unknown")
+        self.assertIsNotNone(app.run_steps)
+
+        app.timeline_state = "active"
+        app.timeline_result_future = result_future
+        app._timeline_result(
+            SimpleNamespace(result=lambda: SimpleNamespace(
+                status=5, result=SimpleNamespace(success=False, message="Timeline canceled")
+            )),
+            1,
+        )
+        self.assertEqual(app.timeline_state, "idle")
+        self.assertIn("canceled", app.status.messages[-1].lower())
+
+    def test_result_timeout_does_not_unlock_long_or_looped_goal(self):
+        app = self.action_window()
+        app.run_steps = [copy.deepcopy(self.step)]
+        app.looping = True
+        app.timeline_state = "active"
+        app._bound_timeline_wait("result", 1)
+        app.root.fire(app.timeline_timeout_callbacks["result"])
+        self.assertEqual(app.timeline_state, "result_unknown")
+        self.assertIsNotNone(app.run_steps)
+        self.assertTrue(app.looping)
+        self.assertIn("No execution deadline", app.status.messages[-1])
+        app._timeline_result(
+            SimpleNamespace(result=lambda: SimpleNamespace(
+                status=4, result=SimpleNamespace(success=True, message="Loop stopped")
+            )),
+            1,
+        )
+        self.assertIsNone(app.run_steps)
+
+    def test_result_wins_over_late_cancel_and_old_session_callbacks(self):
+        app = self.action_window()
+        app.timeline_state = "cancel_pending"
+        app._timeline_result(
+            SimpleNamespace(result=lambda: SimpleNamespace(
+                status=4, result=SimpleNamespace(success=True, message="Timeline completed")
+            )),
+            1,
+        )
+        self.assertIsNone(app.run_steps)
+        app.run_steps = [copy.deepcopy(self.step)]
+        app.timeline_session_id = 3
+        app.timeline_state = "active"
+        app._timeline_cancel_response(SimpleNamespace(result=lambda: SimpleNamespace(goals_canceling=[])), 1)
+        app._timeline_feedback(
+            SimpleNamespace(feedback=SimpleNamespace(current_step=1, step_count=1, status="stale", seconds_remaining=0)),
+            1,
+        )
+        self.assertIsNotNone(app.run_steps)
+        self.assertEqual(app.timeline_state, "active")
+        self.assertFalse(any("stale" in message for message in app.status.messages))
+
+    def test_close_waits_for_cancel_result(self):
+        app = self.action_window()
+        app.root = FakeRoot()
+        app.dirty = False
+        app.discard = lambda: True
+        app.dependencies = SimpleNamespace(messagebox=SimpleNamespace(askyesno=lambda *args, **kwargs: True))
+        close_calls = []
+        app.configuration = SimpleNamespace(close=lambda: close_calls.append("configuration"))
+        app.configuration_after_id = app.refresh_after_id = None
+        app.on_close = lambda: close_calls.append("view")
+        app.view_closed = False
+        app._close_view = TimelineWindow._close_view.__get__(app)
+        cancel_future = FakeFuture()
+        result_future = FakeFuture()
+        app.timeline_goal_handle = SimpleNamespace(cancel_goal_async=lambda: cancel_future)
+        app.timeline_state = "active"
+        app.close()
+        self.assertEqual(app.timeline_close_state, "pending")
+        self.assertFalse(app.closed)
+        cancel_future.complete(SimpleNamespace(goals_canceling=[object()]))
+        self.assertFalse(app.closed)
+        app._timeline_result(
+            SimpleNamespace(result=lambda: SimpleNamespace(
+                status=5, result=SimpleNamespace(success=False, message="Timeline canceled")
+            )),
+            1,
+        )
+        self.assertTrue(app.view_closed)
+        app._close_view()
+        app.close()
+        self.assertEqual(close_calls, ["configuration", "view"])
+
 
     def test_legacy_migration_rejects_missing_or_invalid_snapshots(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -369,20 +684,18 @@ class TimelineTest(unittest.TestCase):
             validate_timeline(self.document, self.joints, self.bounds)
 
     def test_stop_requests_cancellation_from_ros_action(self):
-        app = TimelineWindow.__new__(TimelineWindow)
-        app.run_steps = self.document["steps"]
+        app = self.action_window()
+        app.timeline_state = "active"
         app.timeline_goal_handle = SimpleNamespace(
-            cancel_goal_async=lambda: SimpleNamespace(add_done_callback=lambda callback: None)
+            cancel_goal_async=lambda: FakeFuture()
         )
-        app.cancel_when_accepted = False
-        messages = []
-        app.status = SimpleNamespace(set=messages.append)
         app.stop()
         self.assertIsNotNone(app.run_steps)
-        self.assertIn("Cancel requested", messages[-1])
+        self.assertIn("Cancellation requested", app.status.messages[-1])
 
     def test_editor_construction_and_reordering(self):
         import tkinter as tk
+        from tkinter import filedialog, messagebox, ttk
 
         try:
             root = tk.Tk()
@@ -392,6 +705,11 @@ class TimelineTest(unittest.TestCase):
         try:
             app = TimelineWindow.__new__(TimelineWindow)
             app.root = root
+            app.container = root
+            app.directory = str(Path.cwd())
+            app.dependencies = SimpleNamespace(tk=tk, ttk=ttk, filedialog=filedialog, messagebox=messagebox)
+            app.joints = self.joints
+            app.bounds = self.bounds
             app.steps = copy.deepcopy(self.document["steps"])
             app.steps[1]["snapshot"]["name"] = "second"
             app.run_steps = app.editor_index = None

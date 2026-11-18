@@ -1,11 +1,9 @@
-import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from snapshot_arrival import arrival_progress
+from saprog_desktop.snapshot_arrival import arrival_progress
+from saprog_desktop.playback import PlaybackCoordinator
 from snapshot_player import SnapshotPlayer
 
 
@@ -49,6 +47,13 @@ class ArrivalTest(unittest.TestCase):
             stable_since=None,
             stable_first_stamp=0,
             release_after=False,
+        )
+        app.playback["coordinator"] = PlaybackCoordinator(
+            app.joints,
+            app.playback["targets"],
+            app.target_tolerance,
+            started_at=1.0,
+            sent_stamp=1_000_000_000,
         )
         for now in (2, 3, 4):
             app.node = NS(get_clock=lambda: NS(now=lambda: NS(nanoseconds=now * 1_000_000_000)))

@@ -1,30 +1,28 @@
 #!/usr/bin/env python3
 """Tk display and ROS service client; no serial I/O or sensor filtering."""
 
-import math
-import signal
+if __name__ == "__main__":
+    from saprog_desktop.startup import imu_monitor_main
+
+    raise SystemExit(imu_monitor_main(entrypoint=__file__))
+
 import time
 import tkinter as tk
 from collections import deque
 from datetime import datetime
 from tkinter import ttk
 
-import rclpy
-from desktop_style import apply_style
-from geometry_msgs.msg import QuaternionStamped
-from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import Imu, MagneticField
-from std_msgs.msg import String
-from std_srvs.srv import SetBool, Trigger
-
-from saprog.msg import ImuStatus
+from saprog_desktop.desktop_style import apply_style, configure_changed
+from saprog_desktop.imu_model import quaternion_to_euler
 
 
 class ImuMonitor:
-    def __init__(self, root, node, embedded=False):
+    def __init__(self, root, node, embedded=False, dependencies=None):
+        if dependencies is None:
+            raise ValueError("ImuMonitor requires injected desktop runtime dependencies")
         self.root = root
         self.embedded = embedded
+        self.dependencies = dependencies
         if not embedded:
             self.root.title("9DoF IMU")
             self.root.geometry("960x850")
@@ -149,29 +147,39 @@ class ImuMonitor:
             "clear_zero",
             "calibrate",
         ):
-            self.clients[name] = node.create_client(Trigger, "/saprog/imu/" + name)
+            self.clients[name] = node.create_client(
+                dependencies.Trigger, "/saprog/imu/" + name
+            )
         self.clients["use_magnetometer"] = node.create_client(
-            SetBool, "/saprog/imu/use_magnetometer"
+            dependencies.SetBool, "/saprog/imu/use_magnetometer"
         )
         self.subscriptions = [
-            node.create_subscription(ImuStatus, "/saprog/imu/status", self.receive_status, 10),
             node.create_subscription(
-                Imu, "/saprog/imu/data_raw", self.receive_raw, qos_profile_sensor_data
+                dependencies.ImuStatus, "/saprog/imu/status", self.receive_status, 10
             ),
             node.create_subscription(
-                MagneticField, "/saprog/imu/mag", self.receive_mag, qos_profile_sensor_data
+                dependencies.Imu,
+                "/saprog/imu/data_raw",
+                self.receive_raw,
+                dependencies.qos_profile_sensor_data,
             ),
             node.create_subscription(
-                QuaternionStamped,
+                dependencies.MagneticField,
+                "/saprog/imu/mag",
+                self.receive_mag,
+                dependencies.qos_profile_sensor_data,
+            ),
+            node.create_subscription(
+                dependencies.QuaternionStamped,
                 "/saprog/imu/orientation",
                 self.receive_orientation,
-                qos_profile_sensor_data,
+                dependencies.qos_profile_sensor_data,
             ),
             node.create_subscription(
-                String,
+                dependencies.String,
                 "/saprog/imu/serial",
-                lambda msg: self.logs.append(msg.data),
-                qos_profile_sensor_data,
+                self.receive_log,
+                dependencies.qos_profile_sensor_data,
             ),
         ]
 
@@ -185,169 +193,23 @@ class ImuMonitor:
         self.log.configure(state="disabled")
 
     def render_model(self):
-        if not hasattr(self, "model"):
-            return
-        canvas = self.model
-        canvas.delete("all")
-        width = max(canvas.winfo_width(), 280)
-        height = max(canvas.winfo_height(), 220)
-        center_x, center_y = width / 2, height / 2 - 12
-        scale = min(width, height - 70) * 0.19
-        rotation = self.orientation_matrix(self.orientation or (0.0, 0.0, 0.0))
-        pitch = math.asin(max(-1.0, min(1.0, -rotation[2][0])))
-        if abs(math.cos(pitch)) > 1e-6:
-            roll = math.atan2(rotation[2][1], rotation[2][2])
-            yaw = math.atan2(rotation[1][0], rotation[0][0])
-        else:
-            roll = 0.0
-            yaw = math.atan2(-rotation[0][1], rotation[1][1])
+        from saprog_desktop.imu_view import draw_orientation
 
-        # Look down from above the XY floor with world Z pointing up on screen.
-        # Turn around world Z before pitching the camera, keeping the horizon level.
-        camera_heading = self.orientation_matrix((0.0, 0.0, math.radians(-25)))
-        camera_pitch = self.orientation_matrix((math.radians(-55), 0.0, 0.0))
-
-        def transform(matrix, point):
-            return tuple(sum(row[i] * point[i] for i in range(3)) for row in matrix)
-
-        def camera_point(point):
-            return transform(camera_pitch, transform(camera_heading, point))
-
-        world_vertices = [
-            transform(rotation, point)
-            for point in (
-                (-1.25, -0.85, -0.45),
-                (1.25, -0.85, -0.45),
-                (1.25, 0.85, -0.45),
-                (-1.25, 0.85, -0.45),
-                (-1.25, -0.85, 0.45),
-                (1.25, -0.85, 0.45),
-                (1.25, 0.85, 0.45),
-                (-1.25, 0.85, 0.45),
+        if hasattr(self, "model") and not self.closed:
+            draw_orientation(
+                self.model, self.orientation, self.zeroed,
+                self.use_magnetometer.get(),
             )
-        ]
-        vertices = [camera_point(point) for point in world_vertices]
-        focal = 7.0
-
-        def project(point):
-            x, y, z = point
-            depth = max(1.5, focal - z)
-            return (
-                center_x + x * scale * focal / depth,
-                center_y - y * scale * focal / depth,
-            )
-
-        def ground_point(x, y):
-            return project(camera_point((x, y, -1.65)))
-
-        # Fixed Z-up reference plane below the box's full rotation envelope.
-        # Height is illustrative: the IMU estimates orientation, not altitude.
-        ground = [
-            ground_point(x, y) for x, y in ((-2.5, -2.5), (2.5, -2.5), (2.5, 2.5), (-2.5, 2.5))
-        ]
-        canvas.create_polygon(
-            *[coordinate for point in ground for coordinate in point],
-            fill="#26384a",
-            outline="#64748b",
-            width=2,
-        )
-        for step in range(-5, 6):
-            offset = step * 0.5
-            color = "#71869c" if step == 0 else "#3b5065"
-            canvas.create_line(*ground_point(offset, -2.5), *ground_point(offset, 2.5), fill=color)
-            canvas.create_line(*ground_point(-2.5, offset), *ground_point(2.5, offset), fill=color)
-
-        # Overhead light: the shadow is the convex hull of all eight XY corners.
-        points = sorted(set((x, y) for x, y, _z in world_vertices))
-
-        def cross(a, b, c):
-            return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-
-        def hull_half(sequence):
-            hull = []
-            for point in sequence:
-                while len(hull) >= 2 and cross(hull[-2], hull[-1], point) <= 0:
-                    hull.pop()
-                hull.append(point)
-            return hull
-
-        shadow = hull_half(points)[:-1] + hull_half(reversed(points))[:-1]
-        canvas.create_polygon(
-            *[coordinate for x, y in shadow for coordinate in ground_point(x, y)],
-            fill="#172431",
-            outline="",
-        )
-        canvas.create_text(
-            14,
-            36,
-            anchor="nw",
-            fill="#a5b5ca",
-            text="Ground reference · shadow shows tilt; height is illustrative",
-            font=("TkDefaultFont", 9),
-        )
-        projected = [project(point) for point in vertices]
-
-        faces = [
-            ((0, 1, 2, 3), "#315276"),
-            ((4, 5, 6, 7), "#4b8ac2"),
-            ((0, 1, 5, 4), "#3a6996"),
-            ((1, 2, 6, 5), "#27618d"),
-            ((2, 3, 7, 6), "#254b70"),
-            ((3, 0, 4, 7), "#3f78a8"),
-        ]
-        faces.sort(key=lambda item: sum(vertices[index][2] for index in item[0]) / 4)
-        for indices, color in faces:
-            coords = [coordinate for index in indices for coordinate in projected[index]]
-            canvas.create_polygon(coords, fill=color, outline="#a8d8ff", width=2)
-
-        canvas.create_text(
-            14,
-            14,
-            anchor="nw",
-            fill="#d6e7f7",
-            text=(
-                f"Roll {math.degrees(roll):6.1f}°   "
-                f"Pitch {math.degrees(pitch):6.1f}°   "
-                f"Yaw {math.degrees(yaw):6.1f}°"
-            ),
-            font=("TkDefaultFont", 10, "bold"),
-        )
-        state = (
-            "Waiting for IMU samples"
-            if self.orientation is None
-            else "Orientation relative to your zero pose"
-            if self.zeroed
-            else "Magnetic heading enabled"
-            if self.use_magnetometer.get()
-            else "Accelerometer + gyroscope · relative heading (may drift)"
-        )
-        canvas.create_text(
-            14,
-            height - 14,
-            anchor="sw",
-            fill="#a5b5ca",
-            text=state,
-            font=("TkDefaultFont", 9),
-        )
-
-    @staticmethod
-    def orientation_matrix(angles):
-        roll, pitch, yaw = angles
-        cr, sr = math.cos(roll), math.sin(roll)
-        cp, sp = math.cos(pitch), math.sin(pitch)
-        cy, sy = math.cos(yaw), math.sin(yaw)
-        return (
-            (cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr),
-            (sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr),
-            (-sp, cp * sr, cp * cr),
-        )
-
     def request(self, name, request=None):
+        if self.closed:
+            return
         client = self.clients[name]
         if not client.service_is_ready():
             self.status.set("IMU ROS service unavailable; start the C++ IMU backend.")
             return
-        future = client.call_async(request if request is not None else Trigger.Request())
+        future = client.call_async(
+            request if request is not None else self.dependencies.Trigger.Request()
+        )
         self.requests.append((future, time.monotonic() + 5, client))
         self.status.set("Request sent: " + name)
 
@@ -364,26 +226,34 @@ class ImuMonitor:
         self.request("calibrate")
 
     def reset_orientation(self):
-        request = SetBool.Request()
+        request = self.dependencies.SetBool.Request()
         request.data = self.use_magnetometer.get()
         self.request("use_magnetometer", request)
 
     def receive_raw(self, msg):
+        if self.closed:
+            return
         self.latest_raw = msg
 
+    def receive_log(self, msg):
+        if not self.closed:
+            self.logs.append(msg.data)
+
     def receive_mag(self, msg):
+        if self.closed:
+            return
         self.latest_mag = msg
 
     def receive_orientation(self, msg):
+        if self.closed:
+            return
         q = msg.quaternion
         # Display conversion only; fusion and zero transforms happen in C++.
-        self.orientation = [
-            math.atan2(2 * (q.w * q.x + q.y * q.z), 1 - 2 * (q.x * q.x + q.y * q.y)),
-            math.asin(max(-1.0, min(1.0, 2 * (q.w * q.y - q.z * q.x)))),
-            math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)),
-        ]
+        self.orientation = quaternion_to_euler((q.x, q.y, q.z, q.w))
 
     def receive_status(self, msg):
+        if self.closed:
+            return
         self.last_status_at = time.monotonic()
         self.backend_status = msg
         self.connected = msg.connected
@@ -413,15 +283,6 @@ class ImuMonitor:
     def poll_messages(self):
         if self.closed:
             return
-        if not rclpy.ok():
-            self.close()
-            return
-        deadline = time.monotonic() + 0.01
-        if not self.embedded:
-            for _ in range(150):
-                rclpy.spin_once(self.node, timeout_sec=0)
-                if time.monotonic() >= deadline:
-                    break
         for future, timeout, client in list(self.requests):
             if future.done():
                 self.requests.remove((future, timeout, client))
@@ -450,11 +311,12 @@ class ImuMonitor:
         valid = available and self.backend_status.orientation_valid
         idle = not self.requests
         can_zero = valid and not self.backend_status.calibrating and idle
-        self.toggle_button.configure(
-            state="normal" if available and self.connected and idle else "disabled"
+        configure_changed(
+            self.toggle_button,
+            state="normal" if available and self.connected and idle else "disabled",
         )
-        self.zero_button.configure(state="normal" if can_zero else "disabled")
-        self.calibrate_button.configure(state="normal" if can_zero else "disabled")
+        configure_changed(self.zero_button, state="normal" if can_zero else "disabled")
+        configure_changed(self.calibrate_button, state="normal" if can_zero else "disabled")
         if not available:
             self.orientation = None
             self.status.set("Waiting for /saprog/imu/status from the C++ ROS backend…")
@@ -465,22 +327,7 @@ class ImuMonitor:
         if self.closed:
             return
         self.closed = True
-        if not self.embedded:
-            self.node.destroy_node()
-            if rclpy.ok():
-                rclpy.shutdown()
-            self.root.destroy()
-
-
-def main():
-    rclpy.init()
-    root = tk.Tk()
-    app = ImuMonitor(root, Node("saprog_imu_monitor"))
-    signal.signal(signal.SIGTERM, lambda *_args: app.close())
-    signal.signal(signal.SIGINT, lambda *_args: app.close())
-    root.mainloop()
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+        for future, _timeout, client in self.requests:
+            client.remove_pending_request(future)
+            future.cancel()
+        self.requests.clear()

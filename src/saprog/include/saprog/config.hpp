@@ -1,17 +1,23 @@
 #pragma once
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include "rclcpp/rclcpp.hpp"
 #include "saprog/servo_units.hpp"
+
+struct ServoCalibration
+{
+  uint8_t id;
+  uint16_t zero_position;
+  int direction;
+  uint16_t lower_limit{0};
+  uint16_t upper_limit{1023};
+};
 
 struct SaprogConfig
 {
@@ -24,61 +30,69 @@ struct SaprogConfig
   double target_tolerance;
   int status_return_level;
   bool verify_goal_registers;
-  std::vector<uint8_t> servo_ids;
-  std::vector<uint16_t> zero_positions;
-  std::vector<int> directions;
-  std::vector<uint16_t> lower_limits;
-  std::vector<uint16_t> upper_limits;
+  // Ordered once from startup parameters; measured limits are filled by the
+  // controller after it reads them from the hardware.
+  std::vector<ServoCalibration> servos;
 };
 
-inline SaprogConfig read_config(rclcpp::Node &node)
+inline void validate_config(const SaprogConfig &config)
 {
-  SaprogConfig config;
-  config.device_name = node.get_parameter("device_name").as_string();
-  const auto baud_rate = node.get_parameter("baud_rate").as_int();
-  config.protocol_version = node.get_parameter("protocol_version").as_double();
-  config.poll_rate = node.get_parameter("poll_rate").as_double();
-  const auto moving_speed = node.get_parameter("moving_speed").as_int();
-  const auto torque_limit = node.get_parameter("torque_limit").as_int();
-  config.target_tolerance = node.get_parameter("target_tolerance").as_double();
-  const auto status_return_level = node.get_parameter("status_return_level").as_int();
-  config.verify_goal_registers = node.get_parameter("verify_goal_registers").as_bool();
-  const auto ids = node.get_parameter("servo_ids").as_integer_array();
-  const auto zeros = node.get_parameter("zero_positions").as_integer_array();
-  const auto directions = node.get_parameter("directions").as_integer_array();
-
-  // ROS timers store nanoseconds; reject rates that cannot form a timer period.
   const double poll_period = 1.0 / config.poll_rate;
   const double maximum_period =
       std::chrono::duration<double>(std::chrono::nanoseconds::max()).count();
-
-  if (config.device_name.empty() || baud_rate <= 0 || baud_rate > std::numeric_limits<int>::max() ||
-      config.protocol_version != 1.0 || !std::isfinite(config.poll_rate) ||
-      config.poll_rate <= 0.0 || !std::isfinite(poll_period) || poll_period < 1e-9 ||
-      poll_period >= maximum_period || moving_speed < 0 || moving_speed > 1023 ||
-      torque_limit < 0 || torque_limit > 1023 || !std::isfinite(config.target_tolerance) ||
-      config.target_tolerance < 0.0 ||
-      config.target_tolerance > saprog::ax::position_range_radians || ids.empty() ||
-      (status_return_level != 1 && status_return_level != 2) || zeros.size() != ids.size() ||
-      directions.size() != ids.size()) {
+  if (config.device_name.empty() || config.baud_rate <= 0 || config.protocol_version != 1.0 ||
+      !std::isfinite(config.poll_rate) || config.poll_rate <= 0.0 || !std::isfinite(poll_period) ||
+      poll_period < 1e-9 || poll_period >= maximum_period || config.moving_speed < 0 ||
+      config.moving_speed > 1023 || config.torque_limit < 0 || config.torque_limit > 1023 ||
+      !std::isfinite(config.target_tolerance) || config.target_tolerance < 0.0 ||
+      config.target_tolerance > saprog::ax::position_range_radians || config.servos.empty() ||
+      (config.status_return_level != 1 && config.status_return_level != 2)) {
     throw std::invalid_argument("Invalid DYNAMIXEL settings in config/saprog.yaml");
   }
-  config.baud_rate = static_cast<int>(baud_rate);
-  config.moving_speed = static_cast<int>(moving_speed);
-  config.torque_limit = static_cast<int>(torque_limit);
-  config.status_return_level = static_cast<int>(status_return_level);
-
-  for (size_t i = 0; i < ids.size(); ++i) {
-    if (ids[i] < 0 || ids[i] > 253 || zeros[i] < 0 || zeros[i] > 1023 ||
-        (directions[i] != -1 && directions[i] != 1) ||
-        std::find(config.servo_ids.begin(), config.servo_ids.end(), ids[i]) !=
-            config.servo_ids.end()) {
+  std::vector<bool> seen(254, false);
+  for (const auto &servo : config.servos) {
+    if (servo.id > 253 || (servo.direction != -1 && servo.direction != 1) ||
+        servo.zero_position > 1023 || seen[servo.id] || servo.lower_limit >= servo.upper_limit ||
+        servo.upper_limit > 1023) {
       throw std::invalid_argument(
           "Check unique servo_ids, zero_positions, and directions in config/saprog.yaml");
     }
-    config.servo_ids.push_back(static_cast<uint8_t>(ids[i]));
-    config.zero_positions.push_back(static_cast<uint16_t>(zeros[i]));
-    config.directions.push_back(static_cast<int>(directions[i]));
+    seen[servo.id] = true;
   }
-  return config;
+}
+
+inline std::vector<uint8_t> configured_servo_ids(const SaprogConfig &config)
+{
+  std::vector<uint8_t> ids;
+  ids.reserve(config.servos.size());
+  for (const auto &servo : config.servos) {
+    ids.push_back(servo.id);
+  }
+  return ids;
+}
+
+inline bool is_startup_only_parameter(std::string_view name)
+{
+  constexpr std::string_view names[] = {"device_name",       "baud_rate", "protocol_version",
+                                        "poll_rate",         "moving_speed", "torque_limit",
+                                        "target_tolerance",  "status_return_level",
+                                        "verify_goal_registers", "servo_ids", "zero_positions",
+                                        "directions"};
+  for (const auto candidate : names) {
+    if (name == candidate) {
+      return true;
+    }
+  }
+  return false;
+}
+
+inline size_t configured_servo_index(const SaprogConfig &config, std::string_view joint_name)
+{
+  for (size_t i = 0; i < config.servos.size(); ++i) {
+    const std::string expected = "servo_" + std::to_string(config.servos[i].id);
+    if (joint_name == expected) {
+      return i;
+    }
+  }
+  return config.servos.size();
 }

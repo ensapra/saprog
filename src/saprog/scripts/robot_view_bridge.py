@@ -8,20 +8,7 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 from tf2_ros import TransformBroadcaster
 
-JOINT_NAMES = {
-    11: "front_right_11",
-    12: "front_right_12",
-    13: "froint_right_joint_13",
-    21: "back_right_21",
-    22: "back_right_22",
-    23: "back_right_joint_23",
-    31: "front_left_31",
-    32: "front_left_32",
-    33: "front_left_joint_33",
-    41: "back_left_41",
-    42: "back_left_42",
-    43: "back_left_joint_43",
-}
+from saprog_desktop.robot_view_model import OrientationReference, SERVO_JOINT_NAMES
 
 
 class RobotViewBridge(Node):
@@ -29,7 +16,7 @@ class RobotViewBridge(Node):
         super().__init__("saprog_robot_view_bridge")
         self.joint_publisher = self.create_publisher(JointState, "/joint_states", 10)
         self.tf_broadcaster = TransformBroadcaster(self)
-        self.orientation = (0.0, 0.0, 0.0, 1.0)
+        self.orientation = OrientationReference()
         self.create_subscription(JointState, "/saprog/joint_states", self.on_joints, 10)
         self.create_subscription(
             QuaternionStamped,
@@ -49,7 +36,7 @@ class RobotViewBridge(Node):
                 servo_id = int(name.removeprefix("servo_"))
             except ValueError:
                 continue
-            urdf_name = JOINT_NAMES.get(servo_id)
+            urdf_name = SERVO_JOINT_NAMES.get(servo_id)
             if urdf_name is None or index >= len(message.position):
                 continue
             result.name.append(urdf_name)
@@ -63,7 +50,7 @@ class RobotViewBridge(Node):
 
     def on_orientation(self, message):
         q = message.quaternion
-        self.orientation = (q.x, q.y, q.z, q.w)
+        self.orientation.update((q.x, q.y, q.z, q.w))
 
     def publish_base_transform(self):
         transform = TransformStamped()
@@ -71,7 +58,7 @@ class RobotViewBridge(Node):
         transform.header.frame_id = "world"
         transform.child_frame_id = "base"
         q = transform.transform.rotation
-        q.x, q.y, q.z, q.w = self.orientation
+        q.x, q.y, q.z, q.w = self.orientation.current()
         self.tf_broadcaster.sendTransform(transform)
 
 

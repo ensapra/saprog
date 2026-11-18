@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """Live, selectable servo temperature traces on a shared Tk canvas."""
 
+if __name__ == "__main__":
+    from saprog_desktop.startup import temperature_monitor_main
+
+    raise SystemExit(temperature_monitor_main(entrypoint=__file__))
+
 import colorsys
 import math
-import signal
 import time
 import tkinter as tk
-from collections import deque
 from tkinter import ttk
 
-import rclpy
-from desktop_style import BACKGROUND, FOREGROUND, apply_style
-from rclpy.node import Node
-from sensor_msgs.msg import JointState, Temperature
+from saprog_desktop.desktop_style import BACKGROUND, apply_style
+from saprog_desktop.temperature_model import TemperatureHistory
+from saprog_desktop.temperature_view import draw_temperature
 
-HISTORY_SECONDS = 300.0
-STALE_SECONDS = 2.5
 LEG_ROWS = (
     ("Front Right Leg", ("servo_11", "servo_12", "servo_13")),
     ("Back Right Leg", ("servo_21", "servo_22", "servo_23")),
@@ -30,15 +30,15 @@ SERVO_CELL = {
 
 
 class TemperatureMonitor:
-    def __init__(self, parent, node):
+    def __init__(self, parent, node, dependencies):
         self.parent, self.root, self.node = parent, parent.winfo_toplevel(), node
-        self.history = {}
+        self.dependencies = dependencies
+        self.history = TemperatureHistory()
         self.selected = {}
         self.labels = {}
         self.colors = {}
         self.select_new = True
         self.closed = False
-        self.window_seconds = HISTORY_SECONDS
         outer = ttk.Frame(parent, padding=14)
         outer.pack(fill="both", expand=True)
         ttk.Label(outer, text="Servo temperatures", style="Title.TLabel").pack(anchor="w")
@@ -60,7 +60,7 @@ class TemperatureMonitor:
         zoom = ttk.Frame(outer)
         zoom.pack(fill="x", pady=(8, 0))
         ttk.Label(zoom, text="Time window (seconds)").pack(side="left")
-        self.window_input = tk.StringVar(value="300")
+        self.window_input = tk.StringVar(value=str(int(self.history.window_seconds)))
         window = ttk.Combobox(
             zoom, textvariable=self.window_input, width=8, values=(5, 10, 20, 30, 60, 120, 300)
         )
@@ -85,15 +85,19 @@ class TemperatureMonitor:
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda _event: self.draw())
         self.subscriptions = [
-            node.create_subscription(Temperature, "/saprog/temperatures", self.temperature, 100),
-            node.create_subscription(JointState, "/saprog/joint_states", self.joints, 10),
+            node.create_subscription(
+                dependencies.Temperature, "/saprog/temperatures", self.temperature, 100
+            ),
+            node.create_subscription(
+                dependencies.JointState, "/saprog/joint_states", self.joints, 10
+            ),
         ]
 
     def add_servo(self, name):
-        if name in self.history:
+        if name in self.history.points:
             return
-        self.history[name] = deque(maxlen=18000)
-        self.selected[name] = tk.BooleanVar(value=self.select_new)
+        self.history.add_servo(name)
+        self.selected[name] = tk.BooleanVar(value=name in self.history.selected)
         rgb = colorsys.hsv_to_rgb((len(self.colors) * 0.61803398875) % 1, 0.6, 1.0)
         self.colors[name] = "#" + "".join(f"{round(value * 255):02x}" for value in rgb)
         cell = ttk.Frame(self.choices)
@@ -111,120 +115,51 @@ class TemperatureMonitor:
         self.labels[name] = label
 
     def joints(self, message):
+        if self.closed:
+            return
         for name in message.name:
             self.add_servo(name)
 
     def temperature(self, message):
+        if self.closed:
+            return
         name = message.header.frame_id
         if not name or not math.isfinite(message.temperature):
             return
         self.add_servo(name)
-        self.history[name].append((time.monotonic(), message.temperature))
+        self.history.add_sample(name, time.monotonic(), message.temperature)
 
     def select_all(self, selected):
         self.select_new = selected
         for variable in self.selected.values():
             variable.set(selected)
+        self.history.select_all(selected)
         self.draw()
 
     def apply_window(self, _event=None):
-        try:
-            seconds = float(self.window_input.get())
-        except ValueError:
-            seconds = math.nan
-        if not math.isfinite(seconds) or not 1 <= seconds <= HISTORY_SECONDS:
+        if not self.history.set_window(self.window_input.get()):
             self.window_hint.set("Enter a number from 1 to 300 seconds")
             return
-        self.window_seconds = seconds
+        seconds = self.history.window_seconds
         self.window_input.set(f"{seconds:g}")
         self.window_hint.set("1–300 seconds; full history is kept when zooming")
         self.draw()
 
     def zoom(self, factor):
-        self.window_input.set(f"{min(HISTORY_SECONDS, max(1, self.window_seconds * factor)):g}")
+        self.window_input.set(f"{self.history.zoom(factor):g}")
         self.apply_window()
 
     def draw(self):
-        canvas = self.canvas
-        canvas.delete("all")
-        now = time.monotonic()
-        cutoff = now - self.window_seconds
-        visible = []
-        fresh = 0
-        for name, points in self.history.items():
-            while points and points[0][0] < now - HISTORY_SECONDS:
-                points.popleft()
-            recent = bool(points) and now - points[-1][0] <= STALE_SECONDS
-            fresh += int(recent)
-            self.labels[name].configure(
-                text=(f"{points[-1][1]:.0f} °C" + (" · stale" if not recent else ""))
-                if points
-                else "waiting"
-            )
-            if self.selected[name].get():
-                visible.append(
-                    (name, [(stamp, value) for stamp, value in points if stamp >= cutoff])
-                )
-        self.status.set(f"{len(visible)}/{len(self.history)} selected · {fresh} live")
-        left, top = 65, 25
-        right, bottom = (
-            max(left + 1, canvas.winfo_width() - 20),
-            max(top + 1, canvas.winfo_height() - 45),
-        )
-        values = [value for _name, points in visible for _stamp, value in points]
-        low = math.floor((min(values) - 5) / 5) * 5 if values else 15
-        high = max(low + 10, math.ceil((max(values) + 5) / 5) * 5) if values else 50
-        for index in range(6):
-            y = bottom - index * (bottom - top) / 5
-            canvas.create_line(left, y, right, y, fill="#2b394d")
-            canvas.create_text(
-                left - 10,
-                y,
-                text=f"{low + index * (high - low) / 5:.0f}",
-                anchor="e",
-                fill=FOREGROUND,
-            )
-            x = left + index * (right - left) / 5
-            canvas.create_text(
-                x,
-                bottom + 18,
-                text=f"{-self.window_seconds + index * self.window_seconds / 5:g}s"
-                if index < 5
-                else "now",
-                fill=FOREGROUND,
-            )
-        canvas.create_text(10, top, text="°C", anchor="w", fill=FOREGROUND)
-        for name, points in visible:
-            segment = []
-            previous = None
-            for stamp, value in points:
-                if previous is not None and stamp - previous > STALE_SECONDS:
-                    self.draw_segment(segment, self.colors[name])
-                    segment = []
-                segment.extend(
-                    (
-                        left + (stamp - cutoff) / self.window_seconds * (right - left),
-                        bottom - (value - low) / (high - low) * (bottom - top),
-                    )
-                )
-                previous = stamp
-            self.draw_segment(segment, self.colors[name])
-        if not values:
-            canvas.create_text(
-                (left + right) / 2,
-                (top + bottom) / 2,
-                text="Waiting for selected servo temperatures"
-                if visible
-                else "Select servos to graph",
-                fill=FOREGROUND,
-            )
-
-    def draw_segment(self, coordinates, color):
-        if len(coordinates) >= 4:
-            self.canvas.create_line(*coordinates, fill=color, width=2)
-        elif coordinates:
-            x, y = coordinates
-            self.canvas.create_oval(x - 2, y - 2, x + 2, y + 2, fill=color, outline=color)
+        if self.closed:
+            return
+        for name, variable in self.selected.items():
+            if variable.get():
+                self.history.selected.add(name)
+            else:
+                self.history.selected.discard(name)
+        self.status.set(draw_temperature(
+            self.canvas, self.history, self.colors, self.labels, time.monotonic()
+        ))
 
     def poll(self):
         if self.closed:
@@ -233,39 +168,4 @@ class TemperatureMonitor:
         return True
 
     def close(self):
-        if not self.closed:
-            self.closed = True
-            self.root.destroy()
-
-
-def main():
-    rclpy.init()
-    node = Node("saprog_temperature_monitor")
-    try:
-        root = tk.Tk()
-        apply_style(root)
-        root.title("Temperature Monitor")
-        root.geometry("1050x700")
-        root.minsize(700, 450)
-        app = TemperatureMonitor(root, node)
-
-        def poll():
-            if app.closed:
-                return
-            for _ in range(100):
-                rclpy.spin_once(node, timeout_sec=0)
-            app.poll()
-            root.after(100, poll)
-
-        root.protocol("WM_DELETE_WINDOW", app.close)
-        root.after(100, poll)
-        signal.signal(signal.SIGTERM, lambda *_args: app.close())
-        signal.signal(signal.SIGINT, lambda *_args: app.close())
-        root.mainloop()
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
-
-
-if __name__ == "__main__":
-    main()
+        self.closed = True

@@ -1,12 +1,25 @@
 #include "saprog/readback_node.hpp"
+#include "saprog/config_parameters.hpp"
 
-#include <array>
 #include <chrono>
 #include <string>
 
 ReadbackNode::ReadbackNode(const rclcpp::NodeOptions &options)
-    : Node("saprog_readback", options), config_(read_config(*this))
+    : Node("saprog_readback", options), config_(read_config_parameters(*this))
 {
+  parameter_callback_ = add_on_set_parameters_callback(
+      [](const std::vector<rclcpp::Parameter> &parameters) {
+        rcl_interfaces::msg::SetParametersResult result;
+        result.successful = true;
+        for (const auto &parameter : parameters) {
+          if (is_startup_only_parameter(parameter.get_name())) {
+            result.successful = false;
+            result.reason = "Readback configuration is startup-only; restart the node to change it";
+            return result;
+          }
+        }
+        return result;
+      });
   bus_ = std::make_shared<DynamixelBus>(config_.device_name, config_.baud_rate,
                                         config_.protocol_version, config_.status_return_level,
                                         config_.verify_goal_registers);
@@ -14,7 +27,7 @@ ReadbackNode::ReadbackNode(const rclcpp::NodeOptions &options)
   temperature_pub_ = create_publisher<sensor_msgs::msg::Temperature>("/saprog/temperatures", 100);
   timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / config_.poll_rate),
                              [this]() { read_servos(); });
-  RCLCPP_INFO(get_logger(), "Reading %zu configured DYNAMIXEL IDs", config_.servo_ids.size());
+  RCLCPP_INFO(get_logger(), "Reading %zu configured DYNAMIXEL IDs", config_.servos.size());
 }
 
 std::shared_ptr<DynamixelBus> ReadbackNode::bus() const
@@ -27,8 +40,8 @@ void ReadbackNode::read_servos()
   sensor_msgs::msg::JointState states;
   states.header.stamp = now();
 
-  for (size_t i = 0; i < config_.servo_ids.size(); ++i) {
-    const auto id = config_.servo_ids[i];
+  for (const auto &servo : config_.servos) {
+    const auto id = servo.id;
     std::array<uint8_t, 8> data{};
     std::string error;
     if (!bus_->read(id, data, error)) {
@@ -37,8 +50,7 @@ void ReadbackNode::read_servos()
     }
 
     const uint16_t raw_position = static_cast<uint16_t>(data[0] | (data[1] << 8));
-    const double position =
-        saprog::ax::to_radians(raw_position, config_.zero_positions[i], config_.directions[i]);
+    const double position = saprog::ax::to_radians(raw_position, servo.zero_position, servo.direction);
     const uint16_t speed = static_cast<uint16_t>(data[2] | (data[3] << 8));
     const uint16_t load = static_cast<uint16_t>(data[4] | (data[5] << 8));
     const double voltage = data[6] / 10.0;

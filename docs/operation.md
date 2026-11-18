@@ -13,7 +13,17 @@ Home builds all packages before opening; a failed build prevents launching stale
 applications. It starts the shared servo controller and independent IMU backend.
 Tool launchers reuse installed executables; restart Home after source changes.
 Home closes its owned backends on exit; the servo controller also stops after the
-last launched tool closes. Direct launchers own their controller cleanup:
+last launched tool closes. Tools launched from Home reuse the controller PID and
+leave its lifetime with Home. Direct window launchers own their controller and
+stop it when their window exits. Standalone IMU launch owns its separate backend;
+closing the monitor alone does not stop it. Home owns the Robot view renderer and
+its state processes, which stop with Home or when **Stop view** is used. The
+launcher checks that Home's controller PID is still the controller launcher
+from this workspace; this prevents a recycled PID from being reused. It sends
+TERM and allows owned child processes up to two seconds to exit before KILL.
+Repeated termination signals are ignored during cleanup so owned processes get
+the same bounded shutdown path.
+The `verify` mode checks ROS/workspace setup without starting hardware.
 
 ```sh
 bash ./tabs/launch_snapshot_creator.sh
@@ -31,11 +41,23 @@ Animator launcher uses the same layout, and the individual launchers above
 remain available. Static Animator accepts the same `--directory PATH` option as
 the snapshot tools.
 
+Home and standalone Static Animator share one view assembly. Closing either asks
+Timeline to resolve unsaved edits and any active action first. If cancellation or
+the terminal action result is unknown, the window and its registered ROS nodes
+remain alive until the backend reports a terminal result. Home stops its owned
+backend processes only after that safe close path completes. Closing the IMU
+display does not call reset or clear-zero; calibration and zero are backend-owned
+while that backend remains running.
+
 Under WSL the USB device must first be shared with usbipd-win. If needed, run
 `usbipd bind --busid 1-2` in elevated Windows PowerShell, using its current BUSID.
 Servo launchers attach hardware ID `0403:6014` by default; override with
 `SAPROG_USB_BUSID` or `SAPROG_USB_HARDWARE_ID`. The configured `device_name` must
 appear as a character device before ROS starts. Closing the app does not detach USB.
+The IMU launch attaches hardware ID `1B4F:9D0F` under WSL; override with
+`SAPROG_IMU_USB_BUSID` or `SAPROG_IMU_USB_HARDWARE_ID`. Its helper selects the
+matching serial tty and emits its path on stdout. On native Linux no USB attach
+is attempted; pass `device:=/dev/tty...` when automatic detection is unsuitable.
 
 New `*.sh` files in [tabs/](../tabs/) appear in Home; use
 [_launch_window.bash](../tabs/_launch_window.bash) with `window EXECUTABLE` for

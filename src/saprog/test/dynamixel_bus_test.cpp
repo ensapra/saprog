@@ -160,6 +160,28 @@ int main()
   check(std::find(sdk.group_writes.begin(), sdk.group_writes.end(), 30) != sdk.group_writes.end());
 
   sdk = {};
+  DynamixelBus canceled_wait_bus("fake", 1000000, 1.0, 1, false);
+  sdk.read_delay = std::chrono::milliseconds(100);
+  std::atomic_bool cancel_read_started{false};
+  std::thread cancel_read([&]() {
+    std::array<uint8_t, 8> data{};
+    std::string read_error;
+    cancel_read_started = true;
+    (void)canceled_wait_bus.read(11, data, read_error);
+  });
+  while (!cancel_read_started) {
+    std::this_thread::yield();
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  const auto writes_before_canceled_command = sdk.group_writes.size();
+  check(!canceled_wait_bus.set_positions_before(
+      ids, {101, 201}, {50, 75}, torque_limits, 0.1,
+      std::chrono::steady_clock::now() + std::chrono::seconds(1), error, []() { return true; }));
+  check(error.find("canceled") != std::string::npos);
+  check(sdk.group_writes.size() == writes_before_canceled_command);
+  cancel_read.join();
+
+  sdk = {};
   DynamixelBus deadline_torque_bus("fake", 1000000, 1.0, 1, false);
   check(!deadline_torque_bus.set_torques_before(
       ids, false, std::chrono::steady_clock::now() - std::chrono::milliseconds(1), error));

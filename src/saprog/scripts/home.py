@@ -1,33 +1,36 @@
 #!/usr/bin/env python3
 """Show live temperatures and launch the desktop tools in the workspace."""
 
+if __name__ == "__main__":
+    from saprog_desktop.startup import home_main
+
+    raise SystemExit(home_main(entrypoint=__file__))
+
 import os
-import signal
 import subprocess
-import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-import rclpy
-from desktop_style import apply_style
-from imu_monitor import ImuMonitor
-from rclpy.node import Node
+from saprog_desktop.desktop_style import apply_style
 from robot_view import RobotView
 import snapshot_player
-from snapshot_files import default_snapshot_directory
-from snapshot_window import SnapshotWindow
-from temperature_monitor import TemperatureMonitor
-from timeline_window import TimelineWindow
+from saprog_desktop.snapshot_files import default_snapshot_directory
+from static_animator import build_animator_views
 
 WORKSPACE = Path(__file__).resolve().parents[3]
 TABS = WORKSPACE / "tabs"
 
 
 class Home:
-    def __init__(self, root, node):
+    def __init__(self, root, node, dependencies, scheduler):
+        from imu_monitor import ImuMonitor
+        from temperature_monitor import TemperatureMonitor
+
         self.root = root
         self.node = node
+        self.dependencies = dependencies
+        self.scheduler = scheduler
         self.closed = False
         self.children = {}
         self.backend = None
@@ -70,33 +73,31 @@ class Home:
         )
         self.status = tk.StringVar(value="")
         ttk.Label(outer, textvariable=self.status, wraplength=380).pack(anchor="w", pady=(10, 0))
-        self.monitor = TemperatureMonitor(temperature_panel, self.node)
-        self.imu_monitor = ImuMonitor(imu_panel, self.node, embedded=True)
+        self.monitor = TemperatureMonitor(temperature_panel, self.node, dependencies)
+        self.imu_monitor = ImuMonitor(imu_panel, self.node, embedded=True, dependencies=dependencies)
         self.robot_view = RobotView(robot_panel, WORKSPACE)
-        snapshot_player._load_runtime(sys.argv[1:], require_timeline=True, entrypoint=__file__)
         self.animator_nodes = [
-            snapshot_player.Node("saprog_static_animator_creator"),
-            snapshot_player.Node("saprog_static_animator_player"),
-            snapshot_player.Node("saprog_static_animator_timeline"),
+            dependencies.Node("saprog_static_animator_creator"),
+            dependencies.Node("saprog_static_animator_player"),
+            dependencies.Node("saprog_static_animator_timeline"),
         ]
+        for animator_node in self.animator_nodes:
+            scheduler.add_node(animator_node)
         directory = default_snapshot_directory()
-        animator_panel.columnconfigure(0, weight=1, uniform="animator")
-        animator_panel.columnconfigure(1, weight=1, uniform="animator")
-        animator_panel.rowconfigure(0, weight=2)
-        animator_panel.rowconfigure(1, weight=3)
-        creator_panel = ttk.Frame(animator_panel)
-        player_panel = ttk.Frame(animator_panel)
-        timeline_panel = ttk.Frame(animator_panel)
-        creator_panel.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 6), pady=6)
-        player_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0), pady=(6, 3))
-        timeline_panel.grid(row=1, column=1, sticky="nsew", padx=(6, 0), pady=(3, 6))
-        SnapshotWindow(root, self.animator_nodes[0], directory, container=creator_panel)
-        snapshot_player.SnapshotPlayer(
-            root, self.animator_nodes[1], directory, container=player_panel
+        self.animator_views = build_animator_views(
+            root,
+            animator_panel,
+            self.animator_nodes[0],
+            self.animator_nodes[1],
+            self.animator_nodes[2],
+            directory,
+            dependencies=dependencies,
+            torque_strength_changed=self._save_animator_torque_strength,
+            on_closed=self._finish_close,
         )
-        self.timeline = TimelineWindow(
-            root, self.animator_nodes[2], directory, container=timeline_panel
-        )
+        self.creator = self.animator_views.creator
+        self.player = self.animator_views.player
+        self.timeline = self.animator_views.timeline
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh()
         self._ensure_backend()
@@ -106,6 +107,17 @@ class Home:
     @staticmethod
     def title(script):
         return script.stem.removeprefix("launch_").replace("_", " ").title()
+
+    def _save_animator_torque_strength(self, value):
+        strength = max(0, min(1023, round(float(value))))
+        try:
+            snapshot_player.save_torque_strength(
+                snapshot_player.player_settings_path(), strength
+            )
+        except OSError as error:
+            self.creator.status.set(
+                f"Torque strength changed, but could not save preference: {error}"
+            )
 
     def refresh(self):
         scripts = sorted(
@@ -139,11 +151,6 @@ class Home:
     def watch(self):
         if self.closed:
             return
-        for _ in range(100):
-            rclpy.spin_once(self.node, timeout_sec=0)
-        for node in self.animator_nodes:
-            for _ in range(10):
-                rclpy.spin_once(node, timeout_sec=0)
         self.monitor.poll()
         self.refresh()
         for script, (process, notified) in list(self.children.items()):
@@ -241,6 +248,11 @@ class Home:
     def close(self):
         if self.closed:
             return
+        self.animator_views.request_close()
+
+    def _finish_close(self):
+        if self.closed:
+            return
         self.closed = True
         for script, (process, _notified) in self.children.items():
             if process.poll() is None:
@@ -251,8 +263,6 @@ class Home:
                     process.kill()
                     process.wait()
         self.imu_monitor.close()
-        for node in self.animator_nodes:
-            node.destroy_node()
         self.robot_view.close()
         self._stop_backend()
         if self.imu_backend is not None and self.imu_backend.poll() is None:
@@ -268,21 +278,4 @@ class Home:
                 except ProcessLookupError:
                     pass
                 self.imu_backend.wait()
-        self.node.destroy_node()
-        rclpy.shutdown()
-        self.root.destroy()
-
-
-def main():
-    rclpy.init()
-    root = tk.Tk()
-    node = Node("saprog_home_temperature_monitor")
-    app = Home(root, node)
-    signal.signal(signal.SIGTERM, lambda *_args: app.close())
-    signal.signal(signal.SIGINT, lambda *_args: app.close())
-    root.mainloop()
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+        self.scheduler.request_close()
