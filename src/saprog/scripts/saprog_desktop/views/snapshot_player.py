@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Open the snapshot player directly with ``python3 snapshot_player.py``."""
 
+import json
 import math
 import os
 import time
