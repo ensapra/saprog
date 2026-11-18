@@ -67,8 +67,8 @@ def build_animator_views(
     snapshots_split = ttk.Panedwindow(snapshots_tab, orient="horizontal")
     snapshots_split.pack(fill="both", expand=True)
     creator_panel, player_panel = ttk.Frame(snapshots_split), ttk.Frame(snapshots_split)
-    snapshots_split.add(creator_panel, weight=3)
-    snapshots_split.add(player_panel, weight=2)
+    snapshots_split.add(creator_panel, weight=1)
+    snapshots_split.add(player_panel, weight=1)
 
     if torque_strength_changed is None:
 
@@ -110,6 +110,7 @@ def build_animator_views(
             dependencies=dependencies,
         )
         creator.external_busy = lambda: player.playback is not None or player.torque_batch is not None
+        creator.stop_external_operation = player.stop_playback_and_disable_all_torque
         views = AnimatorViews(creator, player, None, notebook, snapshots_split, on_closed)
         timeline = TimelineWindow(
             root,

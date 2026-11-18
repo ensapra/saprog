@@ -57,6 +57,7 @@ class SnapshotWindow:
         self.show_snapshot_loader = show_snapshot_loader
         self.pending_snapshot_path = None
         self.external_busy = lambda: False
+        self.stop_external_operation = None
         self.torque_strength_changed = torque_strength_changed
         self.joints = []
         self.positions = {}
@@ -179,6 +180,7 @@ class SnapshotWindow:
             self.joint_frame.columnconfigure(column, weight=1, uniform="leg-column")
         for row in range(2):
             self.joint_frame.rowconfigure(row, weight=1, uniform="leg-row")
+        self.other_servos_frame = None
         name_row = self.dependencies.ttk.Frame(frame)
         name_row.pack(fill="x", pady=5)
         self.dependencies.ttk.Label(name_row, text="Snapshot name").pack(side="left")
@@ -245,9 +247,6 @@ class SnapshotWindow:
     def _configure(self, config):
         try:
             joints = list(config.joints)
-            unknown_joints = sorted(set(joints) - set(LEG_FOR_JOINT))
-            if unknown_joints:
-                raise ValueError(f"No leg position is defined for {', '.join(unknown_joints)}")
             services = {
                 joint: self.node.create_client(self.dependencies.SetBool, f"/saprog/{joint}/torque")
                 for joint in joints
@@ -264,13 +263,28 @@ class SnapshotWindow:
             for leg_frame in self.leg_frames.values():
                 for child in leg_frame.winfo_children():
                     child.destroy()
+            if self.other_servos_frame is not None:
+                for child in self.other_servos_frame.winfo_children():
+                    child.destroy()
             self.current_labels.clear()
             self.target_values.clear()
             self.target_edited.clear()
             self.manual_buttons.clear()
             self.torque_buttons.clear()
+            unknown_joints = [joint for joint in self.joints if joint not in LEG_FOR_JOINT]
+            if unknown_joints and self.other_servos_frame is None:
+                self.other_servos_frame = self.dependencies.ttk.LabelFrame(
+                    self.joint_frame, text="Other servos", padding=8
+                )
+                self.other_servos_frame.grid(
+                    row=2, column=0, columnspan=2, sticky="nsew", padx=5, pady=5
+                )
             for joint in self.joints:
-                leg_frame = self.leg_frames[LEG_FOR_JOINT[joint]]
+                leg_frame = (
+                    self.leg_frames[LEG_FOR_JOINT[joint]]
+                    if joint in LEG_FOR_JOINT
+                    else self.other_servos_frame
+                )
                 servo_row = self.dependencies.ttk.Frame(leg_frame)
                 servo_row.pack(fill="x", pady=3)
                 heading = self.dependencies.ttk.Frame(servo_row)
@@ -473,7 +487,10 @@ class SnapshotWindow:
 
     def release_all(self):
         if self.external_busy():
-            self.status.set("Wait for snapshot playback to finish before releasing torque")
+            if self.stop_external_operation is not None:
+                self.stop_external_operation()
+            else:
+                self.status.set("Wait for snapshot playback to finish before releasing torque")
             return
         for joint in self.joints:
             if joint not in self.pending:

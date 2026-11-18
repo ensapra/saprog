@@ -353,6 +353,31 @@ class SnapshotPlayer:
         if not self._ready() or self.playback is not None or self.torque_batch is not None:
             self.status.set("Wait for the controller and any current operation to finish")
             return
+        self._start_disable_all_torque()
+
+    def stop_playback_and_disable_all_torque(self):
+        """Cancel pose arrival tracking and release torque on every configured joint."""
+        if self.torque_batch is not None:
+            self.status.set("Wait for torque disable to finish")
+            return
+        if self.playback is not None:
+            release_adapter = self.playback.get("release_adapter")
+            if release_adapter is not None:
+                release_adapter.close()
+            self.playback = None
+            self._update_buttons()
+        try:
+            services_ready = bool(self.joints) and all(
+                client.service_is_ready() for client in self.torque_clients.values()
+            )
+        except Exception:
+            services_ready = False
+        if not services_ready:
+            self.status.set("Cannot stop: torque services are not ready for every joint")
+            return
+        self._start_disable_all_torque()
+
+    def _start_disable_all_torque(self):
         self.torque_batch = {
             "pending": set(self.joints),
             "failed": {},
