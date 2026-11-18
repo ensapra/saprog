@@ -10,13 +10,16 @@ These tests do not need sourced ROS, a display server, or robot hardware:
 
 ```sh
 PYTHONPATH=../scripts python3 -m unittest \
-  test_player_settings test_snapshot_units test_monitor_models test_playback_adapters
+  test_player_settings test_snapshot_units test_monitor_models test_playback_adapters \
+  test_project_data
 ```
 
 The `saprog_pure_python_tests` CTest entry runs the same modules from the test
 directory. It covers storage preferences, snapshot units and validation,
 display-independent monitor models, playback coordination, configuration
 decoding, and asynchronous adapter behavior through small fakes.
+It also validates all checked-in snapshots and resolves each checked-in
+timeline sequence against the snapshot directory.
 
 ## Process and platform checks
 

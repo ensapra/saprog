@@ -62,9 +62,12 @@ offline validation of 17 snapshots/four sequences, and 12 URDF joint mappings.
 It fixed UI lockups after lost torque responses/failed timeline submission,
 centralized conversions/status displays, and rejected invalid startup configuration.
 
-C++ build/CTest could not run through the Windows VS Code integration; new C++
-configuration/conversion tests remain unverified. Live motion, reconnects, mounting,
-sensor accuracy and deadline behavior also need hardware checks.
+A fresh build of `saprog_description` and `saprog` passed in WSL Ubuntu 24.04
+with ROS Jazzy on 2026-11-18. All eight registered CTest suites passed,
+including the separated pure Python, ROS/Tk, POSIX process and native tests.
+Use WSL for ROS build/test commands; Windows CMake Tools did not discover these
+ROS package targets. Live motion, reconnects, mounting, sensor accuracy and
+deadline behavior still need hardware checks.
 
 [Tests](../src/saprog/test/) use Python `unittest` and CTest. The [validation
 guide](testing.md) documents the pure Python, POSIX process, ROS/Tk, and native

@@ -3,8 +3,8 @@ import os
 import unittest
 from unittest import mock
 
-from saprog_desktop import runtime
 from home import Home
+from saprog_desktop import runtime
 from static_animator import AnimatorViews
 
 
@@ -70,8 +70,6 @@ class CloseProbe:
     def close(self):
         self.close_requests += 1
         self.events.append(("request-close", self.name))
-        if self.close_callback is not None:
-            self.close_callback()
 
 
 class ProcessProbe:
@@ -136,8 +134,8 @@ class RuntimeTests(unittest.TestCase):
 
     def test_animator_partial_initialization_closes_constructed_views(self):
         import snapshot_window
-        import timeline_window
         import static_animator
+        import timeline_window
 
         class FakeWidget:
             def __init__(self, *_args, **_kwargs):
@@ -155,10 +153,12 @@ class RuntimeTests(unittest.TestCase):
         dependencies.ttk.Frame = FakeWidget
         dependencies.ttk.Panedwindow = FakeWidget
         with (
-            mock.patch.object(snapshot_window, "SnapshotWindow", return_value=creator),
+            mock.patch.object(
+                snapshot_window, "SnapshotWindow", return_value=creator
+            ) as creator_factory,
             mock.patch.object(
                 static_animator.snapshot_player, "SnapshotPlayer", return_value=player
-            ),
+            ) as player_factory,
             mock.patch.object(
                 static_animator.snapshot_player, "load_torque_strength", return_value=512
             ),
@@ -169,7 +169,7 @@ class RuntimeTests(unittest.TestCase):
                 timeline_window,
                 "TimelineWindow",
                 side_effect=RuntimeError("timeline construction failed"),
-            ),
+            ) as timeline_factory,
         ):
             with self.assertRaisesRegex(RuntimeError, "timeline construction failed"):
                 static_animator.build_animator_views(
@@ -184,15 +184,15 @@ class RuntimeTests(unittest.TestCase):
 
         creator.close.assert_called_once_with()
         player.close.assert_called_once_with()
-        snapshot_window.SnapshotWindow.assert_called_once()
-        self.assertIs(snapshot_window.SnapshotWindow.call_args.kwargs["dependencies"], dependencies)
-        self.assertFalse(snapshot_window.SnapshotWindow.call_args.kwargs["show_snapshot_loader"])
-        static_animator.snapshot_player.SnapshotPlayer.assert_called_once()
-        player_args = static_animator.snapshot_player.SnapshotPlayer.call_args.kwargs
+        creator_factory.assert_called_once()
+        self.assertIs(creator_factory.call_args.kwargs["dependencies"], dependencies)
+        self.assertFalse(creator_factory.call_args.kwargs["show_snapshot_loader"])
+        player_factory.assert_called_once()
+        player_args = player_factory.call_args.kwargs
         self.assertIs(player_args["dependencies"], dependencies)
         self.assertIs(player_args["on_pose_selected"], creator.load_targets_from_file)
-        timeline_window.TimelineWindow.assert_called_once()
-        self.assertIs(timeline_window.TimelineWindow.call_args.kwargs["dependencies"], dependencies)
+        timeline_factory.assert_called_once()
+        self.assertIs(timeline_factory.call_args.kwargs["dependencies"], dependencies)
 
     def test_animator_close_waits_for_timeline_outcome_and_disposes_once(self):
         events = []
@@ -232,7 +232,8 @@ class RuntimeTests(unittest.TestCase):
         home = Home.__new__(Home)
         home.closed = False
         home.children = {}
-        home.backend = ProcessProbe()
+        backend = ProcessProbe()
+        home.backend = backend
         home.imu_backend = None
         home.imu_monitor = CloseServiceProbe()
         home.robot_view = CloseServiceProbe()
@@ -255,8 +256,9 @@ class RuntimeTests(unittest.TestCase):
         # callback and only then disposes Home's backend/root resources.
         timeline.close_callback()
 
-        self.assertFalse(home.backend.running)
-        self.assertTrue(home.backend.terminated)
+        self.assertFalse(backend.running)
+        self.assertTrue(backend.terminated)
+        self.assertIsNone(home.backend)
         self.assertTrue(home.closed)
         self.assertTrue(home.imu_monitor.closed)
         home.scheduler.request_close.assert_called_once_with()
