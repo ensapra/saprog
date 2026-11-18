@@ -11,9 +11,6 @@ import math
 import os
 import re
 import time
-import tkinter as tk
-from tkinter import ttk
-
 from saprog_desktop.desktop_style import BACKGROUND, apply_style, configure_changed, status_box
 from saprog_desktop.motion_controls import add_slider, set_motion
 from saprog_desktop.snapshot_files import write_json_atomic
@@ -78,7 +75,9 @@ class SnapshotWindow:
         self.manual_buttons = {}
         self.torque_buttons = {}
         self.current_labels = {}
-        self.status = dependencies.tk.StringVar(value="Waiting for controller configuration and joint states")
+        self.status = dependencies.tk.StringVar(
+            value="Waiting for controller configuration and joint states"
+        )
         self.snapshot_name = dependencies.tk.StringVar()
         self.selected = dependencies.tk.StringVar()
         self.selected_path = None
@@ -124,26 +123,43 @@ class SnapshotWindow:
             apply_style(self.root)
             self.root.title("Snapshot Creator")
             self.root.geometry("940x820")
-        frame = ttk.Frame(self.container, padding=14)
+        frame = self.dependencies.ttk.Frame(self.container, padding=14)
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="Snapshot Creator", style="Title.TLabel").pack(anchor="w")
-        self.speed_scale = add_slider(frame, "Movement speed", self.moving_speed, 1)
-        self.torque_scale = add_slider(
-            frame, "Torque strength", self.torque_strength, 0, self.torque_strength_changed
+        self.dependencies.ttk.Label(frame, text="Snapshot Creator", style="Title.TLabel").pack(
+            anchor="w"
         )
-        ttk.Label(
+        self.speed_scale = add_slider(
+            frame,
+            "Movement speed",
+            self.moving_speed,
+            1,
+            ttk_module=self.dependencies.ttk,
+        )
+        self.torque_scale = add_slider(
+            frame,
+            "Torque strength",
+            self.torque_strength,
+            0,
+            self.torque_strength_changed,
+            ttk_module=self.dependencies.ttk,
+        )
+        self.dependencies.ttk.Label(
             frame,
             text="Applies to every joint on the next Move or Load Snapshot.",
             style="Muted.TLabel",
         ).pack(anchor="w")
-        rows = ttk.Frame(frame)
+        rows = self.dependencies.ttk.Frame(frame)
         rows.pack(fill="both", expand=True, pady=10)
-        self.canvas = tk.Canvas(rows, height=430, highlightthickness=0, background=BACKGROUND)
-        scrollbar = ttk.Scrollbar(rows, orient="vertical", command=self.canvas.yview)
+        self.canvas = self.dependencies.tk.Canvas(
+            rows, height=430, highlightthickness=0, background=BACKGROUND
+        )
+        scrollbar = self.dependencies.ttk.Scrollbar(
+            rows, orient="vertical", command=self.canvas.yview
+        )
         self.canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
         self.canvas.pack(side="left", fill="both", expand=True)
-        self.joint_frame = ttk.Frame(self.canvas)
+        self.joint_frame = self.dependencies.ttk.Frame(self.canvas)
         self.joint_canvas_item = self.canvas.create_window(
             (0, 0), window=self.joint_frame, anchor="nw"
         )
@@ -156,59 +172,67 @@ class SnapshotWindow:
         )
         self.leg_frames = {}
         for name, (grid_row, grid_column), _joints in LEG_LAYOUT:
-            leg_frame = ttk.LabelFrame(self.joint_frame, text=name, padding=8)
+            leg_frame = self.dependencies.ttk.LabelFrame(self.joint_frame, text=name, padding=8)
             leg_frame.grid(row=grid_row, column=grid_column, sticky="nsew", padx=5, pady=5)
             self.leg_frames[name] = leg_frame
         for column in range(2):
             self.joint_frame.columnconfigure(column, weight=1, uniform="leg-column")
         for row in range(2):
             self.joint_frame.rowconfigure(row, weight=1, uniform="leg-row")
-        name_row = ttk.Frame(frame)
+        name_row = self.dependencies.ttk.Frame(frame)
         name_row.pack(fill="x", pady=5)
-        ttk.Label(name_row, text="Snapshot name").pack(side="left")
-        ttk.Entry(name_row, textvariable=self.snapshot_name).pack(
+        self.dependencies.ttk.Label(name_row, text="Snapshot name").pack(side="left")
+        self.dependencies.ttk.Entry(name_row, textvariable=self.snapshot_name).pack(
             side="left", fill="x", expand=True, padx=8
         )
-        self.save_button = ttk.Button(
+        self.save_button = self.dependencies.ttk.Button(
             name_row, text="Save targets", style="Accent.TButton", command=self.save
         )
         self.save_button.pack(side="right")
         self.combo = self.refresh_button = self.browse_button = self.load_button = None
         if self.show_snapshot_loader:
-            load_row = ttk.Frame(frame)
+            load_row = self.dependencies.ttk.Frame(frame)
             load_row.pack(fill="x", pady=5)
-            self.combo = ttk.Combobox(load_row, textvariable=self.selected, state="readonly")
+            self.combo = self.dependencies.ttk.Combobox(
+                load_row, textvariable=self.selected, state="readonly"
+            )
             self.combo.pack(side="left", fill="x", expand=True)
             self.combo.bind(
                 "<<ComboboxSelected>>", lambda _event: setattr(self, "selected_path", None)
             )
-            self.refresh_button = ttk.Button(load_row, text="Refresh", command=self.refresh_files)
+            self.refresh_button = self.dependencies.ttk.Button(
+                load_row, text="Refresh", command=self.refresh_files
+            )
             self.refresh_button.pack(side="left", padx=6)
-            self.browse_button = ttk.Button(
+            self.browse_button = self.dependencies.ttk.Button(
                 load_row, text="Browse...", command=self.browse_snapshot
             )
             self.browse_button.pack(side="left", padx=3)
-            self.load_button = ttk.Button(load_row, text="Load Snapshot", command=self.load)
+            self.load_button = self.dependencies.ttk.Button(
+                load_row, text="Load Snapshot", command=self.load
+            )
             self.load_button.pack(side="left")
-        self.fixed_toggle = ttk.Checkbutton(
+        self.fixed_toggle = self.dependencies.ttk.Checkbutton(
             frame,
             text="Fixed: keep torque holding the loaded targets",
             variable=self.hold_after_load,
         )
         self.fixed_toggle.pack(anchor="w", pady=4)
-        ttk.Label(
+        self.dependencies.ttk.Label(
             frame,
             text="Both modes move to saved positions. Fixed off releases torque only after every joint arrives and holds stable.",
             wraplength=620,
         ).pack(anchor="w")
-        self.release_all_button = ttk.Button(
+        self.release_all_button = self.dependencies.ttk.Button(
             frame, text="Release all joints", command=self.release_all
         )
         self.release_all_button.pack(anchor="w", pady=8)
         self._build_status_box(frame, 620)
 
     def _build_status_box(self, parent, width):
-        self.status_box = status_box(parent, self.status, height=3, width=width)
+        self.status_box = status_box(
+            parent, self.status, height=3, width=width, tk_module=self.dependencies.tk
+        )
         self.status_box.pack(fill="x", pady=8)
 
     def _configuration_result(self, config, error):
@@ -225,9 +249,7 @@ class SnapshotWindow:
             if unknown_joints:
                 raise ValueError(f"No leg position is defined for {', '.join(unknown_joints)}")
             services = {
-                joint: self.node.create_client(
-                    self.dependencies.SetBool, f"/saprog/{joint}/torque"
-                )
+                joint: self.node.create_client(self.dependencies.SetBool, f"/saprog/{joint}/torque")
                 for joint in joints
             }
             torque_adapters = {
@@ -249,30 +271,36 @@ class SnapshotWindow:
             self.torque_buttons.clear()
             for joint in self.joints:
                 leg_frame = self.leg_frames[LEG_FOR_JOINT[joint]]
-                servo_row = ttk.Frame(leg_frame)
+                servo_row = self.dependencies.ttk.Frame(leg_frame)
                 servo_row.pack(fill="x", pady=3)
-                heading = ttk.Frame(servo_row)
+                heading = self.dependencies.ttk.Frame(servo_row)
                 heading.pack(fill="x")
-                ttk.Label(heading, text=joint, width=9).pack(side="left")
-                label = ttk.Label(heading, text="Waiting for telemetry", width=24, anchor="e")
+                self.dependencies.ttk.Label(heading, text=joint, width=9).pack(side="left")
+                label = self.dependencies.ttk.Label(
+                    heading, text="Waiting for telemetry", width=24, anchor="e"
+                )
                 label.pack(side="left", fill="x", expand=True)
                 self.current_labels[joint] = label
                 low, high = self.bounds[joint]
-                ttk.Label(servo_row, text=f"Limits: {low:.3f} .. {high:.3f} rad").pack(anchor="w")
-                controls = ttk.Frame(servo_row)
+                self.dependencies.ttk.Label(
+                    servo_row, text=f"Limits: {low:.3f} .. {high:.3f} rad"
+                ).pack(anchor="w")
+                controls = self.dependencies.ttk.Frame(servo_row)
                 controls.pack(fill="x")
-                ttk.Label(controls, text="Target (rad)").pack(side="left", padx=(0, 3))
+                self.dependencies.ttk.Label(controls, text="Target (rad)").pack(
+                    side="left", padx=(0, 3)
+                )
                 target = self.dependencies.tk.StringVar()
-                entry = ttk.Entry(controls, textvariable=target, width=10)
+                entry = self.dependencies.ttk.Entry(controls, textvariable=target, width=10)
                 entry.pack(side="left")
                 entry.bind("<KeyRelease>", lambda _event, j=joint: self.target_edited.add(j))
                 self.target_values[joint] = target
-                move = ttk.Button(
+                move = self.dependencies.ttk.Button(
                     controls, text="Move", command=lambda j=joint: self.move_to_manual_value(j)
                 )
                 move.pack(side="left", padx=3)
                 self.manual_buttons[joint] = move
-                toggle = ttk.Button(
+                toggle = self.dependencies.ttk.Button(
                     controls,
                     text="Fix",
                     style="Fix.TButton",
@@ -390,9 +418,7 @@ class SnapshotWindow:
         button = self.torque_buttons.get(joint)
         if button is None:
             return
-        pending = (
-            joint in self.pending or self.playback_state is not None or self.external_busy()
-        )
+        pending = joint in self.pending or self.playback_state is not None or self.external_busy()
         is_fixed = joint in self.fixed
         configure_changed(
             button,
@@ -556,7 +582,9 @@ class SnapshotWindow:
             except Exception:
                 ready = False
             if not ready:
-                self.status.set("Cannot start: torque release services are not ready for every joint")
+                self.status.set(
+                    "Cannot start: torque release services are not ready for every joint"
+                )
                 return
         self.playback_state = {
             "name": name,
@@ -606,12 +634,14 @@ class SnapshotWindow:
         )
         playback["release_adapter"].start(False)
         playback["release_pending"] = {
-            joint: (object(), time.monotonic()) for joint, result
-            in playback["release_adapter"].outcomes.items() if result == "pending"
+            joint: (object(), time.monotonic())
+            for joint, result in playback["release_adapter"].outcomes.items()
+            if result == "pending"
         }
         playback["release_results"] = {
-            joint: (None if result == "pending" or result == "success"
-                    else result.split(": ", 1)[-1])
+            joint: (
+                None if result == "pending" or result == "success" else result.split(": ", 1)[-1]
+            )
             for joint, result in playback["release_adapter"].outcomes.items()
         }
         if not playback["release_pending"]:
@@ -681,16 +711,23 @@ class SnapshotWindow:
                 )
             else:
                 state = coordinator.observe(
-                    {}, received_at=self.last_state, stamp=self.last_state_stamp,
-                    controller_now=self.node.get_clock().now().nanoseconds, now=now,
+                    {},
+                    received_at=self.last_state,
+                    stamp=self.last_state_stamp,
+                    controller_now=self.node.get_clock().now().nanoseconds,
+                    now=now,
                 )
             state = coordinator.tick(now)
             playback["arrival_detail"] = coordinator.detail
             if state == "failed":
                 self._finish_playback(
-                    "Movement incomplete: " + coordinator.detail
-                    + (". Check controller errors and torque strength. Torque unchanged."
-                       if "No progress" in coordinator.detail else "")
+                    "Movement incomplete: "
+                    + coordinator.detail
+                    + (
+                        ". Check controller errors and torque strength. Torque unchanged."
+                        if "No progress" in coordinator.detail
+                        else ""
+                    )
                 )
                 return
             if state == "release":

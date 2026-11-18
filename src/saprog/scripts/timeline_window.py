@@ -29,11 +29,19 @@ from timeline_model import (
 
 class TimelineWindow:
     def __init__(
-        self, root, node, directory, container=None, on_close=None, dependencies=None,
+        self,
+        root,
+        node,
+        directory,
+        container=None,
+        on_close=None,
+        dependencies=None,
         communication_timeout_ms=8000,
     ):
         if type(communication_timeout_ms) is not int or communication_timeout_ms < 1:
-            raise ValueError("Timeline communication timeout must be a positive integer in milliseconds")
+            raise ValueError(
+                "Timeline communication timeout must be a positive integer in milliseconds"
+            )
         if dependencies is None:
             raise ValueError("TimelineWindow requires injected desktop runtime dependencies")
         self.root, self.node, self.directory = root, node, directory
@@ -47,7 +55,9 @@ class TimelineWindow:
         self.selected_index = None
         self.edit_widgets = []
         self.on_close = on_close
-        self.status = dependencies.tk.StringVar(value="Waiting for separately started saprog controller")
+        self.status = dependencies.tk.StringVar(
+            value="Waiting for separately started saprog controller"
+        )
         self.configuration = SnapshotConfigurationClient(
             node.create_client(dependencies.Trigger, "/saprog/refresh_limits"),
             dependencies.AsyncParameterClient(node, "/saprog_position_controller"),
@@ -142,7 +152,9 @@ class TimelineWindow:
         body.pack(fill="both", expand=True)
         sequence_panel = self.dependencies.ttk.Frame(body)
         sequence_panel.pack(side="left", fill="both", expand=True, padx=(0, 10))
-        self.sequence = self.dependencies.tk.Listbox(sequence_panel, height=9, exportselection=False)
+        self.sequence = self.dependencies.tk.Listbox(
+            sequence_panel, height=9, exportselection=False
+        )
         self.sequence.pack(fill="both", expand=True, pady=8)
         self.sequence.bind("<<ListboxSelect>>", self.select)
         row = self.dependencies.ttk.Frame(sequence_panel)
@@ -188,12 +200,14 @@ class TimelineWindow:
         row.pack(fill="x")
         self.play_button = self.button(row, "Play timeline", self.play_timeline)
         self.test_button = self.button(row, "Test selected step", lambda: self.play_timeline(True))
-        self.dependencies.ttk.Button(row, text="Stop sequence", command=self.stop).pack(side="left", padx=4)
+        self.dependencies.ttk.Button(row, text="Stop sequence", command=self.stop).pack(
+            side="left", padx=4
+        )
         self.dependencies.ttk.Label(
             outer,
             text="Stop prevents further commands; already sent motion or torque changes may finish.",
         ).pack(anchor="w", pady=5)
-        self.status_box = status_box(outer, self.status, height=4)
+        self.status_box = status_box(outer, self.status, height=4, tk_module=self.dependencies.tk)
         self.status_box.pack(fill="x")
 
     def button(self, parent, label, callback, side="left"):
@@ -245,9 +259,19 @@ class TimelineWindow:
         self.servo_vars = {}
 
     def _motion_controls(self, parent, motion):
-        variables = {key: self.dependencies.tk.IntVar(value=motion[key]) for key in ("speed", "torque")}
+        variables = {
+            key: self.dependencies.tk.IntVar(value=motion[key]) for key in ("speed", "torque")
+        }
         for key, label in (("speed", "Speed"), ("torque", "Torque strength")):
-            self.transition_widgets.append(add_slider(parent, label, variables[key], 1))
+            self.transition_widgets.append(
+                add_slider(
+                    parent,
+                    label,
+                    variables[key],
+                    1,
+                    ttk_module=self.dependencies.ttk,
+                )
+            )
         return variables
 
     def _show_transition(self, step):
@@ -270,7 +294,9 @@ class TimelineWindow:
         )
         duration_picker.pack(side="left", padx=4)
         seconds_row = self.dependencies.ttk.Frame(duration_row)
-        seconds_entry = self.dependencies.ttk.Entry(seconds_row, textvariable=self.duration_seconds, width=8)
+        seconds_entry = self.dependencies.ttk.Entry(
+            seconds_row, textvariable=self.duration_seconds, width=8
+        )
         seconds_entry.pack(side="left")
         self.dependencies.ttk.Label(seconds_row, text="seconds").pack(side="left", padx=4)
 
@@ -410,9 +436,13 @@ class TimelineWindow:
         step = self.steps[self.selected_index]
         if kind == "wait":
             self.editor.configure(text="Wait")
-            self.dependencies.ttk.Label(self.transition_controls, text="Duration (seconds)").pack(anchor="w")
+            self.dependencies.ttk.Label(self.transition_controls, text="Duration (seconds)").pack(
+                anchor="w"
+            )
             self.wait_var = self.dependencies.tk.StringVar(value=str(step["seconds"]))
-            entry = self.dependencies.ttk.Entry(self.transition_controls, textvariable=self.wait_var)
+            entry = self.dependencies.ttk.Entry(
+                self.transition_controls, textvariable=self.wait_var
+            )
             entry.pack(fill="x", pady=5)
             self.transition_widgets.append(entry)
             self.dependencies.ttk.Label(
@@ -491,7 +521,9 @@ class TimelineWindow:
     def discard(self):
         return self.apply() and (
             not self.dirty
-            or self.dependencies.messagebox.askyesno("Unsaved timeline", "Discard unsaved changes?", parent=self.root)
+            or self.dependencies.messagebox.askyesno(
+                "Unsaved timeline", "Discard unsaved changes?", parent=self.root
+            )
         )
 
     def new(self):
@@ -535,7 +567,9 @@ class TimelineWindow:
         if not self.discard():
             restore_editor()
             return
-        path = self.dependencies.filedialog.askopenfilename(parent=self.root, filetypes=[("Timeline JSON", "*.json")])
+        path = self.dependencies.filedialog.askopenfilename(
+            parent=self.root, filetypes=[("Timeline JSON", "*.json")]
+        )
         if not path:
             restore_editor()
             return
@@ -592,7 +626,9 @@ class TimelineWindow:
             try:
                 self.timeline_goal_future = self.timeline_client.send_goal_async(
                     goal,
-                    feedback_callback=lambda feedback: self._timeline_feedback(feedback, session_id),
+                    feedback_callback=lambda feedback: self._timeline_feedback(
+                        feedback, session_id
+                    ),
                 )
             except (OSError, RuntimeError, TypeError, ValueError) as exc:
                 self._finish_timeline_action(f"Could not submit timeline: {exc}", session_id)
@@ -606,16 +642,26 @@ class TimelineWindow:
                 # The request may already be in flight; keep the motion lock until
                 # the goal response eventually identifies its backend state.
                 self.timeline_state = "goal_unknown"
-                self.status.set(f"Goal was submitted but response tracking failed: {exc}. Outcome unknown; timeline remains locked.")
+                self.status.set(
+                    f"Goal was submitted but response tracking failed: {exc}. Outcome unknown; timeline remains locked."
+                )
         except (OSError, ValueError, TypeError, RuntimeError) as exc:
             self._finish_timeline_action(f"Could not submit timeline: {exc}")
 
     def _timeline_feedback(self, feedback_message, session_id=None):
         session_id = self.timeline_session_id if session_id is None else session_id
-        if (session_id != self.timeline_session_id or self.run_steps is None
-                or self.timeline_state not in (
-                    "active", "cancel_pending", "cancel_acknowledged", "cancel_unknown", "result_unknown"
-                )):
+        if (
+            session_id != self.timeline_session_id
+            or self.run_steps is None
+            or self.timeline_state
+            not in (
+                "active",
+                "cancel_pending",
+                "cancel_acknowledged",
+                "cancel_unknown",
+                "result_unknown",
+            )
+        ):
             return
         feedback = feedback_message.feedback
         self.run_index = max(0, min(len(self.run_steps) - 1, feedback.current_step - 1))
@@ -646,12 +692,19 @@ class TimelineWindow:
             return
         if operation == "goal" and self.timeline_state == "goal_pending":
             self.timeline_state = "goal_unknown"
-            self.status.set("Goal response timed out; outcome unknown. Timeline remains locked while ROS may still accept it.")
+            self.status.set(
+                "Goal response timed out; outcome unknown. Timeline remains locked while ROS may still accept it."
+            )
         elif operation == "cancel" and self.timeline_state == "cancel_pending":
             self.timeline_state = "cancel_unknown"
-            self.status.set("Cancellation response timed out; cancellation is unconfirmed and the timeline remains locked.")
+            self.status.set(
+                "Cancellation response timed out; cancellation is unconfirmed and the timeline remains locked."
+            )
         elif operation == "result" and self.timeline_state in (
-            "active", "cancel_pending", "cancel_acknowledged", "cancel_unknown"
+            "active",
+            "cancel_pending",
+            "cancel_acknowledged",
+            "cancel_unknown",
         ):
             self.timeline_state = "result_unknown"
             self.status.set(
@@ -668,7 +721,9 @@ class TimelineWindow:
             handle = future.result()
         except Exception as exc:
             self.timeline_state = "goal_unknown"
-            self.status.set(f"Could not confirm timeline goal response: {exc}. Outcome unknown; timeline remains locked.")
+            self.status.set(
+                f"Could not confirm timeline goal response: {exc}. Outcome unknown; timeline remains locked."
+            )
             return
         self.timeline_goal_future = None
         if not handle.accepted:
@@ -686,7 +741,9 @@ class TimelineWindow:
             )
         except Exception as exc:
             self.timeline_state = "result_unknown"
-            self.status.set(f"Goal accepted, but result delivery could not be started: {exc}. Outcome unknown; timeline remains locked.")
+            self.status.set(
+                f"Goal accepted, but result delivery could not be started: {exc}. Outcome unknown; timeline remains locked."
+            )
         if self.cancel_when_accepted and self.timeline_state != "result_unknown":
             self._request_timeline_cancel()
 
@@ -706,7 +763,9 @@ class TimelineWindow:
                 status = result.message or "ROS timeline execution failed"
         except Exception as exc:
             self.timeline_state = "result_unknown"
-            self.status.set(f"Could not read timeline result: {exc}. Outcome unknown; timeline remains locked.")
+            self.status.set(
+                f"Could not read timeline result: {exc}. Outcome unknown; timeline remains locked."
+            )
             return
         self._finish_timeline_action(status, session_id)
 
@@ -733,7 +792,9 @@ class TimelineWindow:
         if self.timeline_goal_handle is None:
             self.cancel_when_accepted = True
             if self.timeline_state == "goal_unknown":
-                self.status.set("Stop recorded; if ROS later accepts the goal, cancellation will be requested. Timeline remains locked.")
+                self.status.set(
+                    "Stop recorded; if ROS later accepts the goal, cancellation will be requested. Timeline remains locked."
+                )
             return
         try:
             if self.timeline_state in ("cancel_pending", "cancel_acknowledged", "cancel_unknown"):
@@ -749,7 +810,9 @@ class TimelineWindow:
         except Exception as exc:
             self._clear_timeline_wait("cancel")
             self.timeline_state = "cancel_unknown"
-            self.status.set(f"Could not confirm cancellation submission: {exc}; timeline may still be running. Editor remains locked.")
+            self.status.set(
+                f"Could not confirm cancellation submission: {exc}; timeline may still be running. Editor remains locked."
+            )
 
     def _timeline_cancel_response(self, future, session_id=None):
         session_id = self.timeline_session_id if session_id is None else session_id
@@ -766,16 +829,24 @@ class TimelineWindow:
             else:
                 self.timeline_state = "cancel_acknowledged"
                 self._bound_timeline_wait("result", session_id)
-                self.status.set("Cancellation request acknowledged; waiting for the execution result to confirm the outcome.")
+                self.status.set(
+                    "Cancellation request acknowledged; waiting for the execution result to confirm the outcome."
+                )
         except Exception as exc:
             self.timeline_state = "cancel_unknown"
-            self.status.set(f"Could not confirm cancellation: {exc}; cancellation outcome is unknown and timeline may still be running.")
+            self.status.set(
+                f"Could not confirm cancellation: {exc}; cancellation outcome is unknown and timeline may still be running."
+            )
 
     def _ready(self):
         return bool(self.joints) and self.timeline_client.server_is_ready()
 
     def _readiness_message(self):
-        return "Ready" if self.timeline_client.server_is_ready() else "Waiting for ROS timeline executor"
+        return (
+            "Ready"
+            if self.timeline_client.server_is_ready()
+            else "Waiting for ROS timeline executor"
+        )
 
     def _playback_tick(self):
         return
@@ -791,7 +862,9 @@ class TimelineWindow:
             state = (
                 "disabled"
                 if locked
-                else ("readonly" if isinstance(widget, self.dependencies.ttk.Combobox) else "normal")
+                else (
+                    "readonly" if isinstance(widget, self.dependencies.ttk.Combobox) else "normal"
+                )
             )
             configure_changed(widget, state=state)
         self.sequence.configure(state="disabled" if locked else "normal")

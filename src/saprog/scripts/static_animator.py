@@ -54,12 +54,11 @@ def build_animator_views(
     on_closed=None,
 ):
     """Build and own the shared Creator/Player and Timeline composition."""
-    from tkinter import ttk
-
     from snapshot_window import SnapshotWindow
     from timeline_window import TimelineWindow
 
     directory = os.path.abspath(os.path.expanduser(directory))
+    ttk = dependencies.ttk
     notebook = ttk.Notebook(parent)
     notebook.pack(fill="both", expand=True)
     snapshots_tab, timeline_tab = (ttk.Frame(notebook) for _ in range(2))

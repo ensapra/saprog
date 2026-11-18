@@ -1,6 +1,5 @@
 import builtins
 import os
-import tkinter.ttk
 import unittest
 from unittest import mock
 
@@ -100,6 +99,41 @@ class CloseServiceProbe:
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_creator_widgets_use_injected_tk_runtime(self):
+        import snapshot_window
+
+        creator = snapshot_window.SnapshotWindow.__new__(snapshot_window.SnapshotWindow)
+        creator.root = object()
+        creator.container = mock.Mock()
+        creator.dependencies = mock.Mock()
+        creator.show_snapshot_loader = False
+        creator.moving_speed = mock.Mock()
+        creator.torque_strength = mock.Mock()
+        creator.torque_strength_changed = None
+        creator.snapshot_name = mock.Mock()
+        creator.selected = mock.Mock()
+        creator.hold_after_load = mock.Mock()
+        creator.status = mock.Mock()
+
+        with (
+            mock.patch.object(snapshot_window, "apply_style"),
+            mock.patch.object(snapshot_window, "add_slider"),
+            mock.patch.object(snapshot_window, "status_box") as status_box,
+        ):
+            creator._build()
+
+        self.assertFalse(hasattr(snapshot_window, "tk"))
+        self.assertFalse(hasattr(snapshot_window, "ttk"))
+        creator.dependencies.ttk.Frame.assert_called()
+        creator.dependencies.tk.Canvas.assert_called_once()
+        status_box.assert_called_once_with(
+            mock.ANY,
+            creator.status,
+            height=3,
+            width=620,
+            tk_module=creator.dependencies.tk,
+        )
+
     def test_animator_partial_initialization_closes_constructed_views(self):
         import snapshot_window
         import timeline_window
@@ -116,16 +150,21 @@ class RuntimeTests(unittest.TestCase):
                 pass
 
         creator, player = mock.Mock(), mock.Mock()
+        dependencies = mock.Mock()
+        dependencies.ttk.Notebook = FakeWidget
+        dependencies.ttk.Frame = FakeWidget
+        dependencies.ttk.Panedwindow = FakeWidget
         with (
-            mock.patch.object(tkinter.ttk, "Notebook", FakeWidget),
-            mock.patch.object(tkinter.ttk, "Frame", FakeWidget),
-            mock.patch.object(tkinter.ttk, "Panedwindow", FakeWidget),
             mock.patch.object(snapshot_window, "SnapshotWindow", return_value=creator),
-            mock.patch.object(static_animator.snapshot_player, "SnapshotPlayer", return_value=player),
+            mock.patch.object(
+                static_animator.snapshot_player, "SnapshotPlayer", return_value=player
+            ),
             mock.patch.object(
                 static_animator.snapshot_player, "load_torque_strength", return_value=512
             ),
-            mock.patch.object(static_animator.snapshot_player, "player_settings_path", return_value="settings"),
+            mock.patch.object(
+                static_animator.snapshot_player, "player_settings_path", return_value="settings"
+            ),
             mock.patch.object(
                 timeline_window,
                 "TimelineWindow",
@@ -134,12 +173,26 @@ class RuntimeTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "timeline construction failed"):
                 static_animator.build_animator_views(
-                    object(), object(), object(), object(), object(), ".",
-                    dependencies=object(),
+                    object(),
+                    object(),
+                    object(),
+                    object(),
+                    object(),
+                    ".",
+                    dependencies=dependencies,
                 )
 
         creator.close.assert_called_once_with()
         player.close.assert_called_once_with()
+        snapshot_window.SnapshotWindow.assert_called_once()
+        self.assertIs(snapshot_window.SnapshotWindow.call_args.kwargs["dependencies"], dependencies)
+        self.assertFalse(snapshot_window.SnapshotWindow.call_args.kwargs["show_snapshot_loader"])
+        static_animator.snapshot_player.SnapshotPlayer.assert_called_once()
+        player_args = static_animator.snapshot_player.SnapshotPlayer.call_args.kwargs
+        self.assertIs(player_args["dependencies"], dependencies)
+        self.assertIs(player_args["on_pose_selected"], creator.load_targets_from_file)
+        timeline_window.TimelineWindow.assert_called_once()
+        self.assertIs(timeline_window.TimelineWindow.call_args.kwargs["dependencies"], dependencies)
 
     def test_animator_close_waits_for_timeline_outcome_and_disposes_once(self):
         events = []
@@ -187,9 +240,7 @@ class RuntimeTests(unittest.TestCase):
         events = []
         creator, player = CloseProbe("creator", events), CloseProbe("player", events)
         timeline = CloseProbe("timeline", events)
-        views = AnimatorViews(
-            creator, player, timeline, object(), object(), home._finish_close
-        )
+        views = AnimatorViews(creator, player, timeline, object(), object(), home._finish_close)
         timeline.close_callback = views.dispose
         home.animator_views = views
 

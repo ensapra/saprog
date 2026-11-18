@@ -96,7 +96,9 @@ def apply_style(root):
         background=[("active", BACKGROUND)],
         foreground=[("disabled", "#778394")],
         indicatorbackground=[
-            ("disabled", "#202a39"), ("selected", "#498bd1"), ("!selected", "#34465d")
+            ("disabled", "#202a39"),
+            ("selected", "#498bd1"),
+            ("!selected", "#34465d"),
         ],
         indicatorforeground=[("disabled", "#778394"), ("selected", "#ffffff")],
     )
@@ -125,15 +127,16 @@ def configure_changed(widget, **options):
         widget._display_options = previous
 
 
-def status_box(parent, variable, **options):
+def status_box(parent, variable, *, tk_module=None, **options):
     """Build a selectable, read-only status display shared by desktop windows.
 
     Keep the existing text when a repeated ROS status arrives so selections
     survive polling. Ctrl+C copies the selection, or the whole message.
     """
-    import tkinter as tk
+    if tk_module is None:
+        import tkinter as tk_module
 
-    widget = tk.Text(parent, wrap="word", state="disabled", **options)
+    widget = tk_module.Text(parent, wrap="word", state="disabled", **options)
     displayed = None
 
     def refresh(*_args):
@@ -153,7 +156,7 @@ def status_box(parent, variable, **options):
     def copy(_event):
         try:
             text = widget.get("sel.first", "sel.last")
-        except tk.TclError:
+        except tk_module.TclError:
             text = widget.get("1.0", "end-1c")
         widget.clipboard_clear()
         widget.clipboard_append(text)

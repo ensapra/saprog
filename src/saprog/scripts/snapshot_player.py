@@ -125,10 +125,14 @@ class SnapshotPlayer:
             self.root.geometry("620x680")
         outer = self.dependencies.ttk.Frame(self.container, padding=14)
         outer.pack(fill="both", expand=True)
-        self.dependencies.ttk.Label(outer, text="Snapshot Player", style="Title.TLabel").pack(anchor="w")
+        self.dependencies.ttk.Label(outer, text="Snapshot Player", style="Title.TLabel").pack(
+            anchor="w"
+        )
         actions = self.dependencies.ttk.Frame(outer)
         actions.pack(fill="x", pady=(8, 4))
-        self.refresh_button = self.dependencies.ttk.Button(actions, text="Refresh", command=self.refresh)
+        self.refresh_button = self.dependencies.ttk.Button(
+            actions, text="Refresh", command=self.refresh
+        )
         self.refresh_button.pack(side="right")
         self.browse_button = self.dependencies.ttk.Button(
             actions, text="Browse...", command=self.browse_snapshot
@@ -155,10 +159,18 @@ class SnapshotPlayer:
                 text="Snapshot targets are in radians. Fixed off releases torque only after every joint arrives and holds stable.",
                 wraplength=560,
             ).pack(anchor="w")
-            self.speed_scale = add_slider(outer, "Movement speed", self.moving_speed, 1)
+            self.speed_scale = add_slider(
+                outer,
+                "Movement speed",
+                self.moving_speed,
+                1,
+                ttk_module=self.dependencies.ttk,
+            )
             torque_row = self.dependencies.ttk.Frame(outer)
             torque_row.pack(fill="x", pady=4)
-            self.dependencies.ttk.Label(torque_row, text="Torque strength", width=16).pack(side="left")
+            self.dependencies.ttk.Label(torque_row, text="Torque strength", width=16).pack(
+                side="left"
+            )
             self.torque_scale = self.dependencies.ttk.Scale(
                 torque_row,
                 from_=0,
@@ -180,12 +192,16 @@ class SnapshotPlayer:
                 text="Speed and strength apply to all joints on the next playback.",
                 style="Muted.TLabel",
             ).pack(anchor="w", pady=(0, 6))
-        self.selected_label = self.dependencies.ttk.Label(outer, text="No file selected", wraplength=560)
+        self.selected_label = self.dependencies.ttk.Label(
+            outer, text="No file selected", wraplength=560
+        )
         self.selected_label.pack(anchor="w", pady=(0, 4))
         area = self.dependencies.ttk.Frame(outer)
         area.pack(fill="both", expand=True)
         self.canvas = self.dependencies.tk.Canvas(area, highlightthickness=0, background=BACKGROUND)
-        scrollbar = self.dependencies.ttk.Scrollbar(area, orient="vertical", command=self.canvas.yview)
+        scrollbar = self.dependencies.ttk.Scrollbar(
+            area, orient="vertical", command=self.canvas.yview
+        )
         self.canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
         self.canvas.pack(side="left", fill="both", expand=True)
@@ -199,7 +215,9 @@ class SnapshotPlayer:
             "<Configure>",
             lambda event: self.canvas.itemconfigure(self.canvas_window, width=event.width),
         )
-        self.status_box = status_box(outer, self.status, height=3, width=64)
+        self.status_box = status_box(
+            outer, self.status, height=3, width=64, tk_module=self.dependencies.tk
+        )
         self.status_box.pack(fill="x", pady=(10, 0))
 
     def _change_torque_strength(self, value):
@@ -272,7 +290,9 @@ class SnapshotPlayer:
             child.destroy()
         self.buttons = []
         if not paths:
-            self.dependencies.ttk.Label(self.list_frame, text="No JSON snapshots found.").pack(anchor="w", pady=6)
+            self.dependencies.ttk.Label(self.list_frame, text="No JSON snapshots found.").pack(
+                anchor="w", pady=6
+            )
         for path in paths:
             filename = os.path.basename(path)
             display_name = filename
@@ -400,7 +420,9 @@ class SnapshotPlayer:
             except Exception:
                 ready = False
             if not ready:
-                self.status.set("Cannot start: torque release services are not ready for every joint")
+                self.status.set(
+                    "Cannot start: torque release services are not ready for every joint"
+                )
                 return
         self.playback = {
             "name": name,
@@ -468,7 +490,8 @@ class SnapshotPlayer:
         )
         playback["release_adapter"].start(False)
         playback["release_pending"] = {
-            joint: (object(), time.monotonic()) for joint in self.joints
+            joint: (object(), time.monotonic())
+            for joint in self.joints
             if playback["release_adapter"].outcomes[joint] == "pending"
         }
         playback["release_results"] = {
@@ -549,16 +572,23 @@ class SnapshotPlayer:
                 )
             else:
                 state = coordinator.observe(
-                    {}, received_at=self.last_state_received, stamp=self.last_state_stamp,
-                    controller_now=self.node.get_clock().now().nanoseconds, now=now,
+                    {},
+                    received_at=self.last_state_received,
+                    stamp=self.last_state_stamp,
+                    controller_now=self.node.get_clock().now().nanoseconds,
+                    now=now,
                 )
             state = coordinator.tick(now)
             playback["arrival_detail"] = coordinator.detail
             if state == "failed":
                 self._finish_playback(
-                    "Movement incomplete: " + coordinator.detail
-                    + (". Check controller errors and torque strength. Torque unchanged."
-                       if "No progress" in coordinator.detail else "")
+                    "Movement incomplete: "
+                    + coordinator.detail
+                    + (
+                        ". Check controller errors and torque strength. Torque unchanged."
+                        if "No progress" in coordinator.detail
+                        else ""
+                    )
                 )
                 return
             if state == "release":
