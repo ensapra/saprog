@@ -47,7 +47,7 @@ bool DynamixelRegisterTransport::read(uint8_t id, uint16_t address, uint16_t wid
     return false;
   }
   if (device_error != 0) {
-    error = "device error: " + packet_handler_->getRxPacketError(device_error);
+    error = std::string("device error: ") + packet_handler_->getRxPacketError(device_error);
     return false;
   }
   error.clear();

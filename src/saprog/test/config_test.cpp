@@ -37,7 +37,7 @@ void read_with(double poll_rate, const std::vector<int64_t> &ids)
   });
   rclcpp::Node node("config_test", options);
   const auto config = read_config(node);
-  check(config.servo_ids.size() == ids.size());
+  check(config.servos.size() == ids.size());
 }
 
 void rejects(double rate, const std::vector<int64_t> &ids)
