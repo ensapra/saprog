@@ -143,14 +143,23 @@ int main(int argc, char **argv)
     final_action_called = true;
     return true;
   };
-  const saprog::timeline::ExecutionPlan plan{{{1, 0, 0.5}, {2, 1, 0.25}, {2, 2, 0.0}},
+  const saprog::timeline::ExecutionPlan plan{{{1, 1, 0.5}, {0, 1, 0.25}, {0, 0, 0.0}},
                                               false, true, true};
   const auto execution = saprog::timeline::execute(plan, hooks);
   check(execution.succeeded && execution.completed_steps == 3);
   check((sent_steps == std::vector<size_t>{1, 2}));
   check(final_action_called);
+  // doStandUp.json: two timed motions followed by an arrival-controlled pose.
+  // Use the action's wire values, which the controller forwards unchanged.
+  sent_steps.clear();
+  final_action_called = false;
+  const saprog::timeline::ExecutionPlan stand_up{
+      {{0, 1, 0.3}, {0, 1, 0.3}, {0, 0, 1.0}}, false, true, true};
+  const auto stand_up_result = saprog::timeline::execute(stand_up, hooks);
+  check(stand_up_result.succeeded && stand_up_result.completed_steps == 3);
+  check((sent_steps == std::vector<size_t>{0, 1, 2}) && final_action_called);
   const auto sends_before_invalid_plan = sent_steps.size();
-  const auto invalid_plan = saprog::timeline::execute({{{2, 3, 0.0}}, false, false, false}, hooks);
+  const auto invalid_plan = saprog::timeline::execute({{{0, 3, 0.0}}, false, false, false}, hooks);
   check(!invalid_plan.succeeded && sent_steps.size() == sends_before_invalid_plan);
 
   hooks.wait_for_arrival = [](size_t, std::string &error) {
@@ -158,7 +167,7 @@ int main(int argc, char **argv)
     return false;
   };
   final_action_called = false;
-  const auto stale = saprog::timeline::execute({{{2, 2, 0.0}}, false, true, true}, hooks);
+  const auto stale = saprog::timeline::execute({{{0, 0, 0.0}}, false, true, true}, hooks);
   check(!stale.succeeded && stale.error == "Stale telemetry" && !final_action_called);
 
   hooks.wait_for_arrival = [](size_t, std::string &) { return true; };
@@ -166,7 +175,7 @@ int main(int argc, char **argv)
     fake_now = target + std::chrono::milliseconds(21);
     return true;
   };
-  const auto late = saprog::timeline::execute({{{1, 0, 0.5}}, false, true, true}, hooks);
+  const auto late = saprog::timeline::execute({{{1, 1, 0.5}}, false, true, true}, hooks);
   check(!late.succeeded && late.error.find("deadline") != std::string::npos &&
         !final_action_called);
 
@@ -177,7 +186,7 @@ int main(int argc, char **argv)
     error = "Timeline canceled";
     return false;
   };
-  const auto canceled = saprog::timeline::execute({{{1, 0, 0.5}}, false, true, false}, hooks);
+  const auto canceled = saprog::timeline::execute({{{1, 1, 0.5}}, false, true, false}, hooks);
   check(canceled.canceled && !canceled.succeeded && !final_action_called);
   rclcpp::shutdown();
   return 0;

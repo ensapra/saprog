@@ -14,8 +14,8 @@ namespace saprog::timeline
 {
 struct PlannedStep
 {
-  uint8_t kind; // 1 is a wait; 2 is a motion.
-  uint8_t duration_mode; // 1 is scheduled; 2 waits for telemetry arrival.
+  uint8_t kind; // PlayTimeline.action: 0 is motion; 1 is wait.
+  uint8_t duration_mode; // PlayTimeline.action: 0 waits for arrival; 1 is timed.
   double duration_seconds;
 };
 
@@ -66,10 +66,10 @@ inline ExecutionResult execute(const ExecutionPlan &plan, const ExecutorHooks &h
     return result;
   }
   for (const auto &step : plan.steps) {
-    const bool valid_wait = step.kind == 1 && std::isfinite(step.duration_seconds) &&
-                            step.duration_seconds >= 0.0;
-    const bool valid_motion = step.kind == 2 &&
-                              (step.duration_mode == 1 || step.duration_mode == 2) &&
+    const bool valid_wait = step.kind == 1 && step.duration_mode == 1 &&
+                            std::isfinite(step.duration_seconds) && step.duration_seconds >= 0.0;
+    const bool valid_motion = step.kind == 0 &&
+                              (step.duration_mode == 1 || step.duration_mode == 0) &&
                               (step.duration_mode != 1 ||
                                (std::isfinite(step.duration_seconds) && step.duration_seconds >= 0.0));
     if (!valid_wait && !valid_motion) {
@@ -119,7 +119,7 @@ inline ExecutionResult execute(const ExecutionPlan &plan, const ExecutorHooks &h
         ++result.completed_steps;
         continue;
       }
-      if (step.kind != 2) {
+      if (step.kind != 0) {
         result.error = "Timeline plan contains an unknown step kind";
         break;
       }
@@ -136,7 +136,7 @@ inline ExecutionResult execute(const ExecutionPlan &plan, const ExecutorHooks &h
           break;
         }
         next_dispatch = deadline;
-      } else if (step.duration_mode == 2) {
+      } else if (step.duration_mode == 0) {
         if (!hooks.wait_for_arrival(i, result.error)) {
           result.canceled = hooks.canceled();
           break;
