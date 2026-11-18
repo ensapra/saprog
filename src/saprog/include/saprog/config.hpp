@@ -1,7 +1,9 @@
 #pragma once
 
-#include <cstddef>
+#include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -9,6 +11,7 @@
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
+#include "saprog/servo_units.hpp"
 
 struct SaprogConfig
 {
@@ -28,7 +31,7 @@ struct SaprogConfig
   std::vector<uint16_t> upper_limits;
 };
 
-inline SaprogConfig read_config(rclcpp::Node & node)
+inline SaprogConfig read_config(rclcpp::Node &node)
 {
   SaprogConfig config;
   config.device_name = node.get_parameter("device_name").as_string();
@@ -44,14 +47,20 @@ inline SaprogConfig read_config(rclcpp::Node & node)
   const auto zeros = node.get_parameter("zero_positions").as_integer_array();
   const auto directions = node.get_parameter("directions").as_integer_array();
 
-  if (config.device_name.empty() || baud_rate <= 0 ||
-    baud_rate > std::numeric_limits<int>::max() || config.protocol_version != 1.0 ||
-    config.poll_rate <= 0.0 || moving_speed < 0 || moving_speed > 1023 ||
-    torque_limit < 0 || torque_limit > 1023 || !std::isfinite(config.target_tolerance) ||
-    config.target_tolerance < 0.0 || config.target_tolerance > 5.0 * 3.14159265358979323846 / 3.0 || ids.empty() ||
-    (status_return_level != 1 && status_return_level != 2) ||
-    zeros.size() != ids.size() || directions.size() != ids.size())
-  {
+  // ROS timers store nanoseconds; reject rates that cannot form a timer period.
+  const double poll_period = 1.0 / config.poll_rate;
+  const double maximum_period =
+      std::chrono::duration<double>(std::chrono::nanoseconds::max()).count();
+
+  if (config.device_name.empty() || baud_rate <= 0 || baud_rate > std::numeric_limits<int>::max() ||
+      config.protocol_version != 1.0 || !std::isfinite(config.poll_rate) ||
+      config.poll_rate <= 0.0 || !std::isfinite(poll_period) || poll_period < 1e-9 ||
+      poll_period >= maximum_period || moving_speed < 0 || moving_speed > 1023 ||
+      torque_limit < 0 || torque_limit > 1023 || !std::isfinite(config.target_tolerance) ||
+      config.target_tolerance < 0.0 ||
+      config.target_tolerance > saprog::ax::position_range_radians || ids.empty() ||
+      (status_return_level != 1 && status_return_level != 2) || zeros.size() != ids.size() ||
+      directions.size() != ids.size()) {
     throw std::invalid_argument("Invalid DYNAMIXEL settings in config/saprog.yaml");
   }
   config.baud_rate = static_cast<int>(baud_rate);
@@ -61,9 +70,11 @@ inline SaprogConfig read_config(rclcpp::Node & node)
 
   for (size_t i = 0; i < ids.size(); ++i) {
     if (ids[i] < 0 || ids[i] > 253 || zeros[i] < 0 || zeros[i] > 1023 ||
-      (directions[i] != -1 && directions[i] != 1))
-    {
-      throw std::invalid_argument("Check servo_ids, zero_positions, and directions in config/saprog.yaml");
+        (directions[i] != -1 && directions[i] != 1) ||
+        std::find(config.servo_ids.begin(), config.servo_ids.end(), ids[i]) !=
+            config.servo_ids.end()) {
+      throw std::invalid_argument(
+          "Check unique servo_ids, zero_positions, and directions in config/saprog.yaml");
     }
     config.servo_ids.push_back(static_cast<uint8_t>(ids[i]));
     config.zero_positions.push_back(static_cast<uint16_t>(zeros[i]));

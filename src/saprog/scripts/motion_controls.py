@@ -1,4 +1,5 @@
 """Common speed and strength controls for position commands."""
+
 import math
 
 SPEED_UNIT = 0.111 * 2.0 * math.pi / 60.0

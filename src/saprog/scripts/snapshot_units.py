@@ -1,4 +1,5 @@
 """Unit conversion shared by snapshot editors and playback. ROS uses radians."""
+
 import math
 
 AX_RANGE = 5 * math.pi / 3
@@ -12,8 +13,12 @@ def joint_bounds(ids, zeros, directions, lower, upper):
         raise ValueError("Duplicate servo IDs")
     bounds = {}
     for servo, zero, direction, low, high in zip(ids, zeros, directions, lower, upper):
-        if (not 0 <= servo <= 253 or not 0 <= zero <= 1023
-                or not 0 <= low < high <= 1023 or direction not in (-1, 1)):
+        if (
+            not 0 <= servo <= 253
+            or not 0 <= zero <= 1023
+            or not 0 <= low < high <= 1023
+            or direction not in (-1, 1)
+        ):
             raise ValueError(f"Invalid limits/calibration for servo_{servo}")
         endpoints = [(raw - zero) * direction * AX_RANGE / 1023 for raw in (low, high)]
         bounds[f"servo_{servo}"] = tuple(sorted(endpoints))

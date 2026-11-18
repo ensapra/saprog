@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """Tk display and ROS service client; no serial I/O or sensor filtering."""
-from collections import deque
-from datetime import datetime
+
 import math
 import signal
 import time
 import tkinter as tk
+from collections import deque
+from datetime import datetime
 from tkinter import ttk
 
 import rclpy
+from desktop_style import apply_style
+from geometry_msgs.msg import QuaternionStamped
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from geometry_msgs.msg import QuaternionStamped
 from sensor_msgs.msg import Imu, MagneticField
 from std_msgs.msg import String
-from std_srvs.srv import Trigger, SetBool
+from std_srvs.srv import SetBool, Trigger
+
 from saprog.msg import ImuStatus
-from desktop_style import apply_style
 
 
 class ImuMonitor:
@@ -54,7 +56,9 @@ class ImuMonitor:
         actions = ttk.Frame(body)
         actions.pack(fill="x", pady=(0, 10))
         self.toggle_button = ttk.Button(
-            actions, text="Toggle readings (Space)", command=self.toggle_readings,
+            actions,
+            text="Toggle readings (Space)",
+            command=self.toggle_readings,
             state="disabled",
         )
         self.toggle_button.pack(side="left")
@@ -66,9 +70,9 @@ class ImuMonitor:
         readings = ttk.LabelFrame(body, text="Latest sample", padding=10)
         readings.pack(fill="x", pady=(0, 10))
         self.sample_status = tk.StringVar(value="Waiting for connection")
-        ttk.Label(readings, textvariable=self.sample_status, style="Muted.TLabel", wraplength=820).grid(
-            row=0, column=0, columnspan=4, sticky="w", pady=(0, 6)
-        )
+        ttk.Label(
+            readings, textvariable=self.sample_status, style="Muted.TLabel", wraplength=820
+        ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 6))
         self.values = {}
         for column, name in enumerate(("Time (ms)", "Accel (m/s²)", "Gyro (rad/s)", "Mag (µT)")):
             ttk.Label(readings, text=name, style="Muted.TLabel").grid(
@@ -85,32 +89,44 @@ class ImuMonitor:
         reference_controls = ttk.Frame(model_frame)
         reference_controls.pack(fill="x", pady=(0, 8))
         self.zero_button = ttk.Button(
-            reference_controls, text="Zero orientation", command=self.zero_orientation,
+            reference_controls,
+            text="Zero orientation",
+            command=self.zero_orientation,
             state="disabled",
         )
         self.zero_button.pack(side="left")
         self.use_magnetometer = tk.BooleanVar(value=False)
         ttk.Checkbutton(
-            reference_controls, text="Use magnetic heading", variable=self.use_magnetometer,
+            reference_controls,
+            text="Use magnetic heading",
+            variable=self.use_magnetometer,
             command=self.reset_orientation,
         ).pack(side="left", padx=8)
         ttk.Button(
-            reference_controls, text="Clear zero", command=self.clear_zero,
+            reference_controls,
+            text="Clear zero",
+            command=self.clear_zero,
         ).pack(side="left", padx=8)
-        self.reference_status = tk.StringVar(value="Place the IMU flat and still, then click Zero orientation.")
+        self.reference_status = tk.StringVar(
+            value="Place the IMU flat and still, then click Zero orientation."
+        )
         ttk.Label(model_frame, textvariable=self.reference_status, wraplength=650).pack(anchor="w")
         calibration_controls = ttk.Frame(model_frame)
         calibration_controls.pack(fill="x", pady=(6, 6))
         self.calibrate_button = ttk.Button(
-            calibration_controls, text="Calibrate gyro + zero", command=self.start_calibration,
+            calibration_controls,
+            text="Calibrate gyro + zero",
+            command=self.start_calibration,
             state="disabled",
         )
         self.calibrate_button.pack(side="left")
-        self.calibration_status = tk.StringVar(value="Hold flat and still for 4 seconds. Requires accel in g and gyro in degrees/s.")
-        ttk.Label(calibration_controls, textvariable=self.calibration_status, wraplength=450).pack(side="left", padx=8)
-        self.model = tk.Canvas(
-            model_frame, height=300, background="#1d2939", highlightthickness=0
+        self.calibration_status = tk.StringVar(
+            value="Hold flat and still for 4 seconds. Requires accel in g and gyro in degrees/s."
         )
+        ttk.Label(calibration_controls, textvariable=self.calibration_status, wraplength=450).pack(
+            side="left", padx=8
+        )
+        self.model = tk.Canvas(model_frame, height=300, background="#1d2939", highlightthickness=0)
         self.model.pack(fill="both", expand=True)
         self.model.bind("<Configure>", lambda _event: self.render_model())
 
@@ -127,15 +143,36 @@ class ImuMonitor:
         root.after(50, self.poll_messages)
         self.render_model()
 
-        for name in ("toggle_readings", "zero", "clear_zero", "calibrate"):
+        for name in (
+            "toggle_readings",
+            "zero",
+            "clear_zero",
+            "calibrate",
+        ):
             self.clients[name] = node.create_client(Trigger, "/saprog/imu/" + name)
-        self.clients["use_magnetometer"] = node.create_client(SetBool, "/saprog/imu/use_magnetometer")
+        self.clients["use_magnetometer"] = node.create_client(
+            SetBool, "/saprog/imu/use_magnetometer"
+        )
         self.subscriptions = [
             node.create_subscription(ImuStatus, "/saprog/imu/status", self.receive_status, 10),
-            node.create_subscription(Imu, "/saprog/imu/data_raw", self.receive_raw, qos_profile_sensor_data),
-            node.create_subscription(MagneticField, "/saprog/imu/mag", self.receive_mag, qos_profile_sensor_data),
-            node.create_subscription(QuaternionStamped, "/saprog/imu/orientation", self.receive_orientation, qos_profile_sensor_data),
-            node.create_subscription(String, "/saprog/imu/serial", lambda msg: self.logs.append(msg.data), qos_profile_sensor_data),
+            node.create_subscription(
+                Imu, "/saprog/imu/data_raw", self.receive_raw, qos_profile_sensor_data
+            ),
+            node.create_subscription(
+                MagneticField, "/saprog/imu/mag", self.receive_mag, qos_profile_sensor_data
+            ),
+            node.create_subscription(
+                QuaternionStamped,
+                "/saprog/imu/orientation",
+                self.receive_orientation,
+                qos_profile_sensor_data,
+            ),
+            node.create_subscription(
+                String,
+                "/saprog/imu/serial",
+                lambda msg: self.logs.append(msg.data),
+                qos_profile_sensor_data,
+            ),
         ]
 
     def append_log(self, text):
@@ -146,7 +183,6 @@ class ImuMonitor:
             self.log.delete("1.0", f"{lines - 300}.0")
         self.log.see("end")
         self.log.configure(state="disabled")
-
 
     def render_model(self):
         if not hasattr(self, "model"):
@@ -180,10 +216,14 @@ class ImuMonitor:
         world_vertices = [
             transform(rotation, point)
             for point in (
-                (-1.25, -0.85, -0.45), (1.25, -0.85, -0.45),
-                (1.25, 0.85, -0.45), (-1.25, 0.85, -0.45),
-                (-1.25, -0.85, 0.45), (1.25, -0.85, 0.45),
-                (1.25, 0.85, 0.45), (-1.25, 0.85, 0.45),
+                (-1.25, -0.85, -0.45),
+                (1.25, -0.85, -0.45),
+                (1.25, 0.85, -0.45),
+                (-1.25, 0.85, -0.45),
+                (-1.25, -0.85, 0.45),
+                (1.25, -0.85, 0.45),
+                (1.25, 0.85, 0.45),
+                (-1.25, 0.85, 0.45),
             )
         ]
         vertices = [camera_point(point) for point in world_vertices]
@@ -202,11 +242,14 @@ class ImuMonitor:
 
         # Fixed Z-up reference plane below the box's full rotation envelope.
         # Height is illustrative: the IMU estimates orientation, not altitude.
-        ground = [ground_point(x, y) for x, y in
-                  ((-2.5, -2.5), (2.5, -2.5), (2.5, 2.5), (-2.5, 2.5))]
+        ground = [
+            ground_point(x, y) for x, y in ((-2.5, -2.5), (2.5, -2.5), (2.5, 2.5), (-2.5, 2.5))
+        ]
         canvas.create_polygon(
             *[coordinate for point in ground for coordinate in point],
-            fill="#26384a", outline="#64748b", width=2,
+            fill="#26384a",
+            outline="#64748b",
+            width=2,
         )
         for step in range(-5, 6):
             offset = step * 0.5
@@ -231,19 +274,26 @@ class ImuMonitor:
         shadow = hull_half(points)[:-1] + hull_half(reversed(points))[:-1]
         canvas.create_polygon(
             *[coordinate for x, y in shadow for coordinate in ground_point(x, y)],
-            fill="#172431", outline="",
+            fill="#172431",
+            outline="",
         )
         canvas.create_text(
-            14, 36, anchor="nw", fill="#a5b5ca",
+            14,
+            36,
+            anchor="nw",
+            fill="#a5b5ca",
             text="Ground reference · shadow shows tilt; height is illustrative",
             font=("TkDefaultFont", 9),
         )
         projected = [project(point) for point in vertices]
 
         faces = [
-            ((0, 1, 2, 3), "#315276"), ((4, 5, 6, 7), "#4b8ac2"),
-            ((0, 1, 5, 4), "#3a6996"), ((1, 2, 6, 5), "#27618d"),
-            ((2, 3, 7, 6), "#254b70"), ((3, 0, 4, 7), "#3f78a8"),
+            ((0, 1, 2, 3), "#315276"),
+            ((4, 5, 6, 7), "#4b8ac2"),
+            ((0, 1, 5, 4), "#3a6996"),
+            ((1, 2, 6, 5), "#27618d"),
+            ((2, 3, 7, 6), "#254b70"),
+            ((3, 0, 4, 7), "#3f78a8"),
         ]
         faces.sort(key=lambda item: sum(vertices[index][2] for index in item[0]) / 4)
         for indices, color in faces:
@@ -251,7 +301,10 @@ class ImuMonitor:
             canvas.create_polygon(coords, fill=color, outline="#a8d8ff", width=2)
 
         canvas.create_text(
-            14, 14, anchor="nw", fill="#d6e7f7",
+            14,
+            14,
+            anchor="nw",
+            fill="#d6e7f7",
             text=(
                 f"Roll {math.degrees(roll):6.1f}°   "
                 f"Pitch {math.degrees(pitch):6.1f}°   "
@@ -260,16 +313,22 @@ class ImuMonitor:
             font=("TkDefaultFont", 10, "bold"),
         )
         state = (
-            "Waiting for IMU samples" if self.orientation is None
-            else "Orientation relative to your zero pose" if self.zeroed
-            else "Magnetic heading enabled" if self.use_magnetometer.get()
+            "Waiting for IMU samples"
+            if self.orientation is None
+            else "Orientation relative to your zero pose"
+            if self.zeroed
+            else "Magnetic heading enabled"
+            if self.use_magnetometer.get()
             else "Accelerometer + gyroscope · relative heading (may drift)"
         )
         canvas.create_text(
-            14, height - 14, anchor="sw", fill="#a5b5ca", text=state,
+            14,
+            height - 14,
+            anchor="sw",
+            fill="#a5b5ca",
+            text=state,
             font=("TkDefaultFont", 9),
         )
-
 
     @staticmethod
     def orientation_matrix(angles):
@@ -282,7 +341,6 @@ class ImuMonitor:
             (sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr),
             (-sp, cp * sr, cp * cr),
         )
-
 
     def request(self, name, request=None):
         client = self.clients[name]
@@ -320,15 +378,14 @@ class ImuMonitor:
         q = msg.quaternion
         # Display conversion only; fusion and zero transforms happen in C++.
         self.orientation = [
-            math.atan2(2 * (q.w*q.x + q.y*q.z), 1 - 2 * (q.x*q.x + q.y*q.y)),
-            math.asin(max(-1.0, min(1.0, 2 * (q.w*q.y - q.z*q.x)))),
-            math.atan2(2 * (q.w*q.z + q.x*q.y), 1 - 2 * (q.y*q.y + q.z*q.z)),
+            math.atan2(2 * (q.w * q.x + q.y * q.z), 1 - 2 * (q.x * q.x + q.y * q.y)),
+            math.asin(max(-1.0, min(1.0, 2 * (q.w * q.y - q.z * q.x)))),
+            math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)),
         ]
 
     def receive_status(self, msg):
         self.last_status_at = time.monotonic()
         self.backend_status = msg
-        if msg.connected and not self.connected:
         self.connected = msg.connected
         self.zeroed = msg.zeroed
         self.use_magnetometer.set(msg.magnetic_heading)
@@ -336,7 +393,8 @@ class ImuMonitor:
         self.calibration_status.set(msg.calibration_message)
         self.reference_status.set(
             "Zero saved in ROS; this display shows orientation relative to it."
-            if msg.zeroed else "Place the IMU flat and still, then click Zero orientation."
+            if msg.zeroed
+            else "Place the IMU flat and still, then click Zero orientation."
         )
         self.values["Time (ms)"].set(f"{msg.sensor_time_ms:.0f}")
         state = "live" if msg.streaming else "waiting / stale"
@@ -392,7 +450,9 @@ class ImuMonitor:
         valid = available and self.backend_status.orientation_valid
         idle = not self.requests
         can_zero = valid and not self.backend_status.calibrating and idle
-        self.toggle_button.configure(state="normal" if available and self.connected and idle else "disabled")
+        self.toggle_button.configure(
+            state="normal" if available and self.connected and idle else "disabled"
+        )
         self.zero_button.configure(state="normal" if can_zero else "disabled")
         self.calibrate_button.configure(state="normal" if can_zero else "disabled")
         if not available:

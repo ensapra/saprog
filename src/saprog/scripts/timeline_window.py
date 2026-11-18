@@ -1,22 +1,36 @@
 """Timeline editor that submits playback to the ROS action executor."""
+
 import copy
 import json
-from pathlib import Path
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
-from desktop_style import apply_style, configure_changed
-from motion_controls import add_slider
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+
 import snapshot_player
+from desktop_style import apply_style, configure_changed, status_box
+from motion_controls import add_slider
 from snapshot_player import SnapshotPlayer
-from timeline_model import (CONTROL_MODES, LEGS, control_groups, regroup_motion,
-                            motion_settings, save_timeline, validate_timeline,
-                            timeline_rows, wait_seconds, lifecycle_settings, transition_duration,
-                            timeline_action_data, make_snapshot_reference,
-                            load_snapshot_reference, resolve_timeline_steps)
+from timeline_model import (
+    CONTROL_MODES,
+    LEGS,
+    control_groups,
+    lifecycle_settings,
+    load_snapshot_reference,
+    make_snapshot_reference,
+    motion_settings,
+    regroup_motion,
+    resolve_timeline_steps,
+    save_timeline,
+    timeline_action_data,
+    timeline_rows,
+    transition_duration,
+    validate_timeline,
+    wait_seconds,
+)
 
 
 class TimelineWindow(SnapshotPlayer):
-    def __init__(self, root, node, directory):
+    def __init__(self, root, node, directory, container=None, on_close=None):
         self.steps = []
         self.run_steps = None
         self.run_index = 0
@@ -24,27 +38,40 @@ class TimelineWindow(SnapshotPlayer):
         self.selected_index = None
         self.dirty = False
         self.edit_widgets = []
-        super().__init__(root, node, directory)
+        self.on_close = on_close
+        super().__init__(root, node, directory, container=container)
         self.timeline_client = snapshot_player.ActionClient(
-            node, snapshot_player.PlayTimeline, "/saprog/play_timeline")
+            node, snapshot_player.PlayTimeline, "/saprog/play_timeline"
+        )
         self.timeline_goal_handle = None
         self.timeline_goal_future = None
         self.cancel_when_accepted = False
         self.close_after_cancel = False
-        root.protocol("WM_DELETE_WINDOW", self.close)
+        if container is None:
+            root.protocol("WM_DELETE_WINDOW", self.close)
 
     def _build(self):
-        apply_style(self.root)
-        self.root.title("Timeline")
-        self.root.geometry("1200x900")
-        outer = ttk.Frame(self.root, padding=14)
+        if self.container is self.root:
+            apply_style(self.root)
+            self.root.title("Timeline")
+            self.root.geometry("1200x900")
+        outer = ttk.Frame(self.container, padding=14)
         outer.pack(fill="both", expand=True)
         ttk.Label(outer, text="Timeline", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(outer, text="Transition → Snapshot → Transition → Snapshot. Click a transition to edit it.\nChoose Global, Leg, or Custom Control for speed and torque strength.").pack(anchor="w")
+        ttk.Label(
+            outer,
+            text="Transition → Snapshot → Transition → Snapshot. Click a transition to edit it.\nChoose Global, Leg, or Custom Control for speed and torque strength.",
+        ).pack(anchor="w")
         row = ttk.Frame(outer)
         row.pack(fill="x", pady=8)
-        for label, callback in (("New", self.new), ("Load timeline", self.load), ("Save timeline", self.save),
-                                ("Add snapshot…", self.add), ("Add wait", self.add_wait), ("Refresh", self.refresh)):
+        for label, callback in (
+            ("New", self.new),
+            ("Load timeline", self.load),
+            ("Save timeline", self.save),
+            ("Add snapshot…", self.add),
+            ("Add wait", self.add_wait),
+            ("Refresh", self.refresh),
+        ):
             self.button(row, label, callback)
         self.available = ttk.Combobox(outer, state="readonly")
         self.available.pack(fill="x")
@@ -59,8 +86,12 @@ class TimelineWindow(SnapshotPlayer):
         self.sequence.bind("<<ListboxSelect>>", self.select)
         row = ttk.Frame(sequence_panel)
         row.pack(fill="x")
-        for label, callback in (("Up", lambda: self.move(-1)), ("Down", lambda: self.move(1)),
-                                ("Duplicate", self.duplicate), ("Remove", self.remove)):
+        for label, callback in (
+            ("Up", lambda: self.move(-1)),
+            ("Down", lambda: self.move(1)),
+            ("Duplicate", self.duplicate),
+            ("Remove", self.remove),
+        ):
             self.button(row, label, callback)
         self.editor = ttk.LabelFrame(body, text="Select a transition", padding=8)
         self.editor.pack(side="right", fill="both", expand=True, pady=8)
@@ -73,14 +104,23 @@ class TimelineWindow(SnapshotPlayer):
         self.on_end = tk.StringVar(value="Torque on")
         for label, variable in (("After timeline", self.on_end),):
             ttk.Label(lifecycle_row, text=label).pack(side="left", padx=4)
-            picker = ttk.Combobox(lifecycle_row, textvariable=variable,
-                                  values=("Torque on", "Torque off"), state="readonly", width=12)
+            picker = ttk.Combobox(
+                lifecycle_row,
+                textvariable=variable,
+                values=("Torque on", "Torque off"),
+                state="readonly",
+                width=12,
+            )
             picker.pack(side="left", padx=4)
             picker.bind("<<ComboboxSelected>>", lambda _: setattr(self, "dirty", True))
             self.edit_widgets.append(picker)
         self.loop = tk.BooleanVar(value=False)
-        loop_toggle = ttk.Checkbutton(lifecycle_row, text="Loop timeline", variable=self.loop,
-                                      command=lambda: setattr(self, "dirty", True))
+        loop_toggle = ttk.Checkbutton(
+            lifecycle_row,
+            text="Loop timeline",
+            variable=self.loop,
+            command=lambda: setattr(self, "dirty", True),
+        )
         loop_toggle.pack(side="left", padx=8)
         self.edit_widgets.append(loop_toggle)
         row = ttk.Frame(outer)
@@ -88,11 +128,12 @@ class TimelineWindow(SnapshotPlayer):
         self.play_button = self.button(row, "Play timeline", self.play_timeline)
         self.test_button = self.button(row, "Test selected step", lambda: self.play_timeline(True))
         ttk.Button(row, text="Stop sequence", command=self.stop).pack(side="left", padx=4)
-        ttk.Label(outer, text="Stop prevents further commands; already sent motion or torque changes may finish.").pack(anchor="w", pady=5)
-        self.status_box = tk.Text(outer, height=4, wrap="word", state="disabled")
+        ttk.Label(
+            outer,
+            text="Stop prevents further commands; already sent motion or torque changes may finish.",
+        ).pack(anchor="w", pady=5)
+        self.status_box = status_box(outer, self.status, height=4)
         self.status_box.pack(fill="x")
-        self.status.trace_add("write", lambda *_: self._refresh_status())
-        self._refresh_status()
 
     def button(self, parent, label, callback, side="left"):
         button = ttk.Button(parent, text=label, command=callback)
@@ -116,7 +157,9 @@ class TimelineWindow(SnapshotPlayer):
             if kind == "wait":
                 self.sequence.insert("end", "Wait")
             elif kind == "transition":
-                self.sequence.insert("end", f"Transition {i + 1}  →  {self._snapshot(step)['name']}")
+                self.sequence.insert(
+                    "end", f"Transition {i + 1}  →  {self._snapshot(step)['name']}"
+                )
             else:
                 self.sequence.insert("end", f"    Snapshot: {self._snapshot(step)['name']}")
         self.editor_index = None
@@ -124,7 +167,9 @@ class TimelineWindow(SnapshotPlayer):
         self._clear_editor()
         if self.steps:
             index = min(index or 0, len(self.steps) - 1)
-            self.sequence.selection_set(next(row for row, (entry, _) in enumerate(self.rows) if entry == index))
+            self.sequence.selection_set(
+                next(row for row, (entry, _) in enumerate(self.rows) if entry == index)
+            )
             self.select()
 
     def _clear_editor(self):
@@ -146,36 +191,56 @@ class TimelineWindow(SnapshotPlayer):
         duration_row = ttk.Frame(self.transition_controls)
         duration_row.pack(fill="x", pady=4)
         ttk.Label(duration_row, text="Duration").pack(side="left", padx=4)
-        self.duration_mode = tk.StringVar(value="Until reached" if duration["mode"] == "until_reached" else "X seconds")
+        self.duration_mode = tk.StringVar(
+            value="Until reached" if duration["mode"] == "until_reached" else "X seconds"
+        )
         self.duration_seconds = tk.StringVar(value=str(duration["seconds"]))
-        duration_picker = ttk.Combobox(duration_row, textvariable=self.duration_mode,
-                                       values=("Until reached", "X seconds"), state="readonly", width=16)
+        duration_picker = ttk.Combobox(
+            duration_row,
+            textvariable=self.duration_mode,
+            values=("Until reached", "X seconds"),
+            state="readonly",
+            width=16,
+        )
         duration_picker.pack(side="left", padx=4)
         seconds_row = ttk.Frame(duration_row)
         seconds_entry = ttk.Entry(seconds_row, textvariable=self.duration_seconds, width=8)
         seconds_entry.pack(side="left")
         ttk.Label(seconds_row, text="seconds").pack(side="left", padx=4)
+
         def show_seconds(_event=None):
             if self.duration_mode.get() == "X seconds":
                 seconds_row.pack(side="left")
             else:
                 seconds_row.pack_forget()
+
         duration_picker.bind("<<ComboboxSelected>>", show_seconds)
         show_seconds()
         self.transition_widgets.extend((duration_picker, seconds_entry))
-        self.edit_mode = step.get("control_mode", "Custom Control" if step.get("overrides") else "Global Control")
+        self.edit_mode = step.get(
+            "control_mode", "Custom Control" if step.get("overrides") else "Global Control"
+        )
         self.mode_var = tk.StringVar(value=self.edit_mode)
-        self.mode_picker = ttk.Combobox(self.transition_controls, textvariable=self.mode_var,
-                                       values=CONTROL_MODES, state="readonly")
+        self.mode_picker = ttk.Combobox(
+            self.transition_controls,
+            textvariable=self.mode_var,
+            values=CONTROL_MODES,
+            state="readonly",
+        )
         self.mode_picker.pack(fill="x", pady=4)
         self.mode_picker.bind("<<ComboboxSelected>>", self._change_mode)
         self.transition_widgets.append(self.mode_picker)
-        ttk.Label(self.transition_controls, text="Switching to finer controls copies current values.\nCombining different values uses their rounded average.", wraplength=380).pack(anchor="w")
+        ttk.Label(
+            self.transition_controls,
+            text="Switching to finer controls copies current values.\nCombining different values uses their rounded average.",
+            wraplength=380,
+        ).pack(anchor="w")
         panel = ttk.Frame(self.transition_controls)
         panel.pack(fill="both", expand=True)
         custom = self.edit_mode == "Custom Control"
-        canvas = tk.Canvas(panel, height=430 if custom else 300, highlightthickness=0,
-                           width=740 if custom else 380)
+        canvas = tk.Canvas(
+            panel, height=430 if custom else 300, highlightthickness=0, width=740 if custom else 380
+        )
         scrollbar = ttk.Scrollbar(panel, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side="right", fill="y")
@@ -204,10 +269,14 @@ class TimelineWindow(SnapshotPlayer):
                 extra.grid(row=2, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
                 servo_parents.update({joint: extra for joint in unknown})
         for label, names in self.groups.items():
-            frame = ttk.LabelFrame(servo_parents[label] if custom else content, text=label, padding=5)
+            frame = ttk.LabelFrame(
+                servo_parents[label] if custom else content, text=label, padding=5
+            )
             frame.pack(fill="x", pady=3)
-            pair = {key: round(sum(resolved[j][key] for j in names) / len(names))
-                    for key in ("speed", "torque")}
+            pair = {
+                key: round(sum(resolved[j][key] for j in names) / len(names))
+                for key in ("speed", "torque")
+            }
             self.group_vars[label] = self._motion_controls(frame, pair)
 
     def _change_mode(self, _event=None):
@@ -219,7 +288,8 @@ class TimelineWindow(SnapshotPlayer):
             return
         snapshot = self._snapshot(self.steps[self.editor_index])
         self.steps[self.editor_index] = regroup_motion(
-            self.steps[self.editor_index], mode, list(snapshot["positions"]))
+            self.steps[self.editor_index], mode, list(snapshot["positions"])
+        )
         self.dirty = True
         self._clear_editor()
         self._show_transition(self.steps[self.editor_index])
@@ -237,8 +307,10 @@ class TimelineWindow(SnapshotPlayer):
                 self.steps[self.editor_index] = step
                 return True
             step["control_mode"] = self.edit_mode
-            step["duration"] = {"mode": "seconds" if self.duration_mode.get() == "X seconds" else "until_reached",
-                                "seconds": float(self.duration_seconds.get())}
+            step["duration"] = {
+                "mode": "seconds" if self.duration_mode.get() == "X seconds" else "until_reached",
+                "seconds": float(self.duration_seconds.get()),
+            }
             transition_duration(step)
             step["motion"] = {key: step["motion"][key] for key in ("speed", "torque")}
             step["overrides"] = {}
@@ -266,7 +338,9 @@ class TimelineWindow(SnapshotPlayer):
             return
         if not self.apply():
             self.sequence.selection_clear(0, "end")
-            self.sequence.selection_set(next(row for row, (entry, _) in enumerate(self.rows) if entry == self.editor_index))
+            self.sequence.selection_set(
+                next(row for row, (entry, _) in enumerate(self.rows) if entry == self.editor_index)
+            )
             return
         self.selected_index, kind = self.rows[selection[0]]
         self.editor_index = self.selected_index if kind != "snapshot" else None
@@ -279,12 +353,19 @@ class TimelineWindow(SnapshotPlayer):
             entry = ttk.Entry(self.transition_controls, textvariable=self.wait_var)
             entry.pack(fill="x", pady=5)
             self.transition_widgets.append(entry)
-            ttk.Label(self.transition_controls, text="Decimal seconds are supported. The wait starts after the previous move finishes.\nNo servo commands are sent during the wait; torque stays unchanged.", wraplength=380).pack(anchor="w")
+            ttk.Label(
+                self.transition_controls,
+                text="Decimal seconds are supported. The wait starts after the previous move finishes.\nNo servo commands are sent during the wait; torque stays unchanged.",
+                wraplength=380,
+            ).pack(anchor="w")
         elif self.editor_index is not None:
             self._show_transition(step)
         else:
             self.editor.configure(text=f"Snapshot: {self._snapshot(step)['name']}")
-            ttk.Label(self.transition_controls, text="Select the transition above this snapshot to change its motion settings.").pack(anchor="w")
+            ttk.Label(
+                self.transition_controls,
+                text="Select the transition above this snapshot to change its motion settings.",
+            ).pack(anchor="w")
 
     def add_available(self):
         index = self.available.current()
@@ -302,13 +383,19 @@ class TimelineWindow(SnapshotPlayer):
     def add(self, path=None):
         if not self.apply():
             return
-        path = path or filedialog.askopenfilename(parent=self.root, initialdir=self.directory, filetypes=[("Snapshot JSON", "*.json")])
+        path = path or filedialog.askopenfilename(
+            parent=self.root, initialdir=self.directory, filetypes=[("Snapshot JSON", "*.json")]
+        )
         if not path:
             return
         try:
             reference = make_snapshot_reference(path, self.directory)
             self._load_snapshot(reference)
-            step = {"snapshot": reference, "motion": {"speed": 1023, "torque": 1023}, "overrides": {}}
+            step = {
+                "snapshot": reference,
+                "motion": {"speed": 1023, "torque": 1023},
+                "overrides": {},
+            }
             self.steps.append(step)
             self.dirty = True
             self.redraw(len(self.steps) - 1)
@@ -334,9 +421,11 @@ class TimelineWindow(SnapshotPlayer):
 
     def _load_snapshot(self, reference):
         return load_snapshot_reference(
-            reference, self.directory,
+            reference,
+            self.directory,
             self.joints if self.joints else None,
-            self.bounds if self.joints else None)
+            self.bounds if self.joints else None,
+        )
 
     def _snapshot(self, step):
         snapshot = step["snapshot"]
@@ -363,7 +452,10 @@ class TimelineWindow(SnapshotPlayer):
             self.redraw(index)
 
     def discard(self):
-        return self.apply() and (not self.dirty or messagebox.askyesno("Unsaved timeline", "Discard unsaved changes?", parent=self.root))
+        return self.apply() and (
+            not self.dirty
+            or messagebox.askyesno("Unsaved timeline", "Discard unsaved changes?", parent=self.root)
+        )
 
     def new(self):
         if self.discard():
@@ -376,11 +468,21 @@ class TimelineWindow(SnapshotPlayer):
     def save(self):
         if not self.apply():
             return
-        path = filedialog.asksaveasfilename(parent=self.root, defaultextension=".json", initialfile="timeline.json", filetypes=[("Timeline JSON", "*.json")])
+        path = filedialog.asksaveasfilename(
+            parent=self.root,
+            defaultextension=".json",
+            initialfile="timeline.json",
+            filetypes=[("Timeline JSON", "*.json")],
+        )
         if path:
             try:
-                save_timeline(path, self.steps, self.on_end.get().removeprefix("Torque "),
-                              self.loop.get(), snapshot_resolver=self._load_snapshot)
+                save_timeline(
+                    path,
+                    self.steps,
+                    self.on_end.get().removeprefix("Torque "),
+                    self.loop.get(),
+                    snapshot_resolver=self._load_snapshot,
+                )
                 self.dirty = False
                 self.redraw(self.editor_index)
                 self.status.set(f"Saved {path}")
@@ -399,7 +501,8 @@ class TimelineWindow(SnapshotPlayer):
                         {**step, "snapshot": self._reference_for_legacy_snapshot(step["snapshot"])}
                         if isinstance(step, dict) and isinstance(step.get("snapshot"), dict)
                         else step
-                        for step in document.get("steps", [])]
+                        for step in document.get("steps", [])
+                    ]
                     document["schema_version"] = 2
                 steps = validate_timeline(document, snapshot_resolver=self._load_snapshot)
                 lifecycle = lifecycle_settings(document)
@@ -419,16 +522,21 @@ class TimelineWindow(SnapshotPlayer):
             steps = resolve_timeline_steps(self.steps, self._load_snapshot)
             validate_timeline(
                 {"kind": "saprog_timeline", "schema_version": 1, "steps": steps},
-                self.joints, self.bounds)
+                self.joints,
+                self.bounds,
+            )
             if selected:
                 if self.selected_index is None:
                     return
                 steps = [steps[self.selected_index]]
             looping = self.loop.get() and not selected
             fields = timeline_action_data(
-                steps, self.joints, loop=looping,
+                steps,
+                self.joints,
+                loop=looping,
                 run_end_action=not selected and not looping,
-                end_torque_enabled=self.on_end.get() == "Torque on")
+                end_torque_enabled=self.on_end.get() == "Torque on",
+            )
             goal = snapshot_player.PlayTimeline.Goal()
             for name, value in fields.items():
                 setattr(goal, name, value)
@@ -437,10 +545,12 @@ class TimelineWindow(SnapshotPlayer):
             self._update_buttons()
             self.status.set("Submitting timeline to ROS executor...")
             self.timeline_goal_future = self.timeline_client.send_goal_async(
-                goal, feedback_callback=self._timeline_feedback)
+                goal, feedback_callback=self._timeline_feedback
+            )
             self.timeline_goal_future.add_done_callback(self._timeline_goal_response)
         except (OSError, ValueError, TypeError, RuntimeError) as exc:
-            self.status.set(f"Timeline rejected; no commands sent: {exc}")
+            # send_goal_async can fail after the editor has already been locked.
+            self._finish_timeline_action(f"Could not submit timeline: {exc}")
 
     def _timeline_feedback(self, feedback_message):
         if self.run_steps is None:
@@ -460,7 +570,9 @@ class TimelineWindow(SnapshotPlayer):
             return
         self.timeline_goal_future = None
         if not handle.accepted:
-            self._finish_timeline_action("ROS timeline executor rejected the goal; no commands sent")
+            self._finish_timeline_action(
+                "ROS timeline executor rejected the goal; no commands sent"
+            )
             return
         self.timeline_goal_handle = handle
         self.timeline_result_future = handle.get_result_async()
@@ -490,7 +602,7 @@ class TimelineWindow(SnapshotPlayer):
         self._update_buttons()
         if self.close_after_cancel:
             self.close_after_cancel = False
-            self.root.destroy()
+            self._close_view()
 
     def _request_timeline_cancel(self):
         if self.timeline_goal_handle is None:
@@ -507,7 +619,9 @@ class TimelineWindow(SnapshotPlayer):
         try:
             response = future.result()
             if not response.goals_canceling:
-                self.status.set("Cancellation rejected; the timeline may already be applying its final torque action")
+                self.status.set(
+                    "Cancellation rejected; the timeline may already be applying its final torque action"
+                )
         except Exception as exc:
             self.status.set(f"Could not confirm timeline cancellation: {exc}")
 
@@ -525,21 +639,35 @@ class TimelineWindow(SnapshotPlayer):
     def _update_buttons(self):
         locked = self.run_steps is not None
         for widget in self.edit_widgets + self.transition_widgets:
-            state = "disabled" if locked else ("readonly" if isinstance(widget, ttk.Combobox) else "normal")
+            state = (
+                "disabled"
+                if locked
+                else ("readonly" if isinstance(widget, ttk.Combobox) else "normal")
+            )
             configure_changed(widget, state=state)
         self.sequence.configure(state="disabled" if locked else "normal")
         for button in (self.play_button, self.test_button):
-            configure_changed(button, state="normal" if not locked and self._ready() and self.steps else "disabled")
+            configure_changed(
+                button,
+                state="normal" if not locked and self._ready() and self.steps else "disabled",
+            )
 
     def close(self):
         if self.run_steps is not None:
             if not self.discard():
                 return
             if not messagebox.askyesno(
-                "Stop timeline", "Cancel the running timeline before closing?", parent=self.root):
+                "Stop timeline", "Cancel the running timeline before closing?", parent=self.root
+            ):
                 return
             self.close_after_cancel = True
             self.stop()
             return
         if self.discard():
+            self._close_view()
+
+    def _close_view(self):
+        if self.on_close:
+            self.on_close()
+        else:
             self.root.destroy()

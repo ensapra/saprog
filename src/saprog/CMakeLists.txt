@@ -16,6 +16,10 @@ find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(Threads REQUIRED)
+find_package(rviz_common REQUIRED)
+find_package(rviz_rendering REQUIRED)
+find_package(Qt5 REQUIRED COMPONENTS Widgets)
+find_package(X11 REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/PlayTimeline.action"
@@ -39,7 +43,11 @@ target_include_directories(imu_node PRIVATE include)
 ament_target_dependencies(imu_node rclcpp rcl_interfaces sensor_msgs geometry_msgs std_msgs std_srvs)
 target_link_libraries(imu_node "${cpp_typesupport_target}")
 
-install(TARGETS saprog_nodes imu_node
+add_executable(robot_view_embed src/robot_view_embed.cpp)
+ament_target_dependencies(robot_view_embed rclcpp rviz_common rviz_rendering)
+target_link_libraries(robot_view_embed Qt5::Widgets X11::X11)
+
+install(TARGETS saprog_nodes imu_node robot_view_embed
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY config
@@ -57,6 +65,10 @@ install(PROGRAMS scripts/snapshot_player.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME snapshot_player)
 
+install(PROGRAMS scripts/static_animator.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME static_animator)
+
 install(PROGRAMS scripts/temperature_monitor.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME temperature_monitor)
@@ -69,18 +81,32 @@ install(PROGRAMS scripts/robot_view_bridge.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME robot_view_bridge)
 
-install(FILES scripts/snapshot_units.py DESTINATION lib/${PROJECT_NAME})
-install(FILES scripts/snapshot_files.py DESTINATION lib/${PROJECT_NAME})
-install(FILES scripts/snapshot_arrival.py DESTINATION lib/${PROJECT_NAME})
-install(FILES scripts/snapshot_limits_client.py DESTINATION lib/${PROJECT_NAME})
-install(FILES scripts/desktop_style.py DESTINATION lib/${PROJECT_NAME})
-install(FILES scripts/motion_controls.py DESTINATION lib/${PROJECT_NAME})
-install(FILES scripts/timeline_model.py scripts/timeline_window.py DESTINATION lib/${PROJECT_NAME})
+# Shared Python modules live beside the installed window entry points.
+install(FILES
+  scripts/snapshot_units.py
+  scripts/snapshot_files.py
+  scripts/snapshot_arrival.py
+  scripts/snapshot_limits_client.py
+  scripts/desktop_style.py
+  scripts/motion_controls.py
+  scripts/timeline_model.py
+  scripts/timeline_window.py
+  scripts/snapshot_window.py
+  scripts/snapshot_player.py
+  DESTINATION lib/${PROJECT_NAME})
 
 ament_export_dependencies(rosidl_default_runtime)
 
 if(BUILD_TESTING)
   enable_testing()
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(NAME snapshot_python_tests
+    COMMAND "${Python3_EXECUTABLE}" -m unittest discover
+      -s "${CMAKE_CURRENT_SOURCE_DIR}/test" -p "test_*.py")
+  add_executable(config_test test/config_test.cpp)
+  target_include_directories(config_test PRIVATE include)
+  ament_target_dependencies(config_test rclcpp)
+  add_test(NAME config_test COMMAND config_test)
   add_executable(imu_filter_test test/imu_filter_test.cpp)
   target_include_directories(imu_filter_test PRIVATE include)
   add_test(NAME imu_filter_test COMMAND imu_filter_test)

@@ -1,0 +1,3 @@
+# Optional formatting and static-check tools; runtime dependencies come from ROS.
+ruff==0.17.5
+clang-format==23.1.5

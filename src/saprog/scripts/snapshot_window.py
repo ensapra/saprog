@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """Tk desktop interface for saving and replaying saprog joint poses."""
+
 import argparse
 import json
 import math
 import os
-from snapshot_arrival import arrival_progress, AX_TICK_RADIANS
-from snapshot_units import joint_bounds, to_radians, validate_snapshot
-from snapshot_files import default_snapshot_directory, write_json_atomic
 import re
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from desktop_style import BACKGROUND, apply_style, configure_changed
-from motion_controls import add_slider, set_motion
 
 import rclpy
+from desktop_style import BACKGROUND, apply_style, configure_changed, status_box
+from motion_controls import add_slider, set_motion
 from rclpy.node import Node
-from snapshot_limits_client import HardwareParameterClient as AsyncParameterClient
 from sensor_msgs.msg import JointState
+from snapshot_arrival import AX_TICK_RADIANS, arrival_progress
+from snapshot_files import default_snapshot_directory, write_json_atomic
+from snapshot_limits_client import HardwareParameterClient as AsyncParameterClient
+from snapshot_units import joint_bounds, to_radians, validate_snapshot
 from std_srvs.srv import SetBool
-
 
 SCHEMA = 1
 FRESH_SECONDS = 2.5
@@ -42,8 +42,9 @@ def safe_filename(name):
 
 
 class SnapshotWindow:
-    def __init__(self, root, node, directory):
+    def __init__(self, root, node, directory, container=None):
         self.root, self.node, self.directory = root, node, directory
+        self.container = container or root
         self.joints = []
         self.positions = {}
         self.last_state = 0.0
@@ -60,7 +61,6 @@ class SnapshotWindow:
         self.manual_buttons = {}
         self.torque_buttons = {}
         self.current_labels = {}
-        self._displayed_status = None
         self.status = tk.StringVar(value="Waiting for controller configuration and joint states")
         self.snapshot_name = tk.StringVar()
         self.selected = tk.StringVar()
@@ -71,23 +71,29 @@ class SnapshotWindow:
         self._build()
         self.param_client = AsyncParameterClient(node, "/saprog_position_controller")
         self.param_future = None
-        self.subscription = node.create_subscription(JointState, "/saprog/joint_states", self._state, 10)
+        self.subscription = node.create_subscription(
+            JointState, "/saprog/joint_states", self._state, 10
+        )
         self.command_pub = node.create_publisher(JointState, "/saprog/position_command", 100)
         self.timer = node.create_timer(0.1, lambda: None)
         self.refresh_files()
         self.root.after(30, self._poll)
 
     def _build(self):
-        apply_style(self.root)
-        self.root.title("Snapshot Creator")
-        self.root.geometry("940x820")
-        frame = ttk.Frame(self.root, padding=14)
+        if self.container is self.root:
+            apply_style(self.root)
+            self.root.title("Snapshot Creator")
+            self.root.geometry("940x820")
+        frame = ttk.Frame(self.container, padding=14)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="Snapshot Creator", style="Title.TLabel").pack(anchor="w")
         self.speed_scale = add_slider(frame, "Movement speed", self.moving_speed, 1)
         self.torque_scale = add_slider(frame, "Torque strength", self.torque_strength, 0)
-        ttk.Label(frame, text="Applies to every joint on the next Move or Load Snapshot.",
-                  style="Muted.TLabel").pack(anchor="w")
+        ttk.Label(
+            frame,
+            text="Applies to every joint on the next Move or Load Snapshot.",
+            style="Muted.TLabel",
+        ).pack(anchor="w")
         rows = ttk.Frame(frame)
         rows.pack(fill="both", expand=True, pady=10)
         self.canvas = tk.Canvas(rows, height=430, highlightthickness=0, background=BACKGROUND)
@@ -96,9 +102,16 @@ class SnapshotWindow:
         scrollbar.pack(side="right", fill="y")
         self.canvas.pack(side="left", fill="both", expand=True)
         self.joint_frame = ttk.Frame(self.canvas)
-        self.joint_canvas_item = self.canvas.create_window((0, 0), window=self.joint_frame, anchor="nw")
-        self.joint_frame.bind("<Configure>", lambda _e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.bind("<Configure>", lambda event: self.canvas.itemconfigure(self.joint_canvas_item, width=event.width))
+        self.joint_canvas_item = self.canvas.create_window(
+            (0, 0), window=self.joint_frame, anchor="nw"
+        )
+        self.joint_frame.bind(
+            "<Configure>", lambda _e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+        self.canvas.bind(
+            "<Configure>",
+            lambda event: self.canvas.itemconfigure(self.joint_canvas_item, width=event.width),
+        )
         self.leg_frames = {}
         for name, (grid_row, grid_column), _joints in LEG_LAYOUT:
             leg_frame = ttk.LabelFrame(self.joint_frame, text=name, padding=8)
@@ -111,8 +124,12 @@ class SnapshotWindow:
         name_row = ttk.Frame(frame)
         name_row.pack(fill="x", pady=5)
         ttk.Label(name_row, text="Snapshot name").pack(side="left")
-        ttk.Entry(name_row, textvariable=self.snapshot_name).pack(side="left", fill="x", expand=True, padx=8)
-        self.save_button = ttk.Button(name_row, text="Save targets", style="Accent.TButton", command=self.save)
+        ttk.Entry(name_row, textvariable=self.snapshot_name).pack(
+            side="left", fill="x", expand=True, padx=8
+        )
+        self.save_button = ttk.Button(
+            name_row, text="Save targets", style="Accent.TButton", command=self.save
+        )
         self.save_button.pack(side="right")
         load_row = ttk.Frame(frame)
         load_row.pack(fill="x", pady=5)
@@ -126,46 +143,25 @@ class SnapshotWindow:
         self.load_button = ttk.Button(load_row, text="Load Snapshot", command=self.load)
         self.load_button.pack(side="left")
         self.fixed_toggle = ttk.Checkbutton(
-            frame, text="Fixed: keep torque holding the loaded targets", variable=self.hold_after_load)
+            frame,
+            text="Fixed: keep torque holding the loaded targets",
+            variable=self.hold_after_load,
+        )
         self.fixed_toggle.pack(anchor="w", pady=4)
-        ttk.Label(frame, text="Both modes move to saved positions. Fixed off releases torque only after every joint arrives and holds stable.", wraplength=620).pack(anchor="w")
-        self.release_all_button = ttk.Button(frame, text="Release all joints", command=self.release_all)
+        ttk.Label(
+            frame,
+            text="Both modes move to saved positions. Fixed off releases torque only after every joint arrives and holds stable.",
+            wraplength=620,
+        ).pack(anchor="w")
+        self.release_all_button = ttk.Button(
+            frame, text="Release all joints", command=self.release_all
+        )
         self.release_all_button.pack(anchor="w", pady=8)
         self._build_status_box(frame, 620)
 
     def _build_status_box(self, parent, width):
-        self.status_box = tk.Text(parent, height=3, wrap="word", state="disabled", width=width)
+        self.status_box = status_box(parent, self.status, height=3, width=width)
         self.status_box.pack(fill="x", pady=8)
-        self.status.trace_add("write", lambda *_args: self._refresh_status())
-        self.status_box.bind("<Control-a>", self._select_all_status)
-        self.status_box.bind("<Control-c>", self._copy_status)
-        self.status_box.bind("<Control-A>", self._select_all_status)
-        self.status_box.bind("<Control-C>", self._copy_status)
-        self._refresh_status()
-
-    def _refresh_status(self):
-        if self.status.get() == self._displayed_status:
-            return
-        self._displayed_status = self.status.get()
-        self.status_box.configure(state="normal")
-        self.status_box.delete("1.0", "end")
-        self.status_box.insert("1.0", self.status.get())
-        self.status_box.configure(state="disabled")
-
-    def _select_all_status(self, _event=None):
-        self.status_box.configure(state="normal")
-        self.status_box.tag_add("sel", "1.0", "end-1c")
-        self.status_box.configure(state="disabled")
-        return "break"
-
-    def _copy_status(self, _event=None):
-        try:
-            selected = self.status_box.get("sel.first", "sel.last")
-        except tk.TclError:
-            selected = self.status_box.get("1.0", "end-1c")
-        self.root.clipboard_clear()
-        self.root.clipboard_append(selected)
-        return "break"
 
     def _configure(self, future):
         try:
@@ -215,13 +211,22 @@ class SnapshotWindow:
                 entry.pack(side="left")
                 entry.bind("<KeyRelease>", lambda _event, j=joint: self.target_edited.add(j))
                 self.target_values[joint] = target
-                move = ttk.Button(controls, text="Move", command=lambda j=joint: self.move_to_manual_value(j))
+                move = ttk.Button(
+                    controls, text="Move", command=lambda j=joint: self.move_to_manual_value(j)
+                )
                 move.pack(side="left", padx=3)
                 self.manual_buttons[joint] = move
-                toggle = ttk.Button(controls, text="Fix", style="Fix.TButton", command=lambda j=joint: self.toggle_torque(j))
+                toggle = ttk.Button(
+                    controls,
+                    text="Fix",
+                    style="Fix.TButton",
+                    command=lambda j=joint: self.toggle_torque(j),
+                )
                 toggle.pack(side="left", padx=3)
                 self.torque_buttons[joint] = toggle
-            self.status.set(f"Configured {len(self.joints)} joints. Reading position and torque state.")
+            self.status.set(
+                f"Configured {len(self.joints)} joints. Reading position and torque state."
+            )
             self.refresh_files()
         except Exception as exc:
             self.joints = []
@@ -254,17 +259,33 @@ class SnapshotWindow:
         playback = self.playback_state
         if playback is not None and playback["phase"] == "waiting":
             stamp = self.last_state_stamp
-            source_age = (self.node.get_clock().now().nanoseconds - stamp) / 1_000_000_000 if stamp else float("inf")
+            source_age = (
+                (self.node.get_clock().now().nanoseconds - stamp) / 1_000_000_000
+                if stamp
+                else float("inf")
+            )
             off_target = valid and any(
-                abs(found[joint] - playback["targets"][joint]) > self.target_tolerance + AX_TICK_RADIANS / 2 for joint in self.joints)
+                abs(found[joint] - playback["targets"][joint])
+                > self.target_tolerance + AX_TICK_RADIANS / 2
+                for joint in self.joints
+            )
             if not valid or off_target or source_age < 0.0 or source_age > FRESH_SECONDS:
-                playback["stable_count"], playback["stable_since"], playback["stable_first_stamp"] = 0, None, 0
+                (
+                    playback["stable_count"],
+                    playback["stable_since"],
+                    playback["stable_first_stamp"],
+                ) = 0, None, 0
         for joint in self.joints:
             label = self.current_labels.get(joint)
             if label:
                 value = found.get(joint)
                 state = self.torque_state.get(joint, "torque unknown")
-                configure_changed(label, text=f"{value:.3f} rad | {state}" if value is not None else "No current reading")
+                configure_changed(
+                    label,
+                    text=f"{value:.3f} rad | {state}"
+                    if value is not None
+                    else "No current reading",
+                )
                 if value is not None and joint not in self.target_edited:
                     self.target_values[joint].set(repr(value))
                     # Seed the editor once; subsequent telemetry belongs only
@@ -273,7 +294,11 @@ class SnapshotWindow:
                 self._update_joint_buttons(joint)
 
     def _complete_state(self):
-        return bool(self.joints) and time.monotonic() - self.last_state <= FRESH_SECONDS and set(self.positions) == set(self.joints)
+        return (
+            bool(self.joints)
+            and time.monotonic() - self.last_state <= FRESH_SECONDS
+            and set(self.positions) == set(self.joints)
+        )
 
     def torque(self, joint, enabled):
         if self.playback_state is not None:
@@ -294,7 +319,9 @@ class SnapshotWindow:
         self.pending[joint] = (token, time.monotonic())
         self._update_joint_buttons(joint)
         self.status.set(f"Waiting for {joint} torque operation")
-        future.add_done_callback(lambda f, j=joint, e=enabled, t=token: self._torque_done(j, e, t, f))
+        future.add_done_callback(
+            lambda f, j=joint, e=enabled, t=token: self._torque_done(j, e, t, f)
+        )
 
     def _torque_done(self, joint, enabled, token, future):
         if joint not in self.pending or self.pending[joint][0] is not token:
@@ -307,7 +334,9 @@ class SnapshotWindow:
             if enabled:
                 self.fixed.add(joint)
                 self.torque_state[joint] = "fixed"
-                self.status.set(f"{joint} holds its freshly read position; waiting for new telemetry")
+                self.status.set(
+                    f"{joint} holds its freshly read position; waiting for new telemetry"
+                )
                 self._wait_post_fix[joint] = self.node.get_clock().now().nanoseconds
             else:
                 self.fixed.discard(joint)
@@ -329,9 +358,12 @@ class SnapshotWindow:
             return
         pending = joint in self.pending or self.playback_state is not None
         is_fixed = joint in self.fixed
-        configure_changed(button, text="..." if joint in self.pending else "Release" if is_fixed else "Fix",
-                         style="Release.TButton" if is_fixed else "Fix.TButton",
-                         state="disabled" if pending else "normal")
+        configure_changed(
+            button,
+            text="..." if joint in self.pending else "Release" if is_fixed else "Fix",
+            style="Release.TButton" if is_fixed else "Fix.TButton",
+            state="disabled" if pending else "normal",
+        )
         manual = self.manual_buttons.get(joint)
         if manual is not None:
             configure_changed(manual, state="disabled" if pending else "normal")
@@ -347,7 +379,9 @@ class SnapshotWindow:
             self.status.set("Manual move requires fresh readings for every configured joint")
             return
         try:
-            value = to_radians(float(self.target_values[joint].get().strip()), self.bounds[joint], "radians")
+            value = to_radians(
+                float(self.target_values[joint].get().strip()), self.bounds[joint], "radians"
+            )
         except ValueError as exc:
             self.status.set(f"{joint}: {exc}")
             return
@@ -387,8 +421,11 @@ class SnapshotWindow:
 
     def browse_snapshot(self):
         path = filedialog.askopenfilename(
-            title="Load snapshot", initialdir=self.directory,
-            filetypes=(("JSON snapshots", "*.json"), ("All files", "*")))
+            parent=self.root,
+            title="Load snapshot",
+            initialdir=self.directory,
+            filetypes=(("JSON snapshots", "*.json"), ("All files", "*")),
+        )
         if path:
             self.selected_path = path
             self.selected.set(os.path.basename(path))
@@ -416,7 +453,9 @@ class SnapshotWindow:
         try:
             os.makedirs(self.directory, exist_ok=True)
             path = os.path.join(self.directory, safe_filename(name) + ".json")
-            if os.path.exists(path) and not messagebox.askyesno("Overwrite snapshot?", f"Replace {os.path.basename(path)}?"):
+            if os.path.exists(path) and not messagebox.askyesno(
+                "Overwrite snapshot?", f"Replace {os.path.basename(path)}?", parent=self.root
+            ):
                 return
             write_json_atomic(path, doc)
             self.status.set(f"Saved target values '{name}'")
@@ -428,10 +467,19 @@ class SnapshotWindow:
         if self.torque_strength.get() <= 0:
             self.status.set("Set Torque strength above zero before playback")
             return
-        if not self.selected.get() or self.pending or self.playback_state is not None or not self._complete_state():
-            self.status.set("Load requires a selected snapshot, fresh complete telemetry, and no torque operation")
+        if (
+            not self.selected.get()
+            or self.pending
+            or self.playback_state is not None
+            or not self._complete_state()
+        ):
+            self.status.set(
+                "Load requires a selected snapshot, fresh complete telemetry, and no torque operation"
+            )
             return
-        path = self.selected_path or os.path.join(self.directory, os.path.basename(self.selected.get()) + ".json")
+        path = self.selected_path or os.path.join(
+            self.directory, os.path.basename(self.selected.get()) + ".json"
+        )
         try:
             with open(path, encoding="utf-8") as stream:
                 name, positions = validate_snapshot(json.load(stream), self.joints, self.bounds)
@@ -439,17 +487,26 @@ class SnapshotWindow:
             self.status.set(f"Snapshot rejected; no commands sent: {exc}")
             return
         release_after = not self.hold_after_load.get()
-        if release_after and any(not self.services[joint].service_is_ready() for joint in self.joints):
+        if release_after and any(
+            not self.services[joint].service_is_ready() for joint in self.joints
+        ):
             self.status.set("Cannot start: torque release services are not ready for every joint")
             return
         self.playback_state = {
-            "name": name, "targets": positions,
+            "name": name,
+            "targets": positions,
             "queue": [(list(self.joints), [positions[joint] for joint in self.joints])],
-            "release_after": release_after, "phase": "sending",
-            "last_send": 0.0, "sent_stamp": 0, "deadline": None,
-            "last_sample_stamp": 0, "stable_count": 0, "stable_since": None,
+            "release_after": release_after,
+            "phase": "sending",
+            "last_send": 0.0,
+            "sent_stamp": 0,
+            "deadline": None,
+            "last_sample_stamp": 0,
+            "stable_count": 0,
+            "stable_since": None,
             "stable_first_stamp": 0,
-            "release_pending": {}, "release_results": {},
+            "release_pending": {},
+            "release_results": {},
         }
         self.fixed.clear()
         for joint in self.joints:
@@ -459,9 +516,16 @@ class SnapshotWindow:
 
     def _set_playback_controls(self, locked):
         state = "disabled" if locked else "normal"
-        for button in (self.save_button, self.refresh_button, self.browse_button,
-                       self.load_button, self.release_all_button, self.fixed_toggle,
-                       self.speed_scale, self.torque_scale):
+        for button in (
+            self.save_button,
+            self.refresh_button,
+            self.browse_button,
+            self.load_button,
+            self.release_all_button,
+            self.fixed_toggle,
+            self.speed_scale,
+            self.torque_scale,
+        ):
             configure_changed(button, state=state)
         configure_changed(self.combo, state="disabled" if locked else "readonly")
         for joint in self.joints:
@@ -490,18 +554,27 @@ class SnapshotWindow:
                 playback["release_results"][joint] = str(exc)
                 continue
             future.add_done_callback(
-                lambda done, j=joint, t=token, p=playback: self._playback_release_done(p, j, t, done))
+                lambda done, j=joint, t=token, p=playback: self._playback_release_done(
+                    p, j, t, done
+                )
+            )
         if not playback["release_pending"]:
             if playback["release_results"]:
                 failures = playback["release_results"]
-                self._finish_playback("Targets reached; torque release incomplete: " + "; ".join(
-                    f"{joint}: {reason}" for joint, reason in failures.items()))
+                self._finish_playback(
+                    "Targets reached; torque release incomplete: "
+                    + "; ".join(f"{joint}: {reason}" for joint, reason in failures.items())
+                )
                 return
             failures = playback["release_results"]
-            self._finish_playback("Reached targets, but torque release failed: " + "; ".join(
-                f"{joint}: {reason}" for joint, reason in failures.items()))
+            self._finish_playback(
+                "Reached targets, but torque release failed: "
+                + "; ".join(f"{joint}: {reason}" for joint, reason in failures.items())
+            )
         else:
-            self.status.set("All targets reached; waiting for acknowledged torque release on every joint")
+            self.status.set(
+                "All targets reached; waiting for acknowledged torque release on every joint"
+            )
 
     def _playback_release_done(self, playback, joint, token, future):
         if self.playback_state is not playback or joint not in playback["release_pending"]:
@@ -521,10 +594,14 @@ class SnapshotWindow:
             return
         failures = {j: reason for j, reason in playback["release_results"].items() if reason}
         if failures:
-            self._finish_playback("Targets reached; torque release incomplete: " + "; ".join(
-                f"{joint}: {reason}" for joint, reason in failures.items()))
+            self._finish_playback(
+                "Targets reached; torque release incomplete: "
+                + "; ".join(f"{joint}: {reason}" for joint, reason in failures.items())
+            )
         else:
-            self._finish_playback(f"Targets reached; torque release acknowledged for all {len(self.joints)} joints")
+            self._finish_playback(
+                f"Targets reached; torque release acknowledged for all {len(self.joints)} joints"
+            )
 
     def _playback_tick(self):
         playback = self.playback_state
@@ -541,7 +618,9 @@ class SnapshotWindow:
                 try:
                     self.command_pub.publish(message)
                 except Exception as exc:
-                    self._finish_playback(f"Command publication failed; torque was not released: {exc}")
+                    self._finish_playback(
+                        f"Command publication failed; torque was not released: {exc}"
+                    )
                     return
                 for joint, position in zip(joints, positions):
                     if joint in self.target_values:
@@ -552,52 +631,90 @@ class SnapshotWindow:
                     playback["sent_stamp"] = self.node.get_clock().now().nanoseconds
                     playback["deadline"] = now + ARRIVAL_TIMEOUT
                     playback["phase"] = "waiting"
-                    self.status.set("Commands sent; waiting for all joints to reach and stably hold their targets")
+                    self.status.set(
+                        "Commands sent; waiting for all joints to reach and stably hold their targets"
+                    )
             return
         if playback["phase"] == "waiting":
             if now >= playback["deadline"]:
-                self._finish_playback("Movement incomplete: " + playback.get("arrival_detail", "no fresh complete telemetry after command") + "; timed out. Torque unchanged.")
+                self._finish_playback(
+                    "Movement incomplete: "
+                    + playback.get("arrival_detail", "no fresh complete telemetry after command")
+                    + "; timed out. Torque unchanged."
+                )
                 return
             fresh = now - self.last_state <= FRESH_SECONDS
             if not fresh or not getattr(self, "latest_state_complete", False):
-                playback["arrival_detail"] = "waiting for fresh readings from every configured joint"
+                playback["arrival_detail"] = (
+                    "waiting for fresh readings from every configured joint"
+                )
                 self.status.set(playback["arrival_detail"])
-                playback["stable_count"], playback["stable_since"], playback["stable_first_stamp"] = 0, None, 0
+                (
+                    playback["stable_count"],
+                    playback["stable_since"],
+                    playback["stable_first_stamp"],
+                ) = 0, None, 0
                 return
             stamp = self.last_state_stamp
             if not stamp or stamp <= playback["sent_stamp"]:
                 playback["arrival_detail"] = "waiting for telemetry recorded after the command"
                 self.status.set(playback["arrival_detail"])
-                playback["stable_count"], playback["stable_since"], playback["stable_first_stamp"] = 0, None, 0
+                (
+                    playback["stable_count"],
+                    playback["stable_since"],
+                    playback["stable_first_stamp"],
+                ) = 0, None, 0
                 return
             source_age = (self.node.get_clock().now().nanoseconds - stamp) / 1_000_000_000
             if source_age < 0.0 or source_age > FRESH_SECONDS:
-                playback["arrival_detail"] = "telemetry timestamp is stale or ahead of the controller clock"
+                playback["arrival_detail"] = (
+                    "telemetry timestamp is stale or ahead of the controller clock"
+                )
                 self.status.set(playback["arrival_detail"])
-                playback["stable_count"], playback["stable_since"], playback["stable_first_stamp"] = 0, None, 0
+                (
+                    playback["stable_count"],
+                    playback["stable_since"],
+                    playback["stable_first_stamp"],
+                ) = 0, None, 0
                 return
             if stamp <= playback["last_sample_stamp"]:
                 return
             playback["last_sample_stamp"] = stamp
-            within, stalled, detail = arrival_progress(playback, self.positions, self.joints, self.target_tolerance, now)
+            within, stalled, detail = arrival_progress(
+                playback, self.positions, self.joints, self.target_tolerance, now
+            )
             playback["arrival_detail"] = detail
             self.status.set(detail)
             if stalled:
-                self._finish_playback("Movement incomplete: no progress toward targets for 8 seconds. " + detail + ". Check controller errors and torque strength. Torque unchanged.")
+                self._finish_playback(
+                    "Movement incomplete: no progress toward targets for 8 seconds. "
+                    + detail
+                    + ". Check controller errors and torque strength. Torque unchanged."
+                )
                 return
             if not within:
-                playback["stable_count"], playback["stable_since"], playback["stable_first_stamp"] = 0, None, 0
+                (
+                    playback["stable_count"],
+                    playback["stable_since"],
+                    playback["stable_first_stamp"],
+                ) = 0, None, 0
                 return
             if playback["stable_since"] is None:
                 playback["stable_since"] = now
                 playback["stable_first_stamp"] = stamp
             playback["stable_count"] += 1
             source_span = (stamp - playback["stable_first_stamp"]) / 1_000_000_000
-            if playback["stable_count"] >= STABLE_SAMPLES and now - playback["stable_since"] >= STABLE_SECONDS and source_span >= STABLE_SECONDS:
+            if (
+                playback["stable_count"] >= STABLE_SAMPLES
+                and now - playback["stable_since"] >= STABLE_SECONDS
+                and source_span >= STABLE_SECONDS
+            ):
                 if playback["release_after"]:
                     self._release_playback_joints(playback)
                 else:
-                    self._finish_playback(f"All targets reached and stable; torque remains holding all {len(self.joints)} joints")
+                    self._finish_playback(
+                        f"All targets reached and stable; torque remains holding all {len(self.joints)} joints"
+                    )
             return
         if playback["phase"] == "releasing":
             for joint, (token, started) in list(playback["release_pending"].items()):
@@ -606,19 +723,33 @@ class SnapshotWindow:
                     playback["release_results"][joint] = "torque release timed out; state unknown"
                     self.torque_state[joint] = "torque state unknown"
             if not playback["release_pending"]:
-                failures = {j: reason for j, reason in playback["release_results"].items() if reason}
+                failures = {
+                    j: reason for j, reason in playback["release_results"].items() if reason
+                }
                 if failures:
-                    self._finish_playback("Targets reached; torque release incomplete: " + "; ".join(
-                        f"{joint}: {reason}" for joint, reason in failures.items()))
+                    self._finish_playback(
+                        "Targets reached; torque release incomplete: "
+                        + "; ".join(f"{joint}: {reason}" for joint, reason in failures.items())
+                    )
                 else:
-                    self._finish_playback(f"Targets reached; torque release acknowledged for all {len(self.joints)} joints")
+                    self._finish_playback(
+                        f"Targets reached; torque release acknowledged for all {len(self.joints)} joints"
+                    )
 
     def _poll(self):
         if not self.joints:
             self.status.set(self.param_client.limits_error)
         if self.param_future is None and not self.joints and self.param_client.services_are_ready():
             self.param_future = self.param_client.get_parameters(
-                ["servo_ids", "zero_positions", "directions", "target_tolerance", "lower_limits", "upper_limits"])
+                [
+                    "servo_ids",
+                    "zero_positions",
+                    "directions",
+                    "target_tolerance",
+                    "lower_limits",
+                    "upper_limits",
+                ]
+            )
         if self.param_future is not None and self.param_future.done():
             future, self.param_future = self.param_future, None
             self._configure(future)
@@ -629,7 +760,12 @@ class SnapshotWindow:
                 self.torque_state[joint] = "torque result timed out; state unknown"
                 self.status.set(f"{joint} torque operation timed out; state is unknown")
         self._playback_tick()
-        can_load = self.joints and self._complete_state() and not self.pending and self.playback_state is None
+        can_load = (
+            self.joints
+            and self._complete_state()
+            and not self.pending
+            and self.playback_state is None
+        )
         if not self.playback_state:
             configure_changed(self.load_button, state="normal" if can_load else "disabled")
         self.root.after(30, self._poll)
@@ -642,12 +778,14 @@ def main():
     rclpy.init(args=ros_args)
     node = Node("saprog_snapshot_window")
     root = tk.Tk()
-    app = SnapshotWindow(root, node, os.path.abspath(os.path.expanduser(args.directory)))
+    SnapshotWindow(root, node, os.path.abspath(os.path.expanduser(args.directory)))
     try:
+
         def spin():
             if rclpy.ok():
                 rclpy.spin_once(node, timeout_sec=0.0)
                 root.after(10, spin)
+
         root.after(10, spin)
         root.mainloop()
     finally:

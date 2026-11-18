@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """Live, selectable servo temperature traces on a shared Tk canvas."""
-from collections import deque
+
 import colorsys
 import math
 import signal
 import time
 import tkinter as tk
+from collections import deque
 from tkinter import ttk
 
 import rclpy
+from desktop_style import BACKGROUND, FOREGROUND, apply_style
 from rclpy.node import Node
 from sensor_msgs.msg import JointState, Temperature
-
-from desktop_style import BACKGROUND, FOREGROUND, apply_style
-
 
 HISTORY_SECONDS = 300.0
 STALE_SECONDS = 2.5
@@ -23,9 +22,11 @@ LEG_ROWS = (
     ("Front Left Leg", ("servo_31", "servo_32", "servo_33")),
     ("Back Left Leg", ("servo_41", "servo_42", "servo_43")),
 )
-SERVO_CELL = {name: (row, column + 1)
-              for row, (_leg, names) in enumerate(LEG_ROWS)
-              for column, name in enumerate(names)}
+SERVO_CELL = {
+    name: (row, column + 1)
+    for row, (_leg, names) in enumerate(LEG_ROWS)
+    for column, name in enumerate(names)
+}
 
 
 class TemperatureMonitor:
@@ -41,20 +42,28 @@ class TemperatureMonitor:
         outer = ttk.Frame(parent, padding=14)
         outer.pack(fill="both", expand=True)
         ttk.Label(outer, text="Servo temperatures", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(outer, text="Live °C · last 5 minutes · toggle any combination of servos",
-                  style="Muted.TLabel").pack(anchor="w", pady=(2, 10))
+        ttk.Label(
+            outer,
+            text="Live °C · last 5 minutes · toggle any combination of servos",
+            style="Muted.TLabel",
+        ).pack(anchor="w", pady=(2, 10))
         controls = ttk.Frame(outer)
         controls.pack(fill="x")
-        ttk.Button(controls, text="Select all", command=lambda: self.select_all(True)).pack(side="left")
-        ttk.Button(controls, text="Deselect all", command=lambda: self.select_all(False)).pack(side="left", padx=6)
+        ttk.Button(controls, text="Select all", command=lambda: self.select_all(True)).pack(
+            side="left"
+        )
+        ttk.Button(controls, text="Deselect all", command=lambda: self.select_all(False)).pack(
+            side="left", padx=6
+        )
         self.status = tk.StringVar(value="Waiting for live temperature readings…")
         ttk.Label(controls, textvariable=self.status).pack(side="left", padx=10)
         zoom = ttk.Frame(outer)
         zoom.pack(fill="x", pady=(8, 0))
         ttk.Label(zoom, text="Time window (seconds)").pack(side="left")
         self.window_input = tk.StringVar(value="300")
-        window = ttk.Combobox(zoom, textvariable=self.window_input, width=8,
-                              values=(5, 10, 20, 30, 60, 120, 300))
+        window = ttk.Combobox(
+            zoom, textvariable=self.window_input, width=8, values=(5, 10, 20, 30, 60, 120, 300)
+        )
         window.pack(side="left", padx=6)
         window.bind("<<ComboboxSelected>>", self.apply_window)
         window.bind("<Return>", self.apply_window)
@@ -62,13 +71,16 @@ class TemperatureMonitor:
         ttk.Button(zoom, text="Zoom in", command=lambda: self.zoom(0.5)).pack(side="left", padx=6)
         ttk.Button(zoom, text="Zoom out", command=lambda: self.zoom(2)).pack(side="left")
         self.window_hint = tk.StringVar(value="1–300 seconds; full history is kept when zooming")
-        ttk.Label(zoom, textvariable=self.window_hint, style="Muted.TLabel").pack(side="left", padx=8)
+        ttk.Label(zoom, textvariable=self.window_hint, style="Muted.TLabel").pack(
+            side="left", padx=8
+        )
         self.choices = ttk.Frame(outer)
         self.choices.pack(fill="x", pady=8)
         self.extra_servos = 0
         for row, (leg, _names) in enumerate(LEG_ROWS):
             ttk.Label(self.choices, text=leg, style="Muted.TLabel").grid(
-                row=row, column=0, sticky="w", padx=(0, 16))
+                row=row, column=0, sticky="w", padx=(0, 16)
+            )
         self.canvas = tk.Canvas(outer, background=BACKGROUND, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda _event: self.draw())
@@ -91,7 +103,9 @@ class TemperatureMonitor:
             row, column = len(LEG_ROWS) + self.extra_servos // 3, self.extra_servos % 3 + 1
             self.extra_servos += 1
         cell.grid(row=row, column=column, sticky="w", padx=(0, 16))
-        ttk.Checkbutton(cell, text=name, variable=self.selected[name], command=self.draw).pack(side="left")
+        ttk.Checkbutton(cell, text=name, variable=self.selected[name], command=self.draw).pack(
+            side="left"
+        )
         label = ttk.Label(cell, text="waiting", foreground=self.colors[name])
         label.pack(side="left", padx=4)
         self.labels[name] = label
@@ -142,22 +156,43 @@ class TemperatureMonitor:
                 points.popleft()
             recent = bool(points) and now - points[-1][0] <= STALE_SECONDS
             fresh += int(recent)
-            self.labels[name].configure(text=(f"{points[-1][1]:.0f} °C" + (" · stale" if not recent else ""))
-                                        if points else "waiting")
+            self.labels[name].configure(
+                text=(f"{points[-1][1]:.0f} °C" + (" · stale" if not recent else ""))
+                if points
+                else "waiting"
+            )
             if self.selected[name].get():
-                visible.append((name, [(stamp, value) for stamp, value in points if stamp >= cutoff]))
+                visible.append(
+                    (name, [(stamp, value) for stamp, value in points if stamp >= cutoff])
+                )
         self.status.set(f"{len(visible)}/{len(self.history)} selected · {fresh} live")
         left, top = 65, 25
-        right, bottom = max(left + 1, canvas.winfo_width() - 20), max(top + 1, canvas.winfo_height() - 45)
+        right, bottom = (
+            max(left + 1, canvas.winfo_width() - 20),
+            max(top + 1, canvas.winfo_height() - 45),
+        )
         values = [value for _name, points in visible for _stamp, value in points]
         low = math.floor((min(values) - 5) / 5) * 5 if values else 15
         high = max(low + 10, math.ceil((max(values) + 5) / 5) * 5) if values else 50
         for index in range(6):
             y = bottom - index * (bottom - top) / 5
             canvas.create_line(left, y, right, y, fill="#2b394d")
-            canvas.create_text(left - 10, y, text=f"{low + index * (high - low) / 5:.0f}", anchor="e", fill=FOREGROUND)
+            canvas.create_text(
+                left - 10,
+                y,
+                text=f"{low + index * (high - low) / 5:.0f}",
+                anchor="e",
+                fill=FOREGROUND,
+            )
             x = left + index * (right - left) / 5
-            canvas.create_text(x, bottom + 18, text=f"{-self.window_seconds + index * self.window_seconds / 5:g}s" if index < 5 else "now", fill=FOREGROUND)
+            canvas.create_text(
+                x,
+                bottom + 18,
+                text=f"{-self.window_seconds + index * self.window_seconds / 5:g}s"
+                if index < 5
+                else "now",
+                fill=FOREGROUND,
+            )
         canvas.create_text(10, top, text="°C", anchor="w", fill=FOREGROUND)
         for name, points in visible:
             segment = []
@@ -166,14 +201,23 @@ class TemperatureMonitor:
                 if previous is not None and stamp - previous > STALE_SECONDS:
                     self.draw_segment(segment, self.colors[name])
                     segment = []
-                segment.extend((left + (stamp - cutoff) / self.window_seconds * (right - left),
-                                bottom - (value - low) / (high - low) * (bottom - top)))
+                segment.extend(
+                    (
+                        left + (stamp - cutoff) / self.window_seconds * (right - left),
+                        bottom - (value - low) / (high - low) * (bottom - top),
+                    )
+                )
                 previous = stamp
             self.draw_segment(segment, self.colors[name])
         if not values:
-            canvas.create_text((left + right) / 2, (top + bottom) / 2,
-                               text="Waiting for selected servo temperatures" if visible else "Select servos to graph",
-                               fill=FOREGROUND)
+            canvas.create_text(
+                (left + right) / 2,
+                (top + bottom) / 2,
+                text="Waiting for selected servo temperatures"
+                if visible
+                else "Select servos to graph",
+                fill=FOREGROUND,
+            )
 
     def draw_segment(self, coordinates, color):
         if len(coordinates) >= 4:
@@ -204,6 +248,7 @@ def main():
         root.geometry("1050x700")
         root.minsize(700, 450)
         app = TemperatureMonitor(root, node)
+
         def poll():
             if app.closed:
                 return
@@ -211,6 +256,7 @@ def main():
                 rclpy.spin_once(node, timeout_sec=0)
             app.poll()
             root.after(100, poll)
+
         root.protocol("WM_DELETE_WINDOW", app.close)
         root.after(100, poll)
         signal.signal(signal.SIGTERM, lambda *_args: app.close())

@@ -1,8 +1,10 @@
 """Timeline documents reference snapshots and store per-transition motion settings."""
+
 import copy
 import json
 import math
 from pathlib import Path
+
 from snapshot_files import write_json_atomic
 from snapshot_units import validate_snapshot
 
@@ -11,8 +13,12 @@ MOTION_STEP = 0
 WAIT_STEP = 1
 UNTIL_REACHED = 0
 FIXED_SECONDS = 1
-LEGS = {"Front left": (31, 32, 33), "Front right": (11, 12, 13),
-        "Back left": (41, 42, 43), "Back right": (21, 22, 23)}
+LEGS = {
+    "Front left": (31, 32, 33),
+    "Front right": (11, 12, 13),
+    "Back left": (41, 42, 43),
+    "Back right": (21, 22, 23),
+}
 
 
 def wait_seconds(step):
@@ -52,8 +58,9 @@ def control_groups(mode, joints):
         return {joint: [joint] for joint in joints}
     if mode != "Leg Control":
         raise ValueError("Unknown control mode")
-    groups = {label: [f"servo_{i}" for i in ids if f"servo_{i}" in joints]
-              for label, ids in LEGS.items()}
+    groups = {
+        label: [f"servo_{i}" for i in ids if f"servo_{i}" in joints] for label, ids in LEGS.items()
+    }
     assigned = {joint for names in groups.values() for joint in names}
     groups.update({joint: [joint] for joint in joints if joint not in assigned})
     return {label: names for label, names in groups.items() if names}
@@ -67,8 +74,10 @@ def regroup_motion(step, mode, joints=None):
     result["control_mode"] = mode
     result["overrides"] = {}
     for names in control_groups(mode, joints).values():
-        pair = {key: round(sum(resolved[j][key] for j in names) / len(names))
-                for key in ("speed", "torque")}
+        pair = {
+            key: round(sum(resolved[j][key] for j in names) / len(names))
+            for key in ("speed", "torque")
+        }
         if mode == "Global Control":
             result["motion"] = pair
         else:
@@ -86,7 +95,9 @@ def _motion_pair(value):
         if type(value.get(key)) is not int or not 1 <= value[key] <= 1023:
             raise ValueError(f"{key} must be an integer from 1 to 1023")
     if value.get("enabled", True) is not True:
-        raise ValueError("Legacy torque-off transitions are no longer supported; use a timeline with torque on")
+        raise ValueError(
+            "Legacy torque-off transitions are no longer supported; use a timeline with torque on"
+        )
     return {"speed": value["speed"], "torque": value["torque"]}
 
 
@@ -98,8 +109,10 @@ def motion_settings(step, joints):
     overrides = step.get("overrides", {})
     if not isinstance(overrides, dict) or set(overrides) - set(joints):
         raise ValueError("Unknown servo in transition overrides")
-    return {joint: _motion_pair(overrides[joint]) if joint in overrides else dict(global_motion)
-            for joint in joints}
+    return {
+        joint: _motion_pair(overrides[joint]) if joint in overrides else dict(global_motion)
+        for joint in joints
+    }
 
 
 def lifecycle_settings(document):
@@ -173,7 +186,8 @@ def timeline_action_data(steps, joints, loop=False, run_end_action=True, end_tor
         settings = motion_settings(step, joints)
         data["step_kinds"].append(MOTION_STEP)
         data["duration_modes"].append(
-            FIXED_SECONDS if duration["mode"] == "seconds" else UNTIL_REACHED)
+            FIXED_SECONDS if duration["mode"] == "seconds" else UNTIL_REACHED
+        )
         data["durations"].append(duration["seconds"])
         data["positions"].extend(step["snapshot"]["positions"][joint] for joint in joints)
         data["speeds"].extend(settings[joint]["speed"] for joint in joints)
@@ -183,9 +197,12 @@ def timeline_action_data(steps, joints, loop=False, run_end_action=True, end_tor
 
 def validate_timeline(document, joints=None, bounds=None, snapshot_resolver=None):
     """Validate file structure, referenced poses, and motion before playback/save."""
-    if (not isinstance(document, dict) or document.get("kind") != "saprog_timeline"
-            or type(document.get("schema_version")) is not int
-            or document["schema_version"] not in (1, 2)):
+    if (
+        not isinstance(document, dict)
+        or document.get("kind") != "saprog_timeline"
+        or type(document.get("schema_version")) is not int
+        or document["schema_version"] not in (1, 2)
+    ):
         raise ValueError("Unsupported timeline file")
     version = document["schema_version"]
     lifecycle_settings(document)

@@ -1,27 +1,44 @@
 import copy
 import json
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from timeline_model import (control_groups, regroup_motion, motion_settings, save_timeline,
-                            validate_timeline, timeline_rows, lifecycle_settings,
-                            transition_duration, timeline_action_data,
-                            load_snapshot_reference, resolve_timeline_steps)
+from timeline_model import (
+    control_groups,
+    lifecycle_settings,
+    load_snapshot_reference,
+    motion_settings,
+    regroup_motion,
+    resolve_timeline_steps,
+    save_timeline,
+    timeline_action_data,
+    timeline_rows,
+    transition_duration,
+    validate_timeline,
+)
 from timeline_window import TimelineWindow
 
 
 class TimelineTest(unittest.TestCase):
     def setUp(self):
-        self.step = {"snapshot": {"schema_version": 1, "name": "pose",
-                                  "positions": {"servo_11": 0.2, "servo_12": -0.2}},
-                     "motion": {"speed": 200, "torque": 500},
-                     "overrides": {"servo_12": {"speed": 100, "torque": 300}}}
-        self.document = {"kind": "saprog_timeline", "schema_version": 1,
-                         "steps": [self.step, copy.deepcopy(self.step)]}
+        self.step = {
+            "snapshot": {
+                "schema_version": 1,
+                "name": "pose",
+                "positions": {"servo_11": 0.2, "servo_12": -0.2},
+            },
+            "motion": {"speed": 200, "torque": 500},
+            "overrides": {"servo_12": {"speed": 100, "torque": 300}},
+        }
+        self.document = {
+            "kind": "saprog_timeline",
+            "schema_version": 1,
+            "steps": [self.step, copy.deepcopy(self.step)],
+        }
         self.joints = ["servo_11", "servo_12"]
         self.bounds = {j: (-1, 1) for j in self.joints}
 
@@ -51,9 +68,12 @@ class TimelineTest(unittest.TestCase):
             save_timeline(path, steps, snapshot_resolver=resolver)
             loaded = validate_timeline(json.loads(path.read_text()), snapshot_resolver=resolver)
             self.assertEqual(loaded[0]["duration"], self.step["duration"])
-        for duration in ({"mode": "unknown"}, {"mode": "seconds", "seconds": -1},
-                         {"mode": "seconds", "seconds": float("nan")},
-                         {"mode": "seconds", "seconds": True}):
+        for duration in (
+            {"mode": "unknown"},
+            {"mode": "seconds", "seconds": -1},
+            {"mode": "seconds", "seconds": float("nan")},
+            {"mode": "seconds", "seconds": True},
+        ):
             self.step["duration"] = duration
             with self.assertRaises(ValueError):
                 validate_timeline(self.document)
@@ -63,7 +83,8 @@ class TimelineTest(unittest.TestCase):
         fixed["duration"] = {"mode": "seconds", "seconds": 2.5}
         wait = {"kind": "wait", "seconds": 0.75}
         fields = timeline_action_data(
-            [fixed, self.step, wait], self.joints, end_torque_enabled=False)
+            [fixed, self.step, wait], self.joints, end_torque_enabled=False
+        )
         self.assertEqual(fields["joint_names"], self.joints)
         self.assertEqual(fields["step_kinds"], [0, 0, 1])
         self.assertEqual(fields["duration_modes"], [1, 0, 1])
@@ -116,18 +137,33 @@ class TimelineTest(unittest.TestCase):
                 validate_timeline(document, snapshot_resolver=resolver)
 
     def test_wait_roundtrip_and_row_mapping(self):
-        steps = [self.step, {"kind": "wait", "seconds": 2.75}, self.step,
-                 {"kind": "wait", "seconds": 0}]
-        self.assertEqual(timeline_rows(steps), [(0, "transition"), (0, "snapshot"),
-                         (1, "wait"), (2, "transition"), (2, "snapshot"), (3, "wait")])
+        steps = [
+            self.step,
+            {"kind": "wait", "seconds": 2.75},
+            self.step,
+            {"kind": "wait", "seconds": 0},
+        ]
+        self.assertEqual(
+            timeline_rows(steps),
+            [
+                (0, "transition"),
+                (0, "snapshot"),
+                (1, "wait"),
+                (2, "transition"),
+                (2, "snapshot"),
+                (3, "wait"),
+            ],
+        )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             path = root / "timeline.json"
             referenced = self.reference_steps(root, steps)
             resolver = self.resolver(root)
             save_timeline(path, referenced, snapshot_resolver=resolver)
-            self.assertEqual(validate_timeline(json.loads(path.read_text()), self.joints,
-                                               self.bounds, resolver), referenced)
+            self.assertEqual(
+                validate_timeline(json.loads(path.read_text()), self.joints, self.bounds, resolver),
+                referenced,
+            )
 
     def test_invalid_wait_rejected_before_playback(self):
         for seconds in (-1, float("nan"), float("inf"), True, "2", None):
@@ -186,17 +222,20 @@ class TimelineTest(unittest.TestCase):
             self.assertNotIn("positions", app.steps[0]["snapshot"])
 
     def test_global_and_override_resolution(self):
-        self.assertEqual(motion_settings(self.step, self.joints), {
-            "servo_11": {"speed": 200, "torque": 500},
-            "servo_12": {"speed": 100, "torque": 300}})
+        self.assertEqual(
+            motion_settings(self.step, self.joints),
+            {"servo_11": {"speed": 200, "torque": 500}, "servo_12": {"speed": 100, "torque": 300}},
+        )
 
     def test_global_to_custom_copies_latest_values(self):
         self.step["overrides"] = {}
         self.step["motion"] = {"speed": 123, "torque": 456}
         custom = regroup_motion(self.step, "Custom Control")
         self.assertEqual(custom["control_mode"], "Custom Control")
-        self.assertEqual(motion_settings(custom, self.joints), {
-            j: {"speed": 123, "torque": 456} for j in self.joints})
+        self.assertEqual(
+            motion_settings(custom, self.joints),
+            {j: {"speed": 123, "torque": 456} for j in self.joints},
+        )
         custom["overrides"]["servo_11"]["speed"] = 999
         self.assertEqual(custom["overrides"]["servo_12"]["speed"], 123)
 
@@ -212,16 +251,21 @@ class TimelineTest(unittest.TestCase):
                 app.mode_var = SimpleNamespace(get=lambda: "Custom Control")
                 app.groups = control_groups(mode, self.joints)
                 app.group_vars = {
-                    label: {"speed": SimpleNamespace(get=lambda: 321),
-                            "torque": SimpleNamespace(get=lambda: 654)}
-                    for label in app.groups}
+                    label: {
+                        "speed": SimpleNamespace(get=lambda: 321),
+                        "torque": SimpleNamespace(get=lambda: 654),
+                    }
+                    for label in app.groups
+                }
                 app._clear_editor = lambda: None
                 shown = []
                 app._show_transition = shown.append
                 app._change_mode()
                 self.assertEqual(app.steps[0]["control_mode"], "Custom Control")
-                self.assertEqual(motion_settings(app.steps[0], self.joints), {
-                    j: {"speed": 321, "torque": 654} for j in self.joints})
+                self.assertEqual(
+                    motion_settings(app.steps[0], self.joints),
+                    {j: {"speed": 321, "torque": 654} for j in self.joints},
+                )
                 self.assertEqual(shown, app.steps)
 
     def test_global_to_leg_to_custom_preserves_leg_values(self):
@@ -279,7 +323,8 @@ class TimelineTest(unittest.TestCase):
         app = TimelineWindow.__new__(TimelineWindow)
         app.run_steps = self.document["steps"]
         app.timeline_goal_handle = SimpleNamespace(
-            cancel_goal_async=lambda: SimpleNamespace(add_done_callback=lambda callback: None))
+            cancel_goal_async=lambda: SimpleNamespace(add_done_callback=lambda callback: None)
+        )
         app.cancel_when_accepted = False
         messages = []
         app.status = SimpleNamespace(set=messages.append)
@@ -289,6 +334,7 @@ class TimelineTest(unittest.TestCase):
 
     def test_editor_construction_and_reordering(self):
         import tkinter as tk
+
         try:
             root = tk.Tk()
         except tk.TclError as exc:

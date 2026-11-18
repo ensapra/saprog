@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Adapt Saprog servo and IMU topics to robot_state_publisher and RViz2."""
+
 import rclpy
 from geometry_msgs.msg import QuaternionStamped, TransformStamped
 from rclpy.node import Node
@@ -7,12 +8,19 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 from tf2_ros import TransformBroadcaster
 
-
 JOINT_NAMES = {
-    11: "front_right_11", 12: "front_right_12", 13: "froint_right_joint_13",
-    21: "back_right_21", 22: "back_right_22", 23: "back_right_joint_23",
-    31: "front_left_31", 32: "front_left_32", 33: "front_left_joint_33",
-    41: "back_left_41", 42: "back_left_42", 43: "back_left_joint_43",
+    11: "front_right_11",
+    12: "front_right_12",
+    13: "froint_right_joint_13",
+    21: "back_right_21",
+    22: "back_right_22",
+    23: "back_right_joint_23",
+    31: "front_left_31",
+    32: "front_left_32",
+    33: "front_left_joint_33",
+    41: "back_left_41",
+    42: "back_left_42",
+    43: "back_left_joint_43",
 }
 
 
@@ -24,7 +32,9 @@ class RobotViewBridge(Node):
         self.orientation = (0.0, 0.0, 0.0, 1.0)
         self.create_subscription(JointState, "/saprog/joint_states", self.on_joints, 10)
         self.create_subscription(
-            QuaternionStamped, "/saprog/imu/orientation", self.on_orientation,
+            QuaternionStamped,
+            "/saprog/imu/orientation",
+            self.on_orientation,
             qos_profile_sensor_data,
         )
         self.create_timer(0.05, self.publish_base_transform)

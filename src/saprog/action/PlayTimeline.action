@@ -1,11 +1,17 @@
+# Joint order must match the controller's configured servo_ids.
 string[] joint_names
+# One entry per step: kind 0 = motion, 1 = wait.
 uint8[] step_kinds
+# Duration mode 0 = until reached, 1 = elapsed seconds; waits use mode 1.
 uint8[] duration_modes
 float64[] durations
+# Flattened rows: index = step_index * joint_count + joint_index.
+# Wait rows contain placeholders; motion rows use radians and raw AX 1..1023.
 float64[] positions
 int32[] speeds
 int32[] torque_limits
 bool loop
+# Looping and selected-step tests skip the final torque action.
 bool run_end_action
 bool end_torque_enabled
 ---

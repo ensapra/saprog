@@ -1,100 +1,99 @@
 #include "saprog/position_controller_node.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <iterator>
-#include <string>
-#include <array>
 #include <limits>
 #include <optional>
 #include <stdexcept>
-#include <condition_variable>
+#include <string>
 #include <thread>
 
 namespace
 {
-constexpr double kAxPositionRangeRadians = 300.0 * 3.14159265358979323846 / 180.0;
-constexpr double kAxPositionRangeRaw = 1023.0;
-constexpr double kAxTickRadians = kAxPositionRangeRadians / kAxPositionRangeRaw;
 constexpr double kArrivalTimeoutSeconds = 30.0;
 constexpr double kNoProgressSeconds = 8.0;
 constexpr double kTelemetryFreshSeconds = 2.5;
 constexpr auto kTimelineFeedbackInterval = std::chrono::milliseconds(100);
 constexpr auto kTimelineDeadlineLateness = std::chrono::milliseconds(20);
 constexpr auto kTimelineBusLockTimeout = std::chrono::milliseconds(250);
-}
+} // namespace
 
-PositionControllerNode::PositionControllerNode(
-  const rclcpp::NodeOptions & options, std::shared_ptr<DynamixelBus> bus)
-: Node("saprog_position_controller", options), config_(read_config(*this)), bus_(std::move(bus))
+PositionControllerNode::PositionControllerNode(const rclcpp::NodeOptions &options,
+                                               std::shared_ptr<DynamixelBus> bus)
+    : Node("saprog_position_controller", options), config_(read_config(*this)), bus_(std::move(bus))
 {
-  for (const auto * name : {"lower_limits", "upper_limits"}) {
+  for (const auto *name : {"lower_limits", "upper_limits"}) {
     if (!has_parameter(name)) {
       declare_parameter<std::vector<int64_t>>(name, std::vector<int64_t>{});
     }
   }
   limits_service_ = create_service<std_srvs::srv::Trigger>(
-    "/saprog/refresh_limits",
-    [this](const std_srvs::srv::Trigger::Request::SharedPtr,
-      std_srvs::srv::Trigger::Response::SharedPtr response) {
-      if (timeline_active_) {
-        response->success = false;
-        response->message = "Cannot refresh limits while a timeline is executing";
-      } else {
-        response->success = refresh_limits(response->message);
-      }
-    });
+      "/saprog/refresh_limits", [this](const std_srvs::srv::Trigger::Request::SharedPtr,
+                                       std_srvs::srv::Trigger::Response::SharedPtr response) {
+        if (timeline_active_) {
+          response->success = false;
+          response->message = "Cannot refresh limits while a timeline is executing";
+        } else {
+          response->success = refresh_limits(response->message);
+        }
+      });
   std::string limits_error;
   if (!refresh_limits(limits_error)) {
     RCLCPP_WARN(get_logger(), "Hardware limits unavailable: %s", limits_error.c_str());
   }
-  RCLCPP_INFO(get_logger(), "Controller ready for %zu configured servos; startup leaves torque unchanged", config_.servo_ids.size());
+  RCLCPP_INFO(get_logger(),
+              "Controller ready for %zu configured servos; startup leaves torque unchanged",
+              config_.servo_ids.size());
 
   command_sub_ = create_subscription<sensor_msgs::msg::JointState>(
-    "/saprog/position_command", rclcpp::QoS(rclcpp::KeepLast(config_.servo_ids.size() + 10)),
-    [this](sensor_msgs::msg::JointState::ConstSharedPtr message) {
-      if (timeline_active_) {
-        RCLCPP_WARN(get_logger(), "Ignoring position topic command while timeline action owns the bus");
-        return;
-      }
-      const int64_t command_stamp_ns =
-        static_cast<int64_t>(message->header.stamp.sec) * 1000000000LL +
-        message->header.stamp.nanosec;
-      if (command_stamp_ns != 0 && command_stamp_ns <= topic_command_barrier_ns_) {
-        RCLCPP_WARN(get_logger(), "Ignoring queued position command older than the completed timeline");
-        return;
-      }
-      set_goal_position(message);
-    });
-  state_sub_ = create_subscription<sensor_msgs::msg::JointState>(
-    "/saprog/joint_states", rclcpp::QoS(10),
-    [this](sensor_msgs::msg::JointState::ConstSharedPtr message) {on_joint_states(message);});
-  for (const auto id : config_.servo_ids) {
-    torque_services_.push_back(create_service<std_srvs::srv::SetBool>(
-      "/saprog/servo_" + std::to_string(id) + "/torque",
-      [this, id](const std_srvs::srv::SetBool::Request::SharedPtr request,
-      std_srvs::srv::SetBool::Response::SharedPtr response) {
+      "/saprog/position_command", rclcpp::QoS(rclcpp::KeepLast(config_.servo_ids.size() + 10)),
+      [this](sensor_msgs::msg::JointState::ConstSharedPtr message) {
         if (timeline_active_) {
-          response->success = false;
-          response->message = "Cannot change torque while a timeline action owns the bus";
+          RCLCPP_WARN(get_logger(),
+                      "Ignoring position topic command while timeline action owns the bus");
           return;
         }
-        set_joint_torque(id, request, response);
-      }));
+        const int64_t command_stamp_ns =
+            static_cast<int64_t>(message->header.stamp.sec) * 1000000000LL +
+            message->header.stamp.nanosec;
+        if (command_stamp_ns != 0 && command_stamp_ns <= topic_command_barrier_ns_) {
+          RCLCPP_WARN(get_logger(),
+                      "Ignoring queued position command older than the completed timeline");
+          return;
+        }
+        set_goal_position(message);
+      });
+  state_sub_ = create_subscription<sensor_msgs::msg::JointState>(
+      "/saprog/joint_states", rclcpp::QoS(10),
+      [this](sensor_msgs::msg::JointState::ConstSharedPtr message) { on_joint_states(message); });
+  for (const auto id : config_.servo_ids) {
+    torque_services_.push_back(create_service<std_srvs::srv::SetBool>(
+        "/saprog/servo_" + std::to_string(id) + "/torque",
+        [this, id](const std_srvs::srv::SetBool::Request::SharedPtr request,
+                   std_srvs::srv::SetBool::Response::SharedPtr response) {
+          if (timeline_active_) {
+            response->success = false;
+            response->message = "Cannot change torque while a timeline action owns the bus";
+            return;
+          }
+          set_joint_torque(id, request, response);
+        }));
   }
   timeline_action_server_ = rclcpp_action::create_server<PlayTimeline>(
-    this, "/saprog/play_timeline",
-    [this](const rclcpp_action::GoalUUID & uuid,
-      std::shared_ptr<const PlayTimeline::Goal> goal) {
-      return handle_timeline_goal(uuid, std::move(goal));
-    },
-    [this](const std::shared_ptr<TimelineGoalHandle> goal_handle) {
-      return handle_timeline_cancel(goal_handle);
-    },
-    [this](const std::shared_ptr<TimelineGoalHandle> goal_handle) {
-      handle_timeline_accepted(goal_handle);
-    });
+      this, "/saprog/play_timeline",
+      [this](const rclcpp_action::GoalUUID &uuid, std::shared_ptr<const PlayTimeline::Goal> goal) {
+        return handle_timeline_goal(uuid, std::move(goal));
+      },
+      [this](const std::shared_ptr<TimelineGoalHandle> goal_handle) {
+        return handle_timeline_cancel(goal_handle);
+      },
+      [this](const std::shared_ptr<TimelineGoalHandle> goal_handle) {
+        handle_timeline_accepted(goal_handle);
+      });
 }
 
 PositionControllerNode::~PositionControllerNode()
@@ -107,7 +106,7 @@ PositionControllerNode::~PositionControllerNode()
   }
 }
 
-bool PositionControllerNode::refresh_limits(std::string & error)
+bool PositionControllerNode::refresh_limits(std::string &error)
 {
   limits_ready_ = false;
   std::vector<int64_t> lower, upper;
@@ -123,20 +122,21 @@ bool PositionControllerNode::refresh_limits(std::string & error)
   }
   if (!error.empty()) {
     set_parameters({rclcpp::Parameter("lower_limits", std::vector<int64_t>{}),
-      rclcpp::Parameter("upper_limits", std::vector<int64_t>{})});
+                    rclcpp::Parameter("upper_limits", std::vector<int64_t>{})});
     return false;
   }
   config_.lower_limits.assign(lower.begin(), lower.end());
   config_.upper_limits.assign(upper.begin(), upper.end());
-  set_parameters({rclcpp::Parameter("lower_limits", lower), rclcpp::Parameter("upper_limits", upper)});
+  set_parameters(
+      {rclcpp::Parameter("lower_limits", lower), rclcpp::Parameter("upper_limits", upper)});
   limits_ready_ = true;
   error = "Read fresh hardware limits for all configured servos";
   return true;
 }
 
-void PositionControllerNode::set_joint_torque(uint8_t id,
-  const std_srvs::srv::SetBool::Request::SharedPtr request,
-  std_srvs::srv::SetBool::Response::SharedPtr response)
+void PositionControllerNode::set_joint_torque(
+    uint8_t id, const std_srvs::srv::SetBool::Request::SharedPtr request,
+    std_srvs::srv::SetBool::Response::SharedPtr response)
 {
   std::string error;
   if (!request->data) {
@@ -156,19 +156,20 @@ void PositionControllerNode::set_joint_torque(uint8_t id,
     return;
   }
   const uint16_t raw = static_cast<uint16_t>(data[0] | (data[1] << 8));
-  const size_t index = std::distance(config_.servo_ids.begin(),
-    std::find(config_.servo_ids.begin(), config_.servo_ids.end(), id));
+  const size_t index = std::distance(
+      config_.servo_ids.begin(), std::find(config_.servo_ids.begin(), config_.servo_ids.end(), id));
   if (raw < config_.lower_limits[index] || raw > config_.upper_limits[index]) {
     response->success = false;
     response->message = "Present position is outside the AX range";
     return;
   }
-  response->success = bus_->set_position(id, raw, config_.moving_speed, config_.torque_limit, error);
+  response->success =
+      bus_->set_position(id, raw, config_.moving_speed, config_.torque_limit, error);
   response->message = response->success ? "Holding freshly read present position" : error;
 }
 
-bool PositionControllerNode::validate_timeline_goal(
-  const PlayTimeline::Goal & goal, std::string & error) const
+bool PositionControllerNode::validate_timeline_goal(const PlayTimeline::Goal &goal,
+                                                    std::string &error) const
 {
   if (!limits_ready_) {
     error = "Hardware limits are unavailable";
@@ -180,16 +181,14 @@ bool PositionControllerNode::validate_timeline_goal(
     configured_names.push_back("servo_" + std::to_string(id));
   }
   if (goal.joint_names != configured_names || goal.step_kinds.empty() ||
-    goal.duration_modes.size() != goal.step_kinds.size() ||
-    goal.durations.size() != goal.step_kinds.size())
-  {
+      goal.duration_modes.size() != goal.step_kinds.size() ||
+      goal.durations.size() != goal.step_kinds.size()) {
     error = "Timeline joints or step metadata do not match the controller configuration";
     return false;
   }
   const size_t value_count = goal.step_kinds.size() * config_.servo_ids.size();
   if (goal.positions.size() != value_count || goal.speeds.size() != value_count ||
-    goal.torque_limits.size() != value_count || (goal.loop && goal.run_end_action))
-  {
+      goal.torque_limits.size() != value_count || (goal.loop && goal.run_end_action)) {
     error = "Timeline command arrays have invalid lengths or lifecycle settings";
     return false;
   }
@@ -214,18 +213,15 @@ bool PositionControllerNode::validate_timeline_goal(
       const double position = goal.positions[index];
       const int speed = goal.speeds[index];
       const int torque = goal.torque_limits[index];
-      if (!std::isfinite(position) || speed < 1 || speed > 1023 ||
-        torque < 1 || torque > 1023)
-      {
+      if (!std::isfinite(position) || speed < 1 || speed > 1023 || torque < 1 || torque > 1023) {
         error = "Timeline motion values must be finite with speed and torque from 1 to 1023";
         return false;
       }
-      const double raw = config_.zero_positions[joint] + config_.directions[joint] *
-        position * kAxPositionRangeRaw / kAxPositionRangeRadians;
-      if (raw < config_.lower_limits[joint] - 1e-9 ||
-        raw > config_.upper_limits[joint] + 1e-9)
-      {
-        error = "Timeline target is outside measured hardware limits for " + configured_names[joint];
+      const double raw =
+          saprog::ax::to_raw(position, config_.zero_positions[joint], config_.directions[joint]);
+      if (raw < config_.lower_limits[joint] - 1e-9 || raw > config_.upper_limits[joint] + 1e-9) {
+        error =
+            "Timeline target is outside measured hardware limits for " + configured_names[joint];
         return false;
       }
     }
@@ -234,8 +230,9 @@ bool PositionControllerNode::validate_timeline_goal(
   return true;
 }
 
-rclcpp_action::GoalResponse PositionControllerNode::handle_timeline_goal(
-  const rclcpp_action::GoalUUID &, std::shared_ptr<const PlayTimeline::Goal> goal)
+rclcpp_action::GoalResponse
+PositionControllerNode::handle_timeline_goal(const rclcpp_action::GoalUUID &,
+                                             std::shared_ptr<const PlayTimeline::Goal> goal)
 {
   std::string error;
   if (!validate_timeline_goal(*goal, error)) {
@@ -253,7 +250,7 @@ rclcpp_action::GoalResponse PositionControllerNode::handle_timeline_goal(
 }
 
 rclcpp_action::CancelResponse PositionControllerNode::handle_timeline_cancel(
-  const std::shared_ptr<TimelineGoalHandle> goal_handle)
+    const std::shared_ptr<TimelineGoalHandle> goal_handle)
 {
   {
     std::lock_guard<std::mutex> lock(timeline_mutex_);
@@ -271,7 +268,7 @@ rclcpp_action::CancelResponse PositionControllerNode::handle_timeline_cancel(
 }
 
 void PositionControllerNode::handle_timeline_accepted(
-  const std::shared_ptr<TimelineGoalHandle> goal_handle)
+    const std::shared_ptr<TimelineGoalHandle> goal_handle)
 {
   if (timeline_thread_.joinable()) {
     timeline_thread_.join();
@@ -281,9 +278,8 @@ void PositionControllerNode::handle_timeline_accepted(
     active_timeline_goal_ = goal_handle;
   }
   try {
-    timeline_thread_ = std::thread(
-      [this, goal_handle]() {execute_timeline(goal_handle);});
-  } catch (const std::exception & exception) {
+    timeline_thread_ = std::thread([this, goal_handle]() { execute_timeline(goal_handle); });
+  } catch (const std::exception &exception) {
     auto result = std::make_shared<PlayTimeline::Result>();
     result->success = false;
     result->message = std::string("Could not start timeline worker: ") + exception.what();
@@ -298,7 +294,7 @@ void PositionControllerNode::handle_timeline_accepted(
 }
 
 void PositionControllerNode::on_joint_states(
-  const sensor_msgs::msg::JointState::ConstSharedPtr & message)
+    const sensor_msgs::msg::JointState::ConstSharedPtr &message)
 {
   if (message->name.size() != message->position.size()) {
     return;
@@ -319,15 +315,15 @@ void PositionControllerNode::on_joint_states(
     std::lock_guard<std::mutex> lock(state_mutex_);
     observed_positions_ = std::move(positions);
     observed_stamp_ns_ = static_cast<int64_t>(message->header.stamp.sec) * 1000000000LL +
-      message->header.stamp.nanosec;
+                         message->header.stamp.nanosec;
     state_received_ = std::chrono::steady_clock::now();
   }
   state_cv_.notify_all();
 }
 
 void PositionControllerNode::publish_timeline_feedback(
-  const std::shared_ptr<TimelineGoalHandle> & goal_handle,
-  uint32_t step, uint32_t count, const std::string & status, double remaining_seconds)
+    const std::shared_ptr<TimelineGoalHandle> &goal_handle, uint32_t step, uint32_t count,
+    const std::string &status, double remaining_seconds)
 {
   auto feedback = std::make_shared<PlayTimeline::Feedback>();
   feedback->current_step = step;
@@ -338,9 +334,8 @@ void PositionControllerNode::publish_timeline_feedback(
 }
 
 bool PositionControllerNode::wait_for_timeline_deadline(
-  const std::shared_ptr<TimelineGoalHandle> & goal_handle,
-  uint32_t step, uint32_t count, std::chrono::steady_clock::time_point deadline,
-  std::string & error)
+    const std::shared_ptr<TimelineGoalHandle> &goal_handle, uint32_t step, uint32_t count,
+    std::chrono::steady_clock::time_point deadline, std::string &error)
 {
   auto next_feedback = std::chrono::steady_clock::now();
   std::unique_lock<std::mutex> lock(timeline_mutex_);
@@ -354,25 +349,24 @@ bool PositionControllerNode::wait_for_timeline_deadline(
       const auto lateness = now - deadline;
       if (lateness > kTimelineDeadlineLateness) {
         error = "Missed scheduled timeline deadline by " +
-          std::to_string(std::chrono::duration<double, std::milli>(lateness).count()) + " ms";
+                std::to_string(std::chrono::duration<double, std::milli>(lateness).count()) + " ms";
         return false;
       }
       return true;
     }
     if (now >= next_feedback) {
       publish_timeline_feedback(goal_handle, step, count, "Waiting for scheduled time",
-        std::chrono::duration<double>(deadline - now).count());
+                                std::chrono::duration<double>(deadline - now).count());
       next_feedback = now + kTimelineFeedbackInterval;
     }
-    timeline_cv_.wait_until(lock, std::min(deadline, next_feedback), [this]() {
-      return timeline_cancel_requested_.load();
-    });
+    timeline_cv_.wait_until(lock, std::min(deadline, next_feedback),
+                            [this]() { return timeline_cancel_requested_.load(); });
   }
 }
 
 bool PositionControllerNode::wait_for_timeline_arrival(
-  const std::shared_ptr<TimelineGoalHandle> & goal_handle, uint32_t step, uint32_t count,
-  const std::vector<double> & targets, int64_t sent_stamp_ns, std::string & error)
+    const std::shared_ptr<TimelineGoalHandle> &goal_handle, uint32_t step, uint32_t count,
+    const std::vector<double> &targets, int64_t sent_stamp_ns, std::string &error)
 {
   const auto started = std::chrono::steady_clock::now();
   auto last_progress = started;
@@ -393,18 +387,17 @@ bool PositionControllerNode::wait_for_timeline_arrival(
     const int64_t ros_now_ns = this->now().nanoseconds();
     const double source_age = static_cast<double>(ros_now_ns - observed_stamp_ns_) / 1e9;
     if (observed_stamp_ns_ > sent_stamp_ns && observed_stamp_ns_ > last_sample_stamp &&
-      source_age >= 0.0 && source_age <= kTelemetryFreshSeconds &&
-      std::chrono::duration<double>(now - state_received_).count() <= kTelemetryFreshSeconds)
-    {
+        source_age >= 0.0 && source_age <= kTelemetryFreshSeconds &&
+        std::chrono::duration<double>(now - state_received_).count() <= kTelemetryFreshSeconds) {
       last_sample_stamp = observed_stamp_ns_;
       bool arrived = true;
       bool progress = false;
       for (size_t joint = 0; joint < config_.servo_ids.size(); ++joint) {
         const auto name = "servo_" + std::to_string(config_.servo_ids[joint]);
         const double error_rad = std::abs(observed_positions_.at(name) - targets[joint]);
-        if (error_rad > config_.target_tolerance + kAxTickRadians / 2.0) {
+        if (error_rad > config_.target_tolerance + saprog::ax::tick_radians / 2.0) {
           arrived = false;
-          if (error_rad < best_errors[joint] - kAxTickRadians / 2.0) {
+          if (error_rad < best_errors[joint] - saprog::ax::tick_radians / 2.0) {
             best_errors[joint] = error_rad;
             progress = true;
           }
@@ -430,8 +423,8 @@ bool PositionControllerNode::wait_for_timeline_arrival(
 }
 
 bool PositionControllerNode::apply_timeline_end_torque(
-  bool enabled, std::optional<std::chrono::steady_clock::time_point> latest_start,
-  std::string & error)
+    bool enabled, std::optional<std::chrono::steady_clock::time_point> latest_start,
+    std::string &error)
 {
   if (!enabled) {
     if (latest_start) {
@@ -452,11 +445,10 @@ bool PositionControllerNode::apply_timeline_end_torque(
   const std::vector<int> speeds(config_.servo_ids.size(), config_.moving_speed);
   const std::vector<int> torque_limits(config_.servo_ids.size(), config_.torque_limit);
   return bus_->set_positions(config_.servo_ids, positions, speeds, torque_limits,
-    config_.target_tolerance, error);
+                             config_.target_tolerance, error);
 }
 
-void PositionControllerNode::execute_timeline(
-  const std::shared_ptr<TimelineGoalHandle> goal_handle)
+void PositionControllerNode::execute_timeline(const std::shared_ptr<TimelineGoalHandle> goal_handle)
 {
   auto result = std::make_shared<PlayTimeline::Result>();
   const auto goal = goal_handle->get_goal();
@@ -465,6 +457,8 @@ void PositionControllerNode::execute_timeline(
   bool succeeded = false;
   bool canceled = false;
   std::string error;
+  // Monotonic deadlines schedule commands. ROS timestamps are used separately
+  // to reject telemetry recorded before the corresponding command was sent.
   std::optional<std::chrono::steady_clock::time_point> next_command_deadline;
   try {
     bool repeat = true;
@@ -480,9 +474,8 @@ void PositionControllerNode::execute_timeline(
 
         auto dispatch_deadline = next_command_deadline;
         if (dispatch_deadline) {
-          if (!wait_for_timeline_deadline(
-              goal_handle, step_number, step_count, *dispatch_deadline, error))
-          {
+          if (!wait_for_timeline_deadline(goal_handle, step_number, step_count, *dispatch_deadline,
+                                          error)) {
             canceled = timeline_cancelled();
             break;
           }
@@ -491,11 +484,9 @@ void PositionControllerNode::execute_timeline(
 
         if (goal->step_kinds[step] == 1) {
           const auto deadline = std::chrono::steady_clock::now() +
-            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-            std::chrono::duration<double>(goal->durations[step]));
-          if (!wait_for_timeline_deadline(
-              goal_handle, step_number, step_count, deadline, error))
-          {
+                                std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                    std::chrono::duration<double>(goal->durations[step]));
+          if (!wait_for_timeline_deadline(goal_handle, step_number, step_count, deadline, error)) {
             canceled = timeline_cancelled();
             break;
           }
@@ -514,23 +505,24 @@ void PositionControllerNode::execute_timeline(
         for (size_t joint = 0; joint < config_.servo_ids.size(); ++joint) {
           const size_t index = step * config_.servo_ids.size() + joint;
           const double position = goal->positions[index];
-          const double raw = config_.zero_positions[joint] + config_.directions[joint] *
-            position * kAxPositionRangeRaw / kAxPositionRangeRadians;
+          const double raw = saprog::ax::to_raw(position, config_.zero_positions[joint],
+                                                config_.directions[joint]);
           targets.push_back(static_cast<uint16_t>(std::lround(raw)));
           target_positions.push_back(position);
           speeds.push_back(goal->speeds[index]);
           torque_limits.push_back(goal->torque_limits[index]);
         }
 
-        publish_timeline_feedback(goal_handle, step_number, step_count, "Sending synchronized joint command", 0.0);
+        publish_timeline_feedback(goal_handle, step_number, step_count,
+                                  "Sending synchronized joint command", 0.0);
         bool commanded = false;
         if (dispatch_deadline) {
           const auto latest_start = std::chrono::steady_clock::now() + kTimelineBusLockTimeout;
-          commanded = bus_->set_positions_before(config_.servo_ids, targets, speeds,
-            torque_limits, config_.target_tolerance, latest_start, error);
+          commanded = bus_->set_positions_before(config_.servo_ids, targets, speeds, torque_limits,
+                                                 config_.target_tolerance, latest_start, error);
         } else {
-          commanded = bus_->set_positions(config_.servo_ids, targets, speeds,
-            torque_limits, config_.target_tolerance, error);
+          commanded = bus_->set_positions(config_.servo_ids, targets, speeds, torque_limits,
+                                          config_.target_tolerance, error);
         }
         if (!commanded) {
           break;
@@ -539,18 +531,15 @@ void PositionControllerNode::execute_timeline(
 
         if (goal->duration_modes[step] == 1) {
           const auto deadline = std::chrono::steady_clock::now() +
-            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-            std::chrono::duration<double>(goal->durations[step]));
-          if (!wait_for_timeline_deadline(
-              goal_handle, step_number, step_count, deadline, error))
-          {
+                                std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                    std::chrono::duration<double>(goal->durations[step]));
+          if (!wait_for_timeline_deadline(goal_handle, step_number, step_count, deadline, error)) {
             canceled = timeline_cancelled();
             break;
           }
           next_command_deadline = deadline;
-        } else if (!wait_for_timeline_arrival(
-            goal_handle, step_number, step_count, target_positions, sent_stamp_ns, error))
-        {
+        } else if (!wait_for_timeline_arrival(goal_handle, step_number, step_count,
+                                              target_positions, sent_stamp_ns, error)) {
           canceled = timeline_cancelled();
           break;
         }
@@ -569,9 +558,8 @@ void PositionControllerNode::execute_timeline(
     if (!canceled && error.empty() && goal->run_end_action) {
       std::optional<std::chrono::steady_clock::time_point> latest_start;
       if (next_command_deadline) {
-        if (!wait_for_timeline_deadline(
-            goal_handle, step_count, step_count, *next_command_deadline, error))
-        {
+        if (!wait_for_timeline_deadline(goal_handle, step_count, step_count, *next_command_deadline,
+                                        error)) {
           canceled = timeline_cancelled();
         } else {
           latest_start = std::chrono::steady_clock::now() + kTimelineBusLockTimeout;
@@ -588,20 +576,19 @@ void PositionControllerNode::execute_timeline(
       }
       if (!canceled && error.empty()) {
         publish_timeline_feedback(goal_handle, step_count, step_count,
-          "Applying after-timeline torque action", 0.0);
+                                  "Applying after-timeline torque action", 0.0);
         if (!apply_timeline_end_torque(goal->end_torque_enabled, latest_start, error)) {
           error = "After-timeline torque action failed: " + error;
         }
       }
     }
     succeeded = !canceled && error.empty();
-  } catch (const std::exception & exception) {
+  } catch (const std::exception &exception) {
     error = std::string("Timeline execution failed: ") + exception.what();
   }
 
   result->success = succeeded;
-  result->message = succeeded ? "Timeline completed" :
-    (error.empty() ? "Timeline failed" : error);
+  result->message = succeeded ? "Timeline completed" : (error.empty() ? "Timeline failed" : error);
   result->completed_steps = completed_steps;
   if (canceled) {
     for (int attempt = 0; attempt < 20 && !goal_handle->is_canceling(); ++attempt) {
@@ -630,17 +617,18 @@ bool PositionControllerNode::timeline_cancelled() const
 }
 
 void PositionControllerNode::set_goal_position(
-  const sensor_msgs::msg::JointState::ConstSharedPtr & message)
+    const sensor_msgs::msg::JointState::ConstSharedPtr &message)
 {
   if (!limits_ready_) {
-    RCLCPP_WARN(get_logger(), "Hardware limits unavailable; refresh limits before commanding positions");
+    RCLCPP_WARN(get_logger(),
+                "Hardware limits unavailable; refresh limits before commanding positions");
     return;
   }
   if (message->name.empty() || message->name.size() != message->position.size() ||
-    (!message->velocity.empty() && message->velocity.size() != message->name.size()) ||
-    (!message->effort.empty() && message->effort.size() != message->name.size()))
-  {
-    RCLCPP_WARN(get_logger(), "Command matching joint names, positions, optional speeds and torque strengths");
+      (!message->velocity.empty() && message->velocity.size() != message->name.size()) ||
+      (!message->effort.empty() && message->effort.size() != message->name.size())) {
+    RCLCPP_WARN(get_logger(),
+                "Command matching joint names, positions, optional speeds and torque strengths");
     return;
   }
 
@@ -648,28 +636,27 @@ void PositionControllerNode::set_goal_position(
   std::vector<uint16_t> targets;
   std::vector<int> torque_limits;
   int speed = config_.moving_speed;
-  constexpr double speed_unit = 0.111 * 2.0 * 3.14159265358979323846 / 60.0;
   std::vector<bool> seen(config_.servo_ids.size(), false);
   for (size_t i = 0; i < message->name.size(); ++i) {
-    const auto servo = std::find_if(
-      config_.servo_ids.begin(), config_.servo_ids.end(), [&message, i](uint8_t id) {
-        return message->name[i] == "servo_" + std::to_string(id);
-      });
+    const auto servo =
+        std::find_if(config_.servo_ids.begin(), config_.servo_ids.end(), [&message, i](uint8_t id) {
+          return message->name[i] == "servo_" + std::to_string(id);
+        });
     if (servo == config_.servo_ids.end()) {
       RCLCPP_WARN(get_logger(), "Unknown joint '%s'", message->name[i].c_str());
       return;
     }
     const auto index = static_cast<size_t>(std::distance(config_.servo_ids.begin(), servo));
     if (seen[index] || !std::isfinite(message->position[i])) {
-      RCLCPP_WARN(get_logger(), "Duplicate joint or non-finite position in command for %s", message->name[i].c_str());
+      RCLCPP_WARN(get_logger(), "Duplicate joint or non-finite position in command for %s",
+                  message->name[i].c_str());
       return;
     }
     seen[index] = true;
     if (!message->velocity.empty()) {
-      const double requested_speed = message->velocity[i] / speed_unit;
+      const double requested_speed = message->velocity[i] / saprog::ax::speed_unit_radians;
       if (!std::isfinite(requested_speed) || requested_speed < 1.0 - 1e-9 ||
-        requested_speed > 1023.0 + 1e-9)
-      {
+          requested_speed > 1023.0 + 1e-9) {
         RCLCPP_WARN(get_logger(), "Speed must correspond to AX values 1 through 1023");
         return;
       }
@@ -689,10 +676,11 @@ void PositionControllerNode::set_goal_position(
       }
       torque_limit = static_cast<int>(std::lround(requested_torque));
     }
-    const double raw = config_.zero_positions[index] + config_.directions[index] *
-      message->position[i] * kAxPositionRangeRaw / kAxPositionRangeRadians;
+    const double raw = saprog::ax::to_raw(message->position[i], config_.zero_positions[index],
+                                          config_.directions[index]);
     if (raw < config_.lower_limits[index] - 1e-9 || raw > config_.upper_limits[index] + 1e-9) {
-      RCLCPP_WARN(get_logger(), "Position for %s is outside the AX joint range", message->name[i].c_str());
+      RCLCPP_WARN(get_logger(), "Position for %s is outside the AX joint range",
+                  message->name[i].c_str());
       return;
     }
     ids.push_back(*servo);
@@ -710,14 +698,16 @@ void PositionControllerNode::set_goal_position(
   if (ids.size() == 1) {
     commanded = bus_->set_position(ids[0], targets[0], speed, torque_limits[0], error);
   } else {
-    commanded = bus_->set_positions(ids, targets, speed, torque_limits,
-      config_.target_tolerance, error);
+    commanded =
+        bus_->set_positions(ids, targets, speed, torque_limits, config_.target_tolerance, error);
   }
-  const auto bus_elapsed = std::chrono::duration<double, std::milli>(
-    std::chrono::steady_clock::now() - bus_started).count();
-  RCLCPP_DEBUG(get_logger(),
-    "Position command: source age %.2f ms, bus transaction %.2f ms, goal verification %s",
-    source_age_ms, bus_elapsed, config_.verify_goal_registers ? "enabled" : "disabled");
+  const auto bus_elapsed =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - bus_started)
+          .count();
+  RCLCPP_DEBUG(
+      get_logger(),
+      "Position command: source age %.2f ms, bus transaction %.2f ms, goal verification %s",
+      source_age_ms, bus_elapsed, config_.verify_goal_registers ? "enabled" : "disabled");
   if (!commanded) {
     if (ids.size() == 1) {
       RCLCPP_ERROR(get_logger(), "Servo %u: %s", ids[0], error.c_str());
@@ -726,5 +716,6 @@ void PositionControllerNode::set_goal_position(
     }
     return;
   }
-  RCLCPP_INFO(get_logger(), "Commanded %zu servos%s", ids.size(), ids.size() > 1 ? " with synchronized start" : "");
+  RCLCPP_INFO(get_logger(), "Commanded %zu servos%s", ids.size(),
+              ids.size() > 1 ? " with synchronized start" : "");
 }

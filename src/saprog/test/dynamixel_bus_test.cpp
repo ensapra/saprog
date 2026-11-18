@@ -1,5 +1,5 @@
-#include "saprog/dynamixel_bus.hpp"
 #include "dynamixel_sdk/dynamixel_sdk.h"
+#include "saprog/dynamixel_bus.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -7,13 +7,16 @@
 #include <stdexcept>
 #include <thread>
 
-void check(bool condition) {
-  if (!condition) throw std::runtime_error("Bus regression check failed");
+void check(bool condition)
+{
+  if (!condition)
+    throw std::runtime_error("Bus regression check failed");
 }
 
-int main() {
+int main()
+{
   DynamixelBus bus("fake", 1000000, 1.0, 1, false);
-  auto & sdk = *dynamixel::PacketHandler::getPacketHandler(1.0);
+  auto &sdk = *dynamixel::PacketHandler::getPacketHandler(1.0);
   std::string error = "old error";
   uint16_t lower = 0, upper = 0;
   sdk.registers[{13, 6}] = 350;
@@ -119,8 +122,9 @@ int main() {
 
   sdk = {};
   DynamixelBus deadline_bus("fake", 1000000, 1.0, 1, false);
-  check(!deadline_bus.set_positions_before(ids, {100, 200}, {50, 75}, torque_limits,
-      0.1, std::chrono::steady_clock::now() - std::chrono::milliseconds(1), error));
+  check(!deadline_bus.set_positions_before(
+      ids, {100, 200}, {50, 75}, torque_limits, 0.1,
+      std::chrono::steady_clock::now() - std::chrono::milliseconds(1), error));
   check(error.find("deadline") != std::string::npos && sdk.group_writes.empty());
   std::array<uint8_t, 8> post_deadline_read{};
   check(deadline_bus.read(11, post_deadline_read, error));
@@ -141,15 +145,17 @@ int main() {
     std::this_thread::yield();
   }
   std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  check(busy_bus.set_positions_before(ids, {100, 200}, {50, 75}, torque_limits,
-      0.1, std::chrono::steady_clock::now() + std::chrono::milliseconds(250), error));
+  check(busy_bus.set_positions_before(
+      ids, {100, 200}, {50, 75}, torque_limits, 0.1,
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(250), error));
   background_read.join();
   check(read_succeeded);
 
   sdk = {};
   DynamixelBus late_preparation_bus("fake", 1000000, 1.0, 1, false);
   sdk.read_delay = std::chrono::milliseconds(130);
-  check(late_preparation_bus.set_positions_before({11}, {100}, {50}, {500}, 0.1,
+  check(late_preparation_bus.set_positions_before(
+      {11}, {100}, {50}, {500}, 0.1,
       std::chrono::steady_clock::now() + std::chrono::milliseconds(250), error));
   check(std::find(sdk.group_writes.begin(), sdk.group_writes.end(), 30) != sdk.group_writes.end());
 

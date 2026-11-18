@@ -2,10 +2,11 @@
 
 Validation belongs to the document models; this module only handles storage.
 """
+
 import json
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 
 def write_json_atomic(path, document):

@@ -1,4 +1,5 @@
 """Arrival diagnostics; called only for fresh, complete, post-command samples."""
+
 AX_TICK_RADIANS = 5.0 * 3.141592653589793 / (3.0 * 1023)
 NO_PROGRESS_SECONDS = 8.0
 

@@ -1,14 +1,14 @@
 import json
 import math
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from snapshot_units import joint_bounds, to_radians, from_radians, validate_snapshot
+from snapshot_units import from_radians, joint_bounds, to_radians, validate_snapshot
 from snapshot_window import SnapshotWindow
 
 
@@ -57,7 +57,7 @@ class SnapshotUnitsTest(unittest.TestCase):
     def test_asymmetric_limits_and_reversed_direction(self):
         bounds = joint_bounds([13, 33], [512, 512], [1, -1], [350, 570], [440, 660])
         for limits in bounds.values():
-            for normalized in (-1, -.3, 0, .7, 1):
+            for normalized in (-1, -0.3, 0, 0.7, 1):
                 radians = to_radians(normalized, limits, "normalized")
                 self.assertAlmostEqual(from_radians(radians, limits, "normalized"), normalized)
             self.assertEqual(to_radians(-1, limits, "normalized"), limits[0])
@@ -65,36 +65,52 @@ class SnapshotUnitsTest(unittest.TestCase):
             self.assertAlmostEqual(to_radians(0, limits, "normalized"), sum(limits) / 2)
 
     def test_legacy_and_new_snapshots(self):
-        bounds = {"servo_13": (-.8, -.3)}
-        for version, units, value in ((1, None, -.55), (2, "normalized", 0), (2, "radians", -.55)):
-            doc = dict(schema_version=version, units=units, name="pose", positions={"servo_13": value})
-            self.assertAlmostEqual(validate_snapshot(doc, bounds, bounds)[1]["servo_13"], -.55)
+        bounds = {"servo_13": (-0.8, -0.3)}
+        for version, units, value in (
+            (1, None, -0.55),
+            (2, "normalized", 0),
+            (2, "radians", -0.55),
+        ):
+            doc = dict(
+                schema_version=version, units=units, name="pose", positions={"servo_13": value}
+            )
+            self.assertAlmostEqual(validate_snapshot(doc, bounds, bounds)[1]["servo_13"], -0.55)
         for value in (-1.01, 1.01, float("nan"), float("inf"), True):
             with self.assertRaises(ValueError):
-                validate_snapshot(dict(schema_version=2, units="normalized", name="pose",
-                                       positions={"servo_13": value}), bounds, bounds)
+                validate_snapshot(
+                    dict(
+                        schema_version=2,
+                        units="normalized",
+                        name="pose",
+                        positions={"servo_13": value},
+                    ),
+                    bounds,
+                    bounds,
+                )
         with self.assertRaises(ValueError):
-            validate_snapshot(dict(schema_version=2, name="pose", positions={"servo_13": 0}), bounds, bounds)
+            validate_snapshot(
+                dict(schema_version=2, name="pose", positions={"servo_13": 0}), bounds, bounds
+            )
 
     def test_save_uses_typed_targets_without_telemetry(self):
         with tempfile.TemporaryDirectory() as directory:
             app = SnapshotWindow.__new__(SnapshotWindow)
             app.snapshot_name, app.status = Value("pose"), Value()
-            app.joints, app.bounds = ["servo_13"], {"servo_13": (-.8, -.3)}
+            app.joints, app.bounds = ["servo_13"], {"servo_13": (-0.8, -0.3)}
             app.pending, app.playback_state = {}, None
             app.target_values = {"servo_13": Value("-.37")}
-            app.positions = {"servo_13": -.8}
+            app.positions = {"servo_13": -0.8}
             app.directory, app.refresh_files = directory, lambda: None
             app.save()
             saved = json.loads((Path(directory) / "pose.json").read_text())
             self.assertEqual(saved["schema_version"], 1)
             self.assertNotIn("units", saved)
-            self.assertEqual(saved["positions"]["servo_13"], -.37)
+            self.assertEqual(saved["positions"]["servo_13"], -0.37)
             app.snapshot_name.set("radian_pose")
             app.target_values["servo_13"].set("-.55")
             app.save()
             saved = json.loads((Path(directory) / "radian_pose.json").read_text())
-            self.assertAlmostEqual(saved["positions"]["servo_13"], -.55)
+            self.assertAlmostEqual(saved["positions"]["servo_13"], -0.55)
 
 
 if __name__ == "__main__":

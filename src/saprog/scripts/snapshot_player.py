@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """Open the snapshot player directly with ``python3 snapshot_player.py``."""
+
 import argparse
 import json
 import math
 import os
-from pathlib import Path
-from snapshot_arrival import arrival_progress, AX_TICK_RADIANS
-from snapshot_units import joint_bounds, validate_snapshot
-from snapshot_files import default_snapshot_directory, write_json_atomic
 import platform
 import sys
 import time
-from desktop_style import BACKGROUND, apply_style, configure_changed
-from motion_controls import add_slider, set_motion
+from pathlib import Path
 
+from desktop_style import BACKGROUND, apply_style, configure_changed, status_box
+from motion_controls import add_slider, set_motion
+from snapshot_arrival import AX_TICK_RADIANS, arrival_progress
+from snapshot_files import default_snapshot_directory, write_json_atomic
+from snapshot_units import joint_bounds, validate_snapshot
 
 FRESH_SECONDS = 2.5
 TARGET_TOLERANCE = 0.05
@@ -45,15 +46,23 @@ def save_torque_strength(path, value):
 
 
 class SnapshotPlayer:
-    def __init__(self, root, node, directory):
+    """Tk view and ROS client; callbacks run on the Tk thread via spin_once.
+
+    Snapshot playback advances through sending, waiting, and releasing phases.
+    TimelineWindow replaces that flow with a ROS action (see the follow-up review).
+    """
+
+    def __init__(self, root, node, directory, container=None):
         self.root, self.node, self.directory = root, node, directory
+        self.container = container or root
         self.joints, self.bounds = [], {}
         self.param_client = AsyncParameterClient(node, "/saprog_position_controller")
         self.param_future = None
         self.next_param_attempt = 0.0
         self.command_pub = node.create_publisher(JointState, "/saprog/position_command", 100)
         self.state_subscription = node.create_subscription(
-            JointState, "/saprog/joint_states", self._on_state, 10)
+            JointState, "/saprog/joint_states", self._on_state, 10
+        )
         self.current_positions = {}
         self.last_state_stamp = 0
         self.last_state_received = 0.0
@@ -69,7 +78,6 @@ class SnapshotPlayer:
         self.target_tolerance = TARGET_TOLERANCE
         self.buttons = []
         self._file_signature = None
-        self._displayed_status = None
         self.status = tk.StringVar(value="Waiting for separately started saprog controller")
         self._build()
         self.refresh()
@@ -77,10 +85,11 @@ class SnapshotPlayer:
         self.root.after(2000, self._periodic_refresh)
 
     def _build(self):
-        apply_style(self.root)
-        self.root.title("Snapshot Player")
-        self.root.geometry("620x680")
-        outer = ttk.Frame(self.root, padding=14)
+        if self.container is self.root:
+            apply_style(self.root)
+            self.root.title("Snapshot Player")
+            self.root.geometry("620x680")
+        outer = ttk.Frame(self.container, padding=14)
         outer.pack(fill="both", expand=True)
         ttk.Label(outer, text="Snapshot Player", style="Title.TLabel").pack(anchor="w")
         actions = ttk.Frame(outer)
@@ -89,26 +98,46 @@ class SnapshotPlayer:
         self.refresh_button.pack(side="right")
         self.browse_button = ttk.Button(actions, text="Browse...", command=self.browse_snapshot)
         self.browse_button.pack(side="right", padx=5)
-        self.load_button = ttk.Button(actions, text="Load Snapshot", style="Accent.TButton", command=self.load_selected)
+        self.load_button = ttk.Button(
+            actions, text="Load Snapshot", style="Accent.TButton", command=self.load_selected
+        )
         self.load_button.pack(side="right", padx=5)
         self.hold_toggle = ttk.Checkbutton(
-            outer, text="Fixed: keep torque holding the loaded targets", variable=self.hold_after_load)
+            outer,
+            text="Fixed: keep torque holding the loaded targets",
+            variable=self.hold_after_load,
+        )
         self.hold_toggle.pack(anchor="w", pady=4)
-        ttk.Label(outer, text="Snapshot targets are in radians. Both modes move to saved positions. Fixed off releases torque only after every joint arrives and holds stable.", wraplength=560).pack(anchor="w")
+        ttk.Label(
+            outer,
+            text="Snapshot targets are in radians. Both modes move to saved positions. Fixed off releases torque only after every joint arrives and holds stable.",
+            wraplength=560,
+        ).pack(anchor="w")
         self.speed_scale = add_slider(outer, "Movement speed", self.moving_speed, 1)
         torque_row = ttk.Frame(outer)
         torque_row.pack(fill="x", pady=4)
         ttk.Label(torque_row, text="Torque strength", width=16).pack(side="left")
-        self.torque_scale = ttk.Scale(torque_row, from_=0, to=1023, variable=self.torque_strength,
-                                      command=self._change_torque_strength)
+        self.torque_scale = ttk.Scale(
+            torque_row,
+            from_=0,
+            to=1023,
+            variable=self.torque_strength,
+            command=self._change_torque_strength,
+        )
         self.torque_scale.pack(side="left", fill="x", expand=True, padx=8)
-        self.torque_value = ttk.Label(torque_row, text=f"{self.torque_strength.get()} / 1023", width=12, anchor="e")
+        self.torque_value = ttk.Label(
+            torque_row, text=f"{self.torque_strength.get()} / 1023", width=12, anchor="e"
+        )
         self.torque_value.pack(side="left")
-        self.disable_torque_button = ttk.Button(outer, text="Disable torque on all joints",
-                                                command=self.disable_all_torque)
+        self.disable_torque_button = ttk.Button(
+            outer, text="Disable torque on all joints", command=self.disable_all_torque
+        )
         self.disable_torque_button.pack(anchor="w", pady=(2, 6))
-        ttk.Label(outer, text="Speed and strength apply to all joints on the next playback.",
-                  style="Muted.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Label(
+            outer,
+            text="Speed and strength apply to all joints on the next playback.",
+            style="Muted.TLabel",
+        ).pack(anchor="w", pady=(0, 6))
         self.selected_label = ttk.Label(outer, text="No file selected", wraplength=560)
         self.selected_label.pack(anchor="w", pady=(0, 4))
         area = ttk.Frame(outer)
@@ -120,16 +149,16 @@ class SnapshotPlayer:
         self.canvas.pack(side="left", fill="both", expand=True)
         self.list_frame = ttk.Frame(self.canvas)
         self.canvas_window = self.canvas.create_window((0, 0), window=self.list_frame, anchor="nw")
-        self.list_frame.bind("<Configure>", lambda _event: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.bind("<Configure>", lambda event: self.canvas.itemconfigure(self.canvas_window, width=event.width))
-        self.status_box = tk.Text(outer, height=3, wrap="word", state="disabled", width=64)
+        self.list_frame.bind(
+            "<Configure>",
+            lambda _event: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
+        )
+        self.canvas.bind(
+            "<Configure>",
+            lambda event: self.canvas.itemconfigure(self.canvas_window, width=event.width),
+        )
+        self.status_box = status_box(outer, self.status, height=3, width=64)
         self.status_box.pack(fill="x", pady=(10, 0))
-        self.status.trace_add("write", lambda *_args: self._refresh_status())
-        self.status_box.bind("<Control-a>", self._select_all_status)
-        self.status_box.bind("<Control-c>", self._copy_status)
-        self.status_box.bind("<Control-A>", self._select_all_status)
-        self.status_box.bind("<Control-C>", self._copy_status)
-        self._refresh_status()
 
     def _change_torque_strength(self, value):
         strength = max(0, min(1023, round(float(value))))
@@ -140,39 +169,27 @@ class SnapshotPlayer:
         except OSError as exc:
             self.status.set(f"Torque strength changed, but could not save preference: {exc}")
 
-    def _refresh_status(self):
-        if self.status.get() == self._displayed_status:
-            return
-        self._displayed_status = self.status.get()
-        self.status_box.configure(state="normal")
-        self.status_box.delete("1.0", "end")
-        self.status_box.insert("1.0", self.status.get())
-        self.status_box.configure(state="disabled")
-
-    def _select_all_status(self, _event=None):
-        self.status_box.configure(state="normal")
-        self.status_box.tag_add("sel", "1.0", "end-1c")
-        self.status_box.configure(state="disabled")
-        return "break"
-
-    def _copy_status(self, _event=None):
-        try:
-            selected = self.status_box.get("sel.first", "sel.last")
-        except tk.TclError:
-            selected = self.status_box.get("1.0", "end-1c")
-        self.root.clipboard_clear()
-        self.root.clipboard_append(selected)
-        return "break"
-
     def _request_configuration(self):
-        if self.joints or self.param_future is not None or time.monotonic() < self.next_param_attempt:
+        if (
+            self.joints
+            or self.param_future is not None
+            or time.monotonic() < self.next_param_attempt
+        ):
             return
         self.next_param_attempt = time.monotonic() + 1.0
         if not self.param_client.services_are_ready():
             self.status.set(self.param_client.limits_error)
             return
         self.param_future = self.param_client.get_parameters(
-            ["servo_ids", "zero_positions", "directions", "target_tolerance", "lower_limits", "upper_limits"])
+            [
+                "servo_ids",
+                "zero_positions",
+                "directions",
+                "target_tolerance",
+                "lower_limits",
+                "upper_limits",
+            ]
+        )
 
     def _read_configuration(self):
         future, self.param_future = self.param_future, None
@@ -194,8 +211,14 @@ class SnapshotPlayer:
             joints = [f"servo_{servo}" for servo in ids]
             self.joints, self.bounds = joints, bounds
             self.torque_clients = {
-                joint: self.node.create_client(SetBool, f"/saprog/{joint}/torque") for joint in joints}
-            self.status.set(f"Configured {len(joints)} joints; waiting for command subscriber" if not self._ready() else "Ready")
+                joint: self.node.create_client(SetBool, f"/saprog/{joint}/torque")
+                for joint in joints
+            }
+            self.status.set(
+                f"Configured {len(joints)} joints; waiting for command subscriber"
+                if not self._ready()
+                else "Ready"
+            )
         except Exception as exc:
             self.next_param_attempt = time.monotonic() + 1.0
             self.status.set(f"Controller configuration unavailable: {exc}")
@@ -207,13 +230,18 @@ class SnapshotPlayer:
         if self.playback is not None:
             return
         try:
-            paths = sorted(os.path.join(self.directory, filename)
-                           for filename in os.listdir(self.directory) if filename.lower().endswith(".json"))
+            paths = sorted(
+                os.path.join(self.directory, filename)
+                for filename in os.listdir(self.directory)
+                if filename.lower().endswith(".json")
+            )
             signature = []
             for path in paths:
                 try:
                     metadata = os.stat(path)
-                    signature.append((path, metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_size))
+                    signature.append(
+                        (path, metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_size)
+                    )
                 except OSError:
                     signature.append((path, None))
         except OSError as exc:
@@ -237,12 +265,19 @@ class SnapshotPlayer:
             try:
                 with open(path, encoding="utf-8") as stream:
                     doc = json.load(stream)
-                if isinstance(doc, dict) and isinstance(doc.get("name"), str) and doc["name"].strip():
+                if (
+                    isinstance(doc, dict)
+                    and isinstance(doc.get("name"), str)
+                    and doc["name"].strip()
+                ):
                     display_name = doc["name"].strip()
             except (OSError, ValueError, UnicodeError):
                 pass
-            button = ttk.Button(self.list_frame, text=f"{display_name}  -  {filename}",
-                                command=lambda p=path: self.play(p))
+            button = ttk.Button(
+                self.list_frame,
+                text=f"{display_name}  -  {filename}",
+                command=lambda p=path: self.play(p),
+            )
             button.pack(fill="x", pady=3)
             self.buttons.append(button)
         self._update_buttons()
@@ -251,21 +286,37 @@ class SnapshotPlayer:
         ready = self._ready() and self.playback is None and self.torque_batch is None
         for button in self.buttons:
             configure_changed(button, state="normal" if ready else "disabled")
-        configure_changed(self.load_button, state="normal" if ready and self.selected_path else "disabled")
-        state = "disabled" if self.playback is not None or self.torque_batch is not None else "normal"
-        for widget in (self.refresh_button, self.browse_button, self.hold_toggle,
-                       self.torque_scale, self.speed_scale, self.disable_torque_button):
+        configure_changed(
+            self.load_button, state="normal" if ready and self.selected_path else "disabled"
+        )
+        state = (
+            "disabled" if self.playback is not None or self.torque_batch is not None else "normal"
+        )
+        for widget in (
+            self.refresh_button,
+            self.browse_button,
+            self.hold_toggle,
+            self.torque_scale,
+            self.speed_scale,
+            self.disable_torque_button,
+        ):
             configure_changed(widget, state=state)
 
     def disable_all_torque(self):
         if not self._ready() or self.playback is not None or self.torque_batch is not None:
             self.status.set("Wait for the controller and any current operation to finish")
             return
-        unavailable = [joint for joint in self.joints if not self.torque_clients[joint].service_is_ready()]
+        unavailable = [
+            joint for joint in self.joints if not self.torque_clients[joint].service_is_ready()
+        ]
         if unavailable:
             self.status.set("Torque services unavailable: " + ", ".join(unavailable))
             return
-        self.torque_batch = {"pending": set(self.joints), "failed": {}}
+        self.torque_batch = {
+            "pending": set(self.joints),
+            "failed": {},
+            "deadline": time.monotonic() + TORQUE_TIMEOUT,
+        }
         self._update_buttons()
         self.status.set("Disabling torque on all joints...")
         batch = self.torque_batch
@@ -274,7 +325,9 @@ class SnapshotPlayer:
             request.data = False
             try:
                 future = self.torque_clients[joint].call_async(request)
-                future.add_done_callback(lambda done, j=joint, b=batch: self._disable_torque_done(b, j, done))
+                future.add_done_callback(
+                    lambda done, j=joint, b=batch: self._disable_torque_done(b, j, done)
+                )
             except Exception as exc:
                 self._disable_torque_failed(batch, joint, str(exc))
 
@@ -304,10 +357,21 @@ class SnapshotPlayer:
         self.torque_batch = None
         self._update_buttons()
         if batch["failed"]:
-            self.status.set("Torque disable incomplete: " + "; ".join(
-                f"{joint}: {reason}" for joint, reason in batch["failed"].items()))
+            self.status.set(
+                "Torque disable incomplete: "
+                + "; ".join(f"{joint}: {reason}" for joint, reason in batch["failed"].items())
+            )
         else:
             self.status.set(f"Torque disabled on all {len(self.joints)} joints")
+
+    def _check_torque_timeout(self):
+        batch = self.torque_batch
+        if batch is None or time.monotonic() < batch["deadline"]:
+            return
+        # A missing acknowledgement does not prove that hardware stayed on.
+        # Retiring this batch also makes late responses harmless to a new batch.
+        for joint in list(batch["pending"]):
+            self._disable_torque_failed(batch, joint, "request timed out; torque state unknown")
 
     def play(self, path):
         if self.playback is not None or not self._ready():
@@ -326,27 +390,42 @@ class SnapshotPlayer:
 
     def _start_playback(self, name, positions):
         if self.torque_strength.get() <= 0:
-            self.status.set("Set Torque strength above zero before playback; zero cannot drive the servos")
+            self.status.set(
+                "Set Torque strength above zero before playback; zero cannot drive the servos"
+            )
             return
         release_after = not self.hold_after_load.get()
-        if release_after and any(not self.torque_clients[j].service_is_ready() for j in self.joints):
+        if release_after and any(
+            not self.torque_clients[j].service_is_ready() for j in self.joints
+        ):
             self.status.set("Cannot start: torque release services are not ready for every joint")
             return
         self.playback = {
-            "name": name, "targets": positions,
+            "name": name,
+            "targets": positions,
             "queue": [(list(self.joints), [positions[joint] for joint in self.joints])],
-            "release_after": release_after, "phase": "sending", "last_send": 0.0,
-            "sent_stamp": 0, "deadline": None, "last_sample_stamp": 0,
-            "stable_count": 0, "stable_since": None, "stable_first_stamp": 0,
-            "release_pending": {}, "release_results": {},
+            "release_after": release_after,
+            "phase": "sending",
+            "last_send": 0.0,
+            "sent_stamp": 0,
+            "deadline": None,
+            "last_sample_stamp": 0,
+            "stable_count": 0,
+            "stable_since": None,
+            "stable_first_stamp": 0,
+            "release_pending": {},
+            "release_results": {},
         }
         self._set_playback_controls(True)
         self.status.set(f"Sending commands for '{name}'...")
 
     def browse_snapshot(self):
         path = filedialog.askopenfilename(
-            title="Load snapshot", initialdir=os.path.expanduser(self.directory),
-            filetypes=(("JSON snapshots", "*.json"), ("All files", "*")))
+            parent=self.root,
+            title="Load snapshot",
+            initialdir=os.path.expanduser(self.directory),
+            filetypes=(("JSON snapshots", "*.json"), ("All files", "*")),
+        )
         if path:
             self.selected_path = path
             self.selected_label.configure(text=path)
@@ -364,7 +443,9 @@ class SnapshotPlayer:
 
     def _on_state(self, message):
         self.last_state_received = time.monotonic()
-        self.last_state_stamp = message.header.stamp.sec * 1_000_000_000 + message.header.stamp.nanosec
+        self.last_state_stamp = (
+            message.header.stamp.sec * 1_000_000_000 + message.header.stamp.nanosec
+        )
         found = {}
         if len(message.name) == len(message.position):
             for joint, position in zip(message.name, message.position):
@@ -376,13 +457,24 @@ class SnapshotPlayer:
         playback = self.playback
         if playback is not None and playback["phase"] == "waiting":
             stamp = self.last_state_stamp
-            age = (self.node.get_clock().now().nanoseconds - stamp) / 1_000_000_000 if stamp else float("inf")
+            age = (
+                (self.node.get_clock().now().nanoseconds - stamp) / 1_000_000_000
+                if stamp
+                else float("inf")
+            )
             off_target = valid and any(
-                abs(found[joint] - playback["targets"][joint]) > self.target_tolerance + AX_TICK_RADIANS / 2 for joint in self._arrival_joints())
+                abs(found[joint] - playback["targets"][joint])
+                > self.target_tolerance + AX_TICK_RADIANS / 2
+                for joint in self.joints
+            )
             if not valid or off_target or age < 0.0 or age > FRESH_SECONDS:
-                playback["stable_count"], playback["stable_since"], playback["stable_first_stamp"] = 0, None, 0
+                (
+                    playback["stable_count"],
+                    playback["stable_since"],
+                    playback["stable_first_stamp"],
+                ) = 0, None, 0
 
-    def _finish_playback(self, status, success=False):
+    def _finish_playback(self, status):
         self.status.set(status)
         self.playback = None
         self._set_playback_controls(False)
@@ -405,13 +497,18 @@ class SnapshotPlayer:
                 playback["release_results"][joint] = str(exc)
                 continue
             future.add_done_callback(
-                lambda done, j=joint, t=token, p=playback: self._release_done(p, j, t, done))
+                lambda done, j=joint, t=token, p=playback: self._release_done(p, j, t, done)
+            )
         if not playback["release_pending"]:
             failures = playback["release_results"]
-            self._finish_playback("Targets reached; torque release incomplete: " + "; ".join(
-                f"{joint}: {reason}" for joint, reason in failures.items()))
+            self._finish_playback(
+                "Targets reached; torque release incomplete: "
+                + "; ".join(f"{joint}: {reason}" for joint, reason in failures.items())
+            )
         else:
-            self.status.set("All targets reached; waiting for acknowledged torque release on every joint")
+            self.status.set(
+                "All targets reached; waiting for acknowledged torque release on every joint"
+            )
 
     def _release_done(self, playback, joint, token, future):
         if self.playback is not playback or joint not in playback["release_pending"]:
@@ -432,25 +529,22 @@ class SnapshotPlayer:
     def _complete_release(self, playback):
         failures = {j: reason for j, reason in playback["release_results"].items() if reason}
         if failures:
-            self._finish_playback("Targets reached; torque release incomplete: " + "; ".join(
-                f"{joint}: {reason}" for joint, reason in failures.items()))
+            self._finish_playback(
+                "Targets reached; torque release incomplete: "
+                + "; ".join(f"{joint}: {reason}" for joint, reason in failures.items())
+            )
         else:
-            self._finish_playback(f"Targets reached; torque release acknowledged for all {len(self.joints)} joints")
+            self._finish_playback(
+                f"Targets reached; torque release acknowledged for all {len(self.joints)} joints"
+            )
 
     def _apply_motion(self, message):
         set_motion(message, self.moving_speed.get(), self.torque_strength.get())
 
     def _targets_reached(self):
-        self._finish_playback(f"All targets reached and stable; torque remains holding all {len(self.joints)} joints")
-
-    def _arrival_joints(self):
-        return self.joints
-
-    def _requires_stable_arrival(self):
-        return True
-
-    def _command_interval(self):
-        return 0.12
+        self._finish_playback(
+            f"All targets reached and stable; torque remains holding all {len(self.joints)} joints"
+        )
 
     def _playback_tick(self):
         playback = self.playback
@@ -458,7 +552,7 @@ class SnapshotPlayer:
             return
         now = time.monotonic()
         if playback["phase"] == "sending":
-            while playback["queue"] and now - playback["last_send"] >= self._command_interval():
+            while playback["queue"] and now - playback["last_send"] >= 0.12:
                 joints, positions = playback["queue"].pop(0)
                 message = JointState()
                 message.header.stamp = self.node.get_clock().now().to_msg()
@@ -467,58 +561,92 @@ class SnapshotPlayer:
                 try:
                     self.command_pub.publish(message)
                 except Exception as exc:
-                    self._finish_playback(f"Synchronized command publication failed; torque was not released: {exc}")
+                    self._finish_playback(
+                        f"Synchronized command publication failed; torque was not released: {exc}"
+                    )
                     return
                 playback["last_send"] = now
                 if not playback["queue"]:
                     playback["sent_stamp"] = self.node.get_clock().now().nanoseconds
                     playback["deadline"] = now + ARRIVAL_TIMEOUT
                     playback["phase"] = "waiting"
-                    self.status.set("Commands sent; waiting for all joints to reach their targets" +
-                                    (" and hold stable" if self._requires_stable_arrival() else ""))
+                    self.status.set(
+                        "Commands sent; waiting for all joints to reach their targets and hold stable"
+                    )
             return
         if playback["phase"] == "waiting":
             if now >= playback["deadline"]:
-                self._finish_playback("Movement incomplete: " + playback.get("arrival_detail", "no fresh complete telemetry after command") + "; timed out. Torque unchanged.")
+                self._finish_playback(
+                    "Movement incomplete: "
+                    + playback.get("arrival_detail", "no fresh complete telemetry after command")
+                    + "; timed out. Torque unchanged."
+                )
                 return
             if now - self.last_state_received > FRESH_SECONDS or not self.latest_state_complete:
-                playback["arrival_detail"] = "waiting for fresh readings from every configured joint"
+                playback["arrival_detail"] = (
+                    "waiting for fresh readings from every configured joint"
+                )
                 self.status.set(playback["arrival_detail"])
-                playback["stable_count"], playback["stable_since"], playback["stable_first_stamp"] = 0, None, 0
+                (
+                    playback["stable_count"],
+                    playback["stable_since"],
+                    playback["stable_first_stamp"],
+                ) = 0, None, 0
                 return
             stamp = self.last_state_stamp
             if not stamp or stamp <= playback["sent_stamp"]:
                 playback["arrival_detail"] = "waiting for telemetry recorded after the command"
                 self.status.set(playback["arrival_detail"])
-                playback["stable_count"], playback["stable_since"], playback["stable_first_stamp"] = 0, None, 0
+                (
+                    playback["stable_count"],
+                    playback["stable_since"],
+                    playback["stable_first_stamp"],
+                ) = 0, None, 0
                 return
             source_age = (self.node.get_clock().now().nanoseconds - stamp) / 1_000_000_000
             if source_age < 0.0 or source_age > FRESH_SECONDS:
-                playback["arrival_detail"] = "telemetry timestamp is stale or ahead of the controller clock"
+                playback["arrival_detail"] = (
+                    "telemetry timestamp is stale or ahead of the controller clock"
+                )
                 self.status.set(playback["arrival_detail"])
-                playback["stable_count"], playback["stable_since"], playback["stable_first_stamp"] = 0, None, 0
+                (
+                    playback["stable_count"],
+                    playback["stable_since"],
+                    playback["stable_first_stamp"],
+                ) = 0, None, 0
                 return
             if stamp <= playback["last_sample_stamp"]:
                 return
             playback["last_sample_stamp"] = stamp
-            within, stalled, detail = arrival_progress(playback, self.current_positions, self._arrival_joints(), self.target_tolerance, now)
+            within, stalled, detail = arrival_progress(
+                playback, self.current_positions, self.joints, self.target_tolerance, now
+            )
             playback["arrival_detail"] = detail
             self.status.set(detail)
             if stalled:
-                self._finish_playback("Movement incomplete: no progress toward targets for 8 seconds. " + detail + ". Check controller errors and torque strength. Torque unchanged.")
+                self._finish_playback(
+                    "Movement incomplete: no progress toward targets for 8 seconds. "
+                    + detail
+                    + ". Check controller errors and torque strength. Torque unchanged."
+                )
                 return
             if not within:
-                playback["stable_count"], playback["stable_since"], playback["stable_first_stamp"] = 0, None, 0
-                return
-            if not self._requires_stable_arrival():
-                self._targets_reached()
+                (
+                    playback["stable_count"],
+                    playback["stable_since"],
+                    playback["stable_first_stamp"],
+                ) = 0, None, 0
                 return
             if playback["stable_since"] is None:
                 playback["stable_since"] = now
                 playback["stable_first_stamp"] = stamp
             playback["stable_count"] += 1
             source_span = (stamp - playback["stable_first_stamp"]) / 1_000_000_000
-            if playback["stable_count"] >= STABLE_SAMPLES and now - playback["stable_since"] >= STABLE_SECONDS and source_span >= STABLE_SECONDS:
+            if (
+                playback["stable_count"] >= STABLE_SAMPLES
+                and now - playback["stable_since"] >= STABLE_SECONDS
+                and source_span >= STABLE_SECONDS
+            ):
                 if playback["release_after"]:
                     self._begin_release(playback)
                 else:
@@ -538,6 +666,7 @@ class SnapshotPlayer:
             self._read_configuration()
         else:
             self._request_configuration()
+        self._check_torque_timeout()
         self._playback_tick()
         if self.playback is None:
             if self.joints and not self._ready():
@@ -551,24 +680,29 @@ class SnapshotPlayer:
         self.root.after(2000, self._periodic_refresh)
 
 
-def _load_runtime(args, require_timeline=False):
+def _load_runtime(args, require_timeline=False, entrypoint=None):
     """Load ROS/Tk, sourcing the system ROS setup once when needed."""
     global rclpy, Node, AsyncParameterClient, JointState, SetBool
     global ActionClient, PlayTimeline, tk, ttk, filedialog
     try:
+        import tkinter as tkinter_module
+        from tkinter import filedialog as filedialog_module
+        from tkinter import ttk as ttk_module
+
         import rclpy as rclpy_module
         from rclpy.node import Node as RosNode
-        from snapshot_limits_client import HardwareParameterClient as ParameterClient
         from sensor_msgs.msg import JointState as JointStateMessage
+        from snapshot_limits_client import HardwareParameterClient as ParameterClient
         from std_srvs.srv import SetBool as SetBoolService
-        import tkinter as tkinter_module
-        from tkinter import filedialog as filedialog_module, ttk as ttk_module
+
         rclpy, Node = rclpy_module, RosNode
         AsyncParameterClient, JointState = ParameterClient, JointStateMessage
         SetBool = SetBoolService
         if require_timeline:
             from rclpy.action import ActionClient as RosActionClient
+
             from saprog.action import PlayTimeline as TimelineAction
+
             ActionClient, PlayTimeline = RosActionClient, TimelineAction
         tk, ttk, filedialog = tkinter_module, ttk_module, filedialog_module
         os.environ.pop("SAPROG_SNAPSHOT_PLAYER_BOOTSTRAPPED", None)
@@ -589,8 +723,20 @@ def _load_runtime(args, require_timeline=False):
                 'echo "Could not source ROS setup: $1" >&2; exit 1; fi; '
                 'exec "$2" "$3" "${@:4}"'
             )
-            os.execvpe("/bin/bash", ["bash", "-c", command, "snapshot-player", setup,
-                                      python, os.path.abspath(__file__), *args], env)
+            os.execvpe(
+                "/bin/bash",
+                [
+                    "bash",
+                    "-c",
+                    command,
+                    "snapshot-player",
+                    setup,
+                    python,
+                    os.path.abspath(entrypoint or __file__),
+                    *args,
+                ],
+                env,
+            )
     detail = str(missing)
     distro = os.environ.get("ROS_DISTRO") or "jazzy"
     dependencies = "rclpy, sensor_msgs, and Tk"
@@ -618,13 +764,16 @@ def main():
     if args.timeline:
         sys.modules["snapshot_player"] = sys.modules[__name__]
         from timeline_window import TimelineWindow
+
         player_class = TimelineWindow
     player_class(root, node, os.path.abspath(os.path.expanduser(args.directory)))
     try:
+
         def spin():
             if rclpy.ok():
                 rclpy.spin_once(node, timeout_sec=0.0)
                 root.after(10, spin)
+
         root.after(10, spin)
         root.mainloop()
     finally:

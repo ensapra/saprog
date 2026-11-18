@@ -1,11 +1,11 @@
-from pathlib import Path
 import sys
-from types import SimpleNamespace as NS
 import unittest
+from pathlib import Path
+from types import SimpleNamespace as NS
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from snapshot_limits_client import HardwareParameterClient, AsyncParameterClient
+from snapshot_limits_client import AsyncParameterClient, HardwareParameterClient
 
 
 class LimitsClientTest(unittest.TestCase):
@@ -18,7 +18,10 @@ class LimitsClientTest(unittest.TestCase):
         service.call_async.return_value = future
         node = Mock()
         node.create_client.return_value = service
-        with patch.object(AsyncParameterClient, "__init__", return_value=None), patch.object(AsyncParameterClient, "services_are_ready", return_value=True):
+        with (
+            patch.object(AsyncParameterClient, "__init__", return_value=None),
+            patch.object(AsyncParameterClient, "services_are_ready", return_value=True),
+        ):
             for _ in range(2):
                 client = HardwareParameterClient(node, "/controller")
                 self.assertFalse(client.services_are_ready())
@@ -35,7 +38,10 @@ class LimitsClientTest(unittest.TestCase):
         service.call_async.return_value = future
         node = Mock()
         node.create_client.return_value = service
-        with patch.object(AsyncParameterClient, "__init__", return_value=None), patch.object(AsyncParameterClient, "services_are_ready", return_value=True):
+        with (
+            patch.object(AsyncParameterClient, "__init__", return_value=None),
+            patch.object(AsyncParameterClient, "services_are_ready", return_value=True),
+        ):
             client = HardwareParameterClient(node, "/controller")
             self.assertFalse(client.services_are_ready())
             self.assertFalse(client.services_are_ready())

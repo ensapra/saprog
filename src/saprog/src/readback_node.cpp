@@ -4,22 +4,16 @@
 #include <chrono>
 #include <string>
 
-namespace
+ReadbackNode::ReadbackNode(const rclcpp::NodeOptions &options)
+    : Node("saprog_readback", options), config_(read_config(*this))
 {
-constexpr double kAxPositionRangeRadians = 300.0 * 3.14159265358979323846 / 180.0;
-constexpr double kAxPositionRangeRaw = 1023.0;
-}
-
-ReadbackNode::ReadbackNode(const rclcpp::NodeOptions & options)
-: Node("saprog_readback", options), config_(read_config(*this))
-{
-  bus_ = std::make_shared<DynamixelBus>(
-    config_.device_name, config_.baud_rate, config_.protocol_version,
-    config_.status_return_level, config_.verify_goal_registers);
+  bus_ = std::make_shared<DynamixelBus>(config_.device_name, config_.baud_rate,
+                                        config_.protocol_version, config_.status_return_level,
+                                        config_.verify_goal_registers);
   state_pub_ = create_publisher<sensor_msgs::msg::JointState>("/saprog/joint_states", 10);
   temperature_pub_ = create_publisher<sensor_msgs::msg::Temperature>("/saprog/temperatures", 100);
-  timer_ = create_wall_timer(
-    std::chrono::duration<double>(1.0 / config_.poll_rate), [this]() {read_servos();});
+  timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / config_.poll_rate),
+                             [this]() { read_servos(); });
   RCLCPP_INFO(get_logger(), "Reading %zu configured DYNAMIXEL IDs", config_.servo_ids.size());
 }
 
@@ -43,9 +37,8 @@ void ReadbackNode::read_servos()
     }
 
     const uint16_t raw_position = static_cast<uint16_t>(data[0] | (data[1] << 8));
-    const double position = config_.directions[i] *
-      (static_cast<int>(raw_position) - static_cast<int>(config_.zero_positions[i])) *
-      kAxPositionRangeRadians / kAxPositionRangeRaw;
+    const double position =
+        saprog::ax::to_radians(raw_position, config_.zero_positions[i], config_.directions[i]);
     const uint16_t speed = static_cast<uint16_t>(data[2] | (data[3] << 8));
     const uint16_t load = static_cast<uint16_t>(data[4] | (data[5] << 8));
     const double voltage = data[6] / 10.0;
@@ -65,8 +58,8 @@ void ReadbackNode::read_servos()
       RCLCPP_WARN(get_logger(), "Servo %u torque state: %s", id, error.c_str());
     }
     RCLCPP_DEBUG(get_logger(),
-      "ID %u: position=%.3f rad (raw %u) speed=%u load=%u voltage=%.1fV temperature=%uC",
-      id, position, raw_position, speed, load, voltage, data[7]);
+                 "ID %u: position=%.3f rad (raw %u) speed=%u load=%u voltage=%.1fV temperature=%uC",
+                 id, position, raw_position, speed, load, voltage, data[7]);
   }
   state_pub_->publish(states);
 }

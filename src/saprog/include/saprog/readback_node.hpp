@@ -11,7 +11,7 @@
 class ReadbackNode : public rclcpp::Node
 {
 public:
-  explicit ReadbackNode(const rclcpp::NodeOptions & options);
+  explicit ReadbackNode(const rclcpp::NodeOptions &options);
   std::shared_ptr<DynamixelBus> bus() const;
 
 private:

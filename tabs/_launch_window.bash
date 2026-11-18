@@ -58,7 +58,6 @@ fi
 backend_pid=""
 readiness_pid=""
 window_pid=""
-home_pid=""
 owns_backend=0
 cleanup() {
   local result=$?
@@ -70,10 +69,6 @@ cleanup() {
   if [[ -n "$window_pid" ]] && kill -0 "$window_pid" 2>/dev/null; then
     kill "$window_pid" 2>/dev/null || true
     wait "$window_pid" 2>/dev/null || true
-  fi
-  if [[ -n "$home_pid" ]] && kill -0 "$home_pid" 2>/dev/null; then
-    kill "$home_pid" 2>/dev/null || true
-    wait "$home_pid" 2>/dev/null || true
   fi
   if [[ "$owns_backend" -eq 1 && -n "$backend_pid" ]] && kill -0 "$backend_pid" 2>/dev/null; then
     kill "$backend_pid" 2>/dev/null || true
@@ -130,7 +125,7 @@ if [[ "$mode" == backend ]]; then
   exit "$backend_result"
 else
   case "$window_name" in
-    snapshot_window|snapshot_player)
+    snapshot_window|snapshot_player|static_animator)
       mkdir -p -- "${workspace_dir}/snapshots"
       set -- --directory "${workspace_dir}/snapshots" "$@"
       ;;

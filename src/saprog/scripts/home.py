@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Show live temperatures and launch the desktop tools in the workspace."""
+
 import os
-from pathlib import Path
 import signal
 import subprocess
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, ttk
-from desktop_style import apply_style
-import rclpy
-from rclpy.node import Node
-from temperature_monitor import TemperatureMonitor
-from imu_monitor import ImuMonitor
-from robot_view import RobotView
 
+import rclpy
+from desktop_style import apply_style
+from imu_monitor import ImuMonitor
+from rclpy.node import Node
+from robot_view import RobotView
+from temperature_monitor import TemperatureMonitor
 
 WORKSPACE = Path(__file__).resolve().parents[3]
 TABS = WORKSPACE / "tabs"
@@ -33,7 +34,9 @@ class Home:
         root.minsize(900, 650)
         outer = ttk.Frame(root, padding=16)
         outer.pack(fill="both", expand=True)
-        ttk.Label(outer, text="Saprog workspace", style="Title.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(outer, text="Saprog workspace", style="Title.TLabel").pack(
+            anchor="w", pady=(0, 8)
+        )
         self.panels = ttk.Notebook(outer)
         self.panels.pack(fill="both", expand=True)
         home_panel = ttk.Frame(self.panels)
@@ -49,10 +52,14 @@ class Home:
         workspace.add(temperature_panel, weight=1)
         workspace.add(imu_panel, weight=1)
         ttk.Label(tools_panel, text="Open another tool", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(tools_panel, text="These tools open in their own windows.", style="Muted.TLabel").pack(anchor="w", pady=(2, 10))
+        ttk.Label(
+            tools_panel, text="These tools open in their own windows.", style="Muted.TLabel"
+        ).pack(anchor="w", pady=(2, 10))
         self.buttons = ttk.Frame(tools_panel)
         self.buttons.pack(fill="x")
-        ttk.Button(tools_panel, text="Refresh tools", command=self.refresh).pack(anchor="w", pady=(8, 0))
+        ttk.Button(tools_panel, text="Refresh tools", command=self.refresh).pack(
+            anchor="w", pady=(8, 0)
+        )
         self.status = tk.StringVar(value="")
         ttk.Label(outer, textvariable=self.status, wraplength=380).pack(anchor="w", pady=(10, 0))
         self.monitor = TemperatureMonitor(temperature_panel, self.node)
@@ -69,8 +76,20 @@ class Home:
         return script.stem.removeprefix("launch_").replace("_", " ").title()
 
     def refresh(self):
-        scripts = sorted((item for item in TABS.glob("*.sh") if item.is_file()
-                          and item.name != "launch_imu_monitor.sh"), key=lambda item: item.name.casefold())
+        scripts = sorted(
+            (
+                item
+                for item in TABS.glob("*.sh")
+                if item.is_file()
+                and item.name not in {
+                    "launch_imu_monitor.sh",
+                    "launch_snapshot_creator.sh",
+                    "launch_snapshot_player.sh",
+                    "launch_timeline.sh",
+                }
+            ),
+            key=lambda item: item.name.casefold(),
+        )
         if scripts == self._scripts:
             return
         self._scripts = scripts
@@ -80,7 +99,9 @@ class Home:
             ttk.Label(self.buttons, text="No launchers found in tabs/").pack(anchor="w")
             return
         for script in scripts:
-            ttk.Button(self.buttons, text=self.title(script), command=lambda path=script: self.launch(path)).pack(fill="x", pady=3)
+            ttk.Button(
+                self.buttons, text=self.title(script), command=lambda path=script: self.launch(path)
+            ).pack(fill="x", pady=3)
 
     def watch(self):
         if self.closed:
@@ -93,7 +114,9 @@ class Home:
             result = process.poll()
             if result is not None and not notified:
                 if result:
-                    self.status.set(f"{self.title(script)} failed to launch (exit {result}); see launcher output")
+                    self.status.set(
+                        f"{self.title(script)} failed to launch (exit {result}); see launcher output"
+                    )
                 else:
                     self.status.set(f"{self.title(script)} closed")
                 self.children[script] = (process, True)
@@ -103,8 +126,10 @@ class Home:
         if self.imu_backend is not None and self.imu_backend.poll() is not None:
             self.imu_backend = None
             self.status.set("IMU ROS backend stopped; reopen the IMU monitor to restart it")
-        if self.backend is not None and self.children and not any(
-            process.poll() is None for process, _notified in self.children.values()
+        if (
+            self.backend is not None
+            and self.children
+            and not any(process.poll() is None for process, _notified in self.children.values())
         ):
             self._stop_backend()
         self.root.after(100, self.watch)
@@ -116,7 +141,9 @@ class Home:
         env = os.environ.copy()
         env.pop("SAPROG_HOME_BACKEND_PID", None)
         try:
-            self.backend = subprocess.Popen(["bash", str(helper), "backend"], cwd=str(WORKSPACE), env=env)
+            self.backend = subprocess.Popen(
+                ["bash", str(helper), "backend"], cwd=str(WORKSPACE), env=env
+            )
             return True
         except OSError as error:
             self.backend = None
@@ -142,7 +169,9 @@ class Home:
         try:
             self.imu_backend = subprocess.Popen(
                 ["ros2", "launch", "saprog", "imu.launch.py", "gui:=false"],
-                cwd=str(WORKSPACE), env=os.environ.copy(), start_new_session=True,
+                cwd=str(WORKSPACE),
+                env=os.environ.copy(),
+                start_new_session=True,
             )
             return True
         except OSError as error:
@@ -161,7 +190,9 @@ class Home:
             env = os.environ.copy()
             env["SAPROG_HOME_BACKEND_PID"] = str(self.backend.pid)
             process = subprocess.Popen(
-                ["bash", str(script)], cwd=str(WORKSPACE), env=env,
+                ["bash", str(script)],
+                cwd=str(WORKSPACE),
+                env=env,
             )
             self.children[script] = (process, False)
             self.status.set(f"Opened {self.title(script)}")
