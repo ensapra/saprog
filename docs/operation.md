@@ -33,7 +33,8 @@ bash ./tabs/launch_static_animator.sh
 ```
 
 Home includes a **Static Animator** tab with **Creator / Player** and **Timeline**
-tabs. Creator and Player are visible together in an adjustable vertical split.
+tabs. Creator and Player are visible together in an equal, adjustable side-by-side
+split.
 They share movement speed and torque strength settings. Selecting a pose
 loads its values into the Creator without sending commands; use **Play selected
 pose** to move the robot. The Timeline has its own tab. The standalone Static

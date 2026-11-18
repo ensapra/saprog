@@ -78,7 +78,7 @@ the minimum window size.
 For status, use a `StringVar`-backed ttk label for short, frequently changing
 state. Use `status_box` for longer messages where selection/copy is useful.
 Current Home and IMU status areas are labels; Creator, Player, and Timeline use
-`status_box`. Creator passes a Text width of 620 units, Player 64, and Timeline
+`status_box`. Creator and Player use a Text width of 64 units, and Timeline
 sets 4 lines; these are current widget settings, not pixel widths. Preserve
 the distinction between labels and copyable status unless the content needs
 change.
@@ -87,10 +87,10 @@ change.
 
 | Surface | Current size / minimum | Layout notes |
 | --- | --- | --- |
-| [Home](../src/saprog/scripts/saprog_desktop/apps/home.py) | `1440x900`, minimum `900x650` | Outer padding 16; Home, Robot, Static Animator, and Other panels in a notebook. Home divides temperature and IMU panes horizontally. Static Animator has Creator / Player and Timeline tabs; Creator and Player share a horizontally adjustable pane split. |
+| [Home](../src/saprog/scripts/saprog_desktop/apps/home.py) | `1440x900`, minimum `900x650` | Outer padding 16; Home, Robot, Static Animator, and Other panels in a notebook. Home divides temperature and IMU panes horizontally. Static Animator has Creator / Player and Timeline tabs; Creator and Player start in an equal, horizontally adjustable pane split. |
 | [Temperature](../src/saprog/scripts/saprog_desktop/views/temperature_monitor.py) | `1050x700`, minimum `700x450` when standalone | In Home it is an embedded pane and does not create or size a root. Controls and servo selection sit above an expanding graph canvas. |
 | [IMU](../src/saprog/scripts/saprog_desktop/views/imu_monitor.py) | `960x850`, minimum `700x650` when standalone | In Home it is embedded and does not call `apply_style` or set root geometry. Contains readings, orientation drawing canvas, and serial log. |
-| [Snapshot Creator](../src/saprog/scripts/saprog_desktop/views/snapshot_window.py) | `940x820` when standalone | Embedded joint cards in a scrollable canvas; shared motion sliders and status box. |
+| [Snapshot Creator](../src/saprog/scripts/saprog_desktop/views/snapshot_window.py) | `940x820` when standalone | Embedded joint cards in a scrollable canvas; shared motion sliders and status box. Status width is 64 Text character units to fit the shared Creator / Player pane. |
 | [Snapshot Player](../src/saprog/scripts/saprog_desktop/views/snapshot_player.py) | `620x680` when standalone | Scrollable snapshot list between playback controls and status box. |
 | [Timeline](../src/saprog/scripts/saprog_desktop/views/timeline_window.py) | `1200x900` when standalone | Sequence/editor panes, lifecycle/actions, and status box; inherits Player behavior and swaps in the timeline editor layout. |
 | [Robot](../src/saprog/scripts/saprog_desktop/views/robot_view.py) | Home's resizable Robot notebook panel | ttk controls/status around an expanding native Tk frame used as the embedded RViz viewport; its rendering is external to Tk. |

@@ -128,7 +128,7 @@ class RuntimeTests(unittest.TestCase):
             mock.ANY,
             creator.status,
             height=3,
-            width=620,
+            width=64,
             tk_module=creator.dependencies.tk,
         )
 
@@ -138,14 +138,29 @@ class RuntimeTests(unittest.TestCase):
         import timeline_window
 
         class FakeWidget:
+            instances = []
+
             def __init__(self, *_args, **_kwargs):
-                pass
+                self.__class__.instances.append(self)
+                self.bindings = {}
+                self.added = []
+                self.sash_positions = []
 
             def pack(self, **_kwargs):
                 pass
 
-            def add(self, *_args, **_kwargs):
-                pass
+            def add(self, child, **kwargs):
+                self.added.append((child, kwargs))
+
+            def bind(self, sequence, callback, add=None):
+                self.bindings[sequence] = callback
+                return sequence
+
+            def unbind(self, sequence, _binding_id=None):
+                self.bindings.pop(sequence, None)
+
+            def sashpos(self, index, position):
+                self.sash_positions.append((index, position))
 
         creator, player = mock.Mock(), mock.Mock()
         dependencies = mock.Mock()
@@ -182,6 +197,15 @@ class RuntimeTests(unittest.TestCase):
                     dependencies=dependencies,
                 )
 
+        split = next(
+            widget
+            for widget in FakeWidget.instances
+            if len(widget.added) == 2 and all("weight" in options for _, options in widget.added)
+        )
+        self.assertEqual([pane[1]["weight"] for pane in split.added], [1, 1])
+        split.bindings["<Configure>"](mock.Mock(width=1200))
+        self.assertEqual(split.sash_positions, [(0, 600)])
+        self.assertNotIn("<Configure>", split.bindings)
         creator.close.assert_called_once_with()
         player.close.assert_called_once_with()
         creator_factory.assert_called_once()

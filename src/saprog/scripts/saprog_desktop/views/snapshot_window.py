@@ -219,13 +219,13 @@ class SnapshotWindow:
         self.dependencies.ttk.Label(
             frame,
             text="Pose playback sends one command and leaves controls available. Use Release all joints to release torque.",
-            wraplength=620,
+            wraplength=480,
         ).pack(anchor="w")
         self.release_all_button = self.dependencies.ttk.Button(
             frame, text="Release all joints", command=self.release_all
         )
         self.release_all_button.pack(anchor="w", pady=8)
-        self._build_status_box(frame, 620)
+        self._build_status_box(frame, 64)
 
     def _build_status_box(self, parent, width):
         self.status_box = status_box(

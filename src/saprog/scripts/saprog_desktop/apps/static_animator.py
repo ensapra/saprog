@@ -7,10 +7,10 @@ import signal
 import sys
 from dataclasses import dataclass
 
-from saprog_desktop.views import snapshot_player
 from saprog_desktop.runtime import RootRosScheduler
 from saprog_desktop.snapshot_files import default_snapshot_directory
 from saprog_desktop.startup import load_desktop_dependencies
+from saprog_desktop.views import snapshot_player
 
 
 @dataclass
@@ -65,10 +65,18 @@ def build_animator_views(
     notebook.add(snapshots_tab, text="Creator / Player")
     notebook.add(timeline_tab, text="Timeline")
     snapshots_split = ttk.Panedwindow(snapshots_tab, orient="horizontal")
-    snapshots_split.pack(fill="both", expand=True)
     creator_panel, player_panel = ttk.Frame(snapshots_split), ttk.Frame(snapshots_split)
     snapshots_split.add(creator_panel, weight=1)
     snapshots_split.add(player_panel, weight=1)
+
+    def center_initial_split(event):
+        if event.width <= 1:
+            return
+        snapshots_split.sashpos(0, event.width // 2)
+        snapshots_split.unbind("<Configure>", split_binding)
+
+    split_binding = snapshots_split.bind("<Configure>", center_initial_split, add="+")
+    snapshots_split.pack(fill="both", expand=True)
 
     if torque_strength_changed is None:
 
