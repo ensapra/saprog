@@ -113,19 +113,25 @@ if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_test(NAME saprog_pure_python_tests
     COMMAND "${Python3_EXECUTABLE}" -m unittest
-      test_player_settings test_snapshot_units test_robot_view test_monitor_models
-      test_playback_adapters)
+      test_player_settings test_snapshot_units test_monitor_models test_playback_adapters)
   set_tests_properties(saprog_pure_python_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/test"
     LABELS "python;pure"
     ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts")
   add_test(NAME saprog_ros_tk_python_tests
     COMMAND "${Python3_EXECUTABLE}" -m unittest
-      test_async_failures test_snapshot_arrival test_snapshot_limits test_timeline test_runtime)
+      test_async_failures test_snapshot_arrival test_snapshot_limits test_snapshot_window
+      test_timeline test_runtime)
   set_tests_properties(saprog_ros_tk_python_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/test"
     LABELS "python;ros;tk"
     ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts:$ENV{PYTHONPATH}")
+  add_test(NAME saprog_process_python_tests
+    COMMAND "${Python3_EXECUTABLE}" -m unittest test_robot_view)
+  set_tests_properties(saprog_process_python_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/test"
+    LABELS "python;process"
+    ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts")
   add_executable(config_test test/config_test.cpp)
   target_include_directories(config_test PRIVATE include)
   ament_target_dependencies(config_test rclcpp)

@@ -2,8 +2,7 @@ import unittest
 from unittest.mock import Mock
 
 from saprog_desktop.playback import PlaybackCoordinator
-from saprog_desktop.snapshot_config import decode_configuration
-from saprog_desktop.snapshot_config import SnapshotConfigurationClient
+from saprog_desktop.snapshot_config import SnapshotConfigurationClient, decode_configuration
 from saprog_desktop.snapshot_units import AX_RANGE, AX_TICK_RADIANS
 from saprog_desktop.torque import TorqueBatch
 
@@ -18,6 +17,12 @@ def config_values(ids=(1, 2), zeros=(512, 512), directions=(1, -1),
     return [Parameter("integer_array", ids), Parameter("integer_array", zeros),
             Parameter("integer_array", directions), Parameter("double", tolerance),
             Parameter("integer_array", lower), Parameter("integer_array", upper)]
+
+
+class FakeSetBool:
+    class Request:
+        def __init__(self):
+            self.data = None
 
 
 class Future:
@@ -242,10 +247,6 @@ class PlaybackAdapterTests(unittest.TestCase):
 
 
 class TorqueAdapterTests(unittest.TestCase):
-    class Request:
-        def __init__(self):
-            self.data = None
-
     def make_client(self, future, ready=True):
         client = Mock()
         client.service_is_ready.return_value = ready
@@ -257,7 +258,7 @@ class TorqueAdapterTests(unittest.TestCase):
         slow = Future()
         clients = {"a": self.make_client(Future(Mock(success=True, message=""))),
                    "b": self.make_client(slow), "c": self.make_client(Future(), ready=False)}
-        adapter = TorqueBatch(clients, self.Request, clock=lambda: now[0])
+        adapter = TorqueBatch(clients, FakeSetBool, clock=lambda: now[0])
         outcomes = adapter.start(False)
         self.assertEqual(outcomes["a"], "success")
         self.assertEqual(outcomes["c"], "not_sent: service unavailable")
@@ -272,11 +273,11 @@ class TorqueAdapterTests(unittest.TestCase):
         recovered = Future(Mock(success=True, message=""))
         client = self.make_client(failure)
         client.call_async.side_effect = (failure, recovered)
-        adapter = TorqueBatch({"j": client}, self.Request)
+        adapter = TorqueBatch({"j": client}, FakeSetBool)
         self.assertEqual(adapter.start(True)["j"], "failure: bus error")
         self.assertEqual(adapter.start(True)["j"], "success")
         pending = Future()
-        adapter = TorqueBatch({"j": self.make_client(pending)}, self.Request)
+        adapter = TorqueBatch({"j": self.make_client(pending)}, FakeSetBool)
         adapter.start(False)
         adapter.close()
         self.assertTrue(pending.was_cancelled)

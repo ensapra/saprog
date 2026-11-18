@@ -1,0 +1,76 @@
+import json
+import math
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace as NS
+
+from snapshot_window import SnapshotWindow
+
+
+class Value:
+    def __init__(self, value=""):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value):
+        self.value = value
+
+
+class SnapshotWindowTest(unittest.TestCase):
+    def test_creator_load_sends_every_joint_in_one_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "pose.json"
+            targets = {f"servo_{i}": i / 100 for i in range(12)}
+            path.write_text(json.dumps(dict(schema_version=1, name="pose", positions=targets)))
+            app = SnapshotWindow.__new__(SnapshotWindow)
+            app.joints = list(targets)
+            app.bounds = {joint: (-1, 1) for joint in targets}
+            app.selected, app.selected_path = Value("pose"), str(path)
+            app.pending, app.playback_state = {}, None
+            app._complete_state = lambda: True
+            app.hold_after_load, app.status = Value(True), Value()
+            app.moving_speed, app.torque_strength = Value(250), Value(600)
+            app.fixed, app.torque_state = set(), {}
+            app._set_playback_controls = lambda locked: None
+            app.target_values = {joint: Value() for joint in targets}
+            app.target_edited = set()
+            app.target_tolerance = 0.05
+            app.dependencies = NS(JointState=lambda: NS(header=NS()))
+            app.node = NS(get_clock=lambda: NS(now=lambda: NS(to_msg=lambda: None, nanoseconds=1)))
+            messages = []
+            app.command_pub = NS(publish=messages.append)
+            app.load()
+            app._playback_tick()
+            self.assertEqual(len(messages), 1)
+            self.assertEqual(dict(zip(messages[0].name, messages[0].position)), targets)
+            self.assertEqual(messages[0].effort, [600.0] * len(targets))
+            self.assertAlmostEqual(messages[0].velocity[0], 250 * 0.111 * 2 * math.pi / 60)
+            self.assertEqual(app.playback_state["phase"], "waiting")
+            self.assertEqual(app.target_edited, set(targets))
+
+    def test_save_uses_typed_targets_without_telemetry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = SnapshotWindow.__new__(SnapshotWindow)
+            app.snapshot_name, app.status = Value("pose"), Value()
+            app.joints, app.bounds = ["servo_13"], {"servo_13": (-0.8, -0.3)}
+            app.pending, app.playback_state = {}, None
+            app.target_values = {"servo_13": Value("-.37")}
+            app.positions = {"servo_13": -0.8}
+            app.directory, app.refresh_files = directory, lambda: None
+            app.save()
+            saved = json.loads((Path(directory) / "pose.json").read_text())
+            self.assertEqual(saved["schema_version"], 1)
+            self.assertNotIn("units", saved)
+            self.assertEqual(saved["positions"]["servo_13"], -0.37)
+            app.snapshot_name.set("radian_pose")
+            app.target_values["servo_13"].set("-.55")
+            app.save()
+            saved = json.loads((Path(directory) / "radian_pose.json").read_text())
+            self.assertAlmostEqual(saved["positions"]["servo_13"], -0.55)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -7,11 +7,10 @@ from xml.etree import ElementTree
 
 from saprog_desktop.robot_view_model import (
     IDENTITY_QUATERNION,
-    OrientationReference,
     SERVO_JOINT_NAMES,
+    OrientationReference,
 )
 from saprog_desktop.robot_view_session import RendererSession  # noqa: E402
-
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -49,6 +48,7 @@ class RobotViewSessionTest(unittest.TestCase):
         now[0] += 0.51
         self.assertEqual(reference.current(), IDENTITY_QUATERNION)
 
+    @unittest.skipUnless(hasattr(os, "killpg"), "renderer process groups require POSIX")
     def test_launch_startup_readiness_stop_and_repeat_stop(self):
         with tempfile.TemporaryDirectory() as directory:
             process = FakeProcess()
@@ -72,6 +72,7 @@ class RobotViewSessionTest(unittest.TestCase):
             self.assertFalse(marker.exists())
             self.assertIsNone(session.ready_file)
 
+    @unittest.skipUnless(hasattr(os, "killpg"), "renderer process groups require POSIX")
     def test_startup_failure_and_root_close_cleanup(self):
         session = RendererSession(tempfile.gettempdir())
         with patch("saprog_desktop.robot_view_session.subprocess.Popen", side_effect=OSError("missing ros2")):
@@ -93,6 +94,7 @@ class RobotViewSessionTest(unittest.TestCase):
         self.assertEqual(timer.call_count, 1)
         self.assertFalse(os.path.exists(marker))
 
+    @unittest.skipUnless(hasattr(os, "killpg"), "renderer process groups require POSIX")
     def test_early_child_exit_is_reported_as_startup_failure(self):
         process = FakeProcess()
         session = RendererSession(tempfile.gettempdir())
@@ -105,6 +107,7 @@ class RobotViewSessionTest(unittest.TestCase):
             self.assertEqual(session.poll(), "error")
         self.assertIn("failed during startup", session.message)
 
+    @unittest.skipUnless(hasattr(os, "killpg"), "renderer process groups require POSIX")
     def test_exit_after_readiness_is_reported_as_unexpected(self):
         process = FakeProcess()
         session = RendererSession(tempfile.gettempdir())

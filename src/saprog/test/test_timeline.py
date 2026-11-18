@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import timeline_window as timeline_window_module
+from saprog_desktop.timeline_presenter import TimelineEditorPresenter
 from timeline_model import (
     control_groups,
     lifecycle_settings,
@@ -21,7 +22,6 @@ from timeline_model import (
     validate_timeline,
 )
 from timeline_window import TimelineWindow
-from saprog_desktop.timeline_presenter import TimelineEditorPresenter
 
 
 class FakeFuture:
@@ -281,6 +281,7 @@ class TimelineTest(unittest.TestCase):
         answers = iter((False, True))
         app = TimelineWindow.__new__(TimelineWindow)
         app.dirty = True
+        app.root = object()
         app.apply = lambda: True
         app.dependencies = SimpleNamespace(
             messagebox=SimpleNamespace(askyesno=lambda *_args, **_kwargs: next(answers))
@@ -378,6 +379,7 @@ class TimelineTest(unittest.TestCase):
             original = copy.deepcopy(app.steps)
             app.dirty = False
             app.directory = directory
+            app.root = object()
             app.joints = self.joints
             app.bounds = self.bounds
             app.discard = lambda: (app.steps[0].update(motion={"speed": 99, "torque": 99}) or True)
@@ -540,7 +542,6 @@ class TimelineTest(unittest.TestCase):
         app.view_closed = False
         app._close_view = TimelineWindow._close_view.__get__(app)
         cancel_future = FakeFuture()
-        result_future = FakeFuture()
         app.timeline_goal_handle = SimpleNamespace(cancel_goal_async=lambda: cancel_future)
         app.timeline_state = "active"
         app.close()

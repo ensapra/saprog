@@ -66,7 +66,8 @@ C++ build/CTest could not run through the Windows VS Code integration; new C++
 configuration/conversion tests remain unverified. Live motion, reconnects, mounting,
 sensor accuracy and deadline behavior also need hardware checks.
 
-[Tests](../src/saprog/test/) use Python `unittest` and CTest. Source ROS and the
-built workspace before Python discovery; CTest also registers that suite.
+[Tests](../src/saprog/test/) use Python `unittest` and CTest. The [validation
+guide](testing.md) documents the pure Python, POSIX process, ROS/Tk, and native
+test suites and their environment requirements.
 Formatting tools are pinned in [requirements-dev.txt](../requirements-dev.txt),
 with [Ruff](../pyproject.toml) and [clang-format](../.clang-format) settings.
