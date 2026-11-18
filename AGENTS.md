@@ -1,3 +1,5 @@
+ROS is available in WSL; use the WSL ROS environment for ROS-related commands.
+
 # Agent entry point
 
 Start with [docs/README.md](docs/README.md) for architecture, behavior to preserve,
@@ -27,8 +29,7 @@ For substantial tasks, create a GitHub issue before implementation with the
 problem and acceptance criteria. Small, self-contained tasks do not need an
 issue. When an issue is used, implement against it and include its reference in
 the commit message. Include a concise summary of the change in the commit body
-or an issue comment. Do not close issues unless the user explicitly asks you to
-close them. If issue creation is unavailable for a substantial task, report the
+or an issue comment. If issue creation is unavailable for a substantial task, report the
 blocker and do not claim the workflow is complete.
 
 ## GitHub tasks
@@ -36,8 +37,8 @@ blocker and do not claim the workflow is complete.
 Use the GitHub CLI (`gh`) for GitHub tasks when the needed operation is
 supported, including issues, pull requests, reviews and repository queries.
 Use browser workflows only when `gh` does not support the operation or access
-through the CLI is unavailable. If a `gh` command fails because sandbox network
-access is blocked, retry it with network escalation before changing workflows.
+through the CLI is unavailable. Always run `gh` commands with network
+escalation, even when sandbox network access has not yet failed.
 
 ## Commits
 
