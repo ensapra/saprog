@@ -4,6 +4,7 @@
 import os
 import signal
 import subprocess
+import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -13,7 +14,11 @@ from desktop_style import apply_style
 from imu_monitor import ImuMonitor
 from rclpy.node import Node
 from robot_view import RobotView
+import snapshot_player
+from snapshot_files import default_snapshot_directory
+from snapshot_window import SnapshotWindow
 from temperature_monitor import TemperatureMonitor
+from timeline_window import TimelineWindow
 
 WORKSPACE = Path(__file__).resolve().parents[3]
 TABS = WORKSPACE / "tabs"
@@ -27,6 +32,7 @@ class Home:
         self.children = {}
         self.backend = None
         self.imu_backend = None
+        self.animator_nodes = []
         self._scripts = None
         apply_style(root)
         root.title("Saprog")
@@ -41,9 +47,11 @@ class Home:
         self.panels.pack(fill="both", expand=True)
         home_panel = ttk.Frame(self.panels)
         robot_panel = ttk.Frame(self.panels, padding=14)
+        animator_panel = ttk.Frame(self.panels, padding=14)
         tools_panel = ttk.Frame(self.panels, padding=14)
         self.panels.add(home_panel, text="Home")
         self.panels.add(robot_panel, text="Robot")
+        self.panels.add(animator_panel, text="Static Animator")
         self.panels.add(tools_panel, text="Other panels")
         workspace = ttk.Panedwindow(home_panel, orient="horizontal")
         workspace.pack(fill="both", expand=True)
@@ -65,6 +73,28 @@ class Home:
         self.monitor = TemperatureMonitor(temperature_panel, self.node)
         self.imu_monitor = ImuMonitor(imu_panel, self.node, embedded=True)
         self.robot_view = RobotView(robot_panel, WORKSPACE)
+        snapshot_player._load_runtime(sys.argv[1:], require_timeline=True, entrypoint=__file__)
+        self.animator_nodes = [
+            snapshot_player.Node("saprog_static_animator_creator"),
+            snapshot_player.Node("saprog_static_animator_player"),
+            snapshot_player.Node("saprog_static_animator_timeline"),
+        ]
+        directory = default_snapshot_directory()
+        creator_tab, player_tab, timeline_tab = (
+            ttk.Frame(animator_panel) for _ in range(3)
+        )
+        animator_notebook = ttk.Notebook(animator_panel)
+        animator_notebook.pack(fill="both", expand=True)
+        animator_notebook.add(creator_tab, text="Snapshot Creator")
+        animator_notebook.add(player_tab, text="Snapshot Player")
+        animator_notebook.add(timeline_tab, text="Timeline")
+        SnapshotWindow(root, self.animator_nodes[0], directory, container=creator_tab)
+        snapshot_player.SnapshotPlayer(
+            root, self.animator_nodes[1], directory, container=player_tab
+        )
+        self.timeline = TimelineWindow(
+            root, self.animator_nodes[2], directory, container=timeline_tab
+        )
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh()
         self._ensure_backend()
@@ -86,6 +116,7 @@ class Home:
                     "launch_snapshot_creator.sh",
                     "launch_snapshot_player.sh",
                     "launch_timeline.sh",
+                    "launch_static_animator.sh",
                 }
             ),
             key=lambda item: item.name.casefold(),
@@ -108,6 +139,9 @@ class Home:
             return
         for _ in range(100):
             rclpy.spin_once(self.node, timeout_sec=0)
+        for node in self.animator_nodes:
+            for _ in range(10):
+                rclpy.spin_once(node, timeout_sec=0)
         self.monitor.poll()
         self.refresh()
         for script, (process, notified) in list(self.children.items()):
@@ -215,6 +249,8 @@ class Home:
                     process.kill()
                     process.wait()
         self.imu_monitor.close()
+        for node in self.animator_nodes:
+            node.destroy_node()
         self.robot_view.close()
         self._stop_backend()
         if self.imu_backend is not None and self.imu_backend.poll() is None:
