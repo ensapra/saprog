@@ -1,5 +1,18 @@
 ROS is available in WSL; use the WSL ROS environment for ROS-related commands.
 
+## ROS validation
+
+Use the `Ubuntu-24.04` WSL distro and source `/opt/ros/jazzy/setup.bash`.
+The Windows checkout is available in WSL at
+`/mnt/c/Users/pauso/Documents/GitHub/saprog`. Build and test ROS packages
+inside WSL with `colcon` and `ctest`; Windows CMake Tools does not discover
+these ROS targets. Keep build/install/log directories under `/home/<user>`
+rather than `/tmp`, which may be cleared when WSL stops. Run build and test
+steps in the same WSL invocation when they depend on temporary files. If
+`wsl.exe` returns `E_ACCESSDENIED` from the agent shell, retry through approved
+elevated execution before diagnosing WSL as unavailable. See
+[docs/testing.md](docs/testing.md) for the project test guide.
+
 # Agent entry point
 
 Start with [docs/README.md](docs/README.md) for architecture, behavior to preserve,
