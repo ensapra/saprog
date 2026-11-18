@@ -87,7 +87,7 @@ change.
 
 | Surface | Current size / minimum | Layout notes |
 | --- | --- | --- |
-| [Home](../src/saprog/scripts/home.py) | `1440x900`, minimum `900x650` | Outer padding 16; Home, Robot, and Other panels in a notebook. Home divides temperature and IMU panes horizontally. |
+| [Home](../src/saprog/scripts/home.py) | `1440x900`, minimum `900x650` | Outer padding 16; Home, Robot, Static Animator, and Other panels in a notebook. Home divides temperature and IMU panes horizontally. Static Animator has Creator / Player and Timeline tabs; Creator and Player share a vertically adjustable pane split. |
 | [Temperature](../src/saprog/scripts/temperature_monitor.py) | `1050x700`, minimum `700x450` when standalone | In Home it is an embedded pane and does not create or size a root. Controls and servo selection sit above an expanding graph canvas. |
 | [IMU](../src/saprog/scripts/imu_monitor.py) | `960x850`, minimum `700x650` when standalone | In Home it is embedded and does not call `apply_style` or set root geometry. Contains readings, orientation drawing canvas, and serial log. |
 | [Snapshot Creator](../src/saprog/scripts/snapshot_window.py) | `940x820` when standalone | Embedded joint cards in a scrollable canvas; shared motion sliders and status box. |

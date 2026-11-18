@@ -24,7 +24,7 @@ together and avoid one-line wrappers or a generic utilities directory.
 | Medium | [Robot view](../src/saprog/scripts/robot_view.py), [bridge](../src/saprog/scripts/robot_view_bridge.py), [description](../urdf/) | Process-group cleanup/readiness lives in the view; joint mapping and sensor reference/mounting need authoritative contracts. Existing #4 also covers installed ROS 1 export leftovers. | #23 |
 | Medium | [CMake](../src/saprog/CMakeLists.txt), [tests](../src/saprog/test/) | Flat helper installation, duplicate program/module copies, test path injection and runtime-global bootstrap complicate moves. RViz/Qt/X11 are unconditional build dependencies. Pure tests are mixed with view/ROS tests. | #8, #9, #25 |
 | Medium | [USB helpers](../scripts/), [launchers](../tabs/) | Repeated WSL/usbipd selection/attach logic; shared launch script combines build, verification, readiness and cleanup. Device selection and stdout contracts differ and must stay explicit. | #24 |
-| Medium | [Operation](operation.md), [style guide](desktop-style.md) | Documentation still describes the old Static Animator launcher arrangement; current Home embeds it as a tab after completed #6. Correct the observed layout during composition work. | #16 |
+| Medium | [Operation](operation.md), [style guide](desktop-style.md) | Documentation still describes the old Static Animator launcher arrangement; Home embeds it with combined Creator / Player and separate Timeline tabs under active #6. Correct the observed layout during composition work. | #16 |
 
 Line counts describe this review's baseline, not acceptance limits.
 Known behavior defects inherited from #1/#4 are tracked explicitly; extraction
@@ -81,7 +81,7 @@ open and linked; these are concrete implementation slices, not competing plans.
 | [#13](https://github.com/ensapra/saprog/issues/13) | Separate timeline documents, reference storage and action serialization | After Python package foundation; preserve completed #3. |
 | [#14](https://github.com/ensapra/saprog/issues/14) | Replace TimelineWindow inheritance with a focused editor presenter and small views | After runtime/configuration, timeline document and action client extractions; part of #2. |
 | [#15](https://github.com/ensapra/saprog/issues/15) | Extract a bounded timeline action client with explicit cancellation states | After runtime and pure action serializer; part of #2. |
-| [#16](https://github.com/ensapra/saprog/issues/16) | Reuse animator composition and coordinate desktop shutdown | After runtime and view/client lifecycle APIs; respects completed #6. |
+| [#16](https://github.com/ensapra/saprog/issues/16) | Reuse animator composition and coordinate desktop shutdown | After runtime and view/client lifecycle APIs; coordinate with active #6. |
 | [#17](https://github.com/ensapra/saprog/issues/17) | Extract a deterministic timeline executor from the controller node | Focused implementation of #1; after reusable command/config boundaries are agreed. |
 | [#18](https://github.com/ensapra/saprog/issues/18) | Separate validated servo commands and configuration from ROS callbacks | Focused implementation of #1; coordinate with timeline executor and desktop configuration client. |
 | [#19](https://github.com/ensapra/saprog/issues/19) | Separate DYNAMIXEL register operations from bus arbitration and command batches | Coordinate executor bus interface; no second serial-port owner. |
@@ -116,8 +116,8 @@ proposed symbols as already available.
 [#3](https://github.com/ensapra/saprog/issues/3) is closed: current legacy migration
 compares normalized poses, rejects mismatched/missing matches, and chooses stable
 order among identical-pose files. Preserve it; do not propose the old name-only
-bug as still present. [#6](https://github.com/ensapra/saprog/issues/6) is closed:
-Home already has an embedded Static Animator tab.
+bug as still present. [#6](https://github.com/ensapra/saprog/issues/6) remains
+open for the embedded Static Animator composition and Creator / Player workflow.
 
 [#1](https://github.com/ensapra/saprog/issues/1),
 [#2](https://github.com/ensapra/saprog/issues/2),

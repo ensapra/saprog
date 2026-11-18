@@ -23,13 +23,20 @@ or selects it through `/skills`. Ordinary requests and follow-ups do not enable 
 
 ## Issue workflow
 
-Before implementing a requested change or tweak, create a GitHub issue that
-describes the problem and its acceptance criteria. Implement the change against
-that issue, then commit the completed work with a descriptive message and an
-issue reference (for example, `Issue #123`). Include a concise summary of the
-change in the commit body or an issue comment. Do not close issues unless the
-user explicitly asks you to close them. If issue creation is unavailable,
-report the blocker and do not claim the workflow is complete.
+For substantial tasks, create a GitHub issue before implementation with the
+problem and acceptance criteria. Small, self-contained tasks do not need an
+issue. When an issue is used, implement against it and include its reference in
+the commit message. Include a concise summary of the change in the commit body
+or an issue comment. Do not close issues unless the user explicitly asks you to
+close them. If issue creation is unavailable for a substantial task, report the
+blocker and do not claim the workflow is complete.
+
+## GitHub tasks
+
+Use the GitHub CLI (`gh`) for GitHub tasks when the needed operation is
+supported, including issues, pull requests, reviews and repository queries.
+Use browser workflows only when `gh` does not support the operation or access
+through the CLI is unavailable.
 
 ## Commits
 

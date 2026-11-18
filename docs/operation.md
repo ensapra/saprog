@@ -22,10 +22,13 @@ bash ./tabs/launch_timeline.sh
 bash ./tabs/launch_static_animator.sh
 ```
 
-Home presents the three snapshot/timeline tools as one **Static Animator**
-launcher. It opens a single window with **Snapshot Creator**, **Snapshot Player**
-and **Timeline** tabs. The direct launchers above remain available for opening an
-individual tool. Static Animator accepts the same `--directory PATH` option as
+Home includes a **Static Animator** tab with **Creator / Player** and **Timeline**
+tabs. Creator and Player are visible together in an adjustable vertical split.
+They share movement speed, torque strength and hold settings. Selecting a pose
+loads its values into the Creator without sending commands; use **Play selected
+pose** to move the robot. The Timeline has its own tab. The standalone Static
+Animator launcher uses the same layout, and the individual launchers above
+remain available. Static Animator accepts the same `--directory PATH` option as
 the snapshot tools.
 
 Under WSL the USB device must first be shared with usbipd-win. If needed, run
