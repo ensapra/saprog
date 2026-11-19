@@ -36,7 +36,7 @@ DynamixelRegisterTransport::~DynamixelRegisterTransport()
 bool DynamixelRegisterTransport::read(uint8_t id, uint16_t address, uint16_t width, uint8_t *data,
                                       std::string &error)
 {
-  if ((width == 0 || width > 8) || data == nullptr) {
+  if ((width == 0 || width > 32) || data == nullptr) {
     error = "Register read has an invalid width or destination";
     return false;
   }

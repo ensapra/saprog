@@ -23,9 +23,9 @@ ReadbackNode::ReadbackNode(const rclcpp::NodeOptions &options)
   bus_ = std::make_shared<DynamixelBus>(config_.device_name, config_.baud_rate,
                                         config_.protocol_version, config_.status_return_level,
                                         config_.verify_goal_registers);
-  state_pub_ = create_publisher<sensor_msgs::msg::JointState>("/saprog/joint_states", 10);
+  state_pub_ = create_publisher<sensor_msgs::msg::JointState>("/saprog/joint_states", 1);
   temperature_pub_ = create_publisher<sensor_msgs::msg::Temperature>("/saprog/temperatures", 100);
-  timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / config_.poll_rate),
+  timer_ = create_wall_timer(std::chrono::duration<double>(1.0 / (config_.poll_rate * config_.servos.size())),
                              [this]() { read_servos(); });
   RCLCPP_INFO(get_logger(), "Reading %zu configured DYNAMIXEL IDs", config_.servos.size());
 }
@@ -37,41 +37,47 @@ std::shared_ptr<DynamixelBus> ReadbackNode::bus() const
 
 void ReadbackNode::read_servos()
 {
-  sensor_msgs::msg::JointState states;
-  states.header.stamp = now();
-
-  for (const auto &servo : config_.servos) {
-    const auto id = servo.id;
-    std::array<uint8_t, 8> data{};
-    std::string error;
-    if (!bus_->read(id, data, error)) {
-      RCLCPP_WARN(get_logger(), "Servo %u: %s", id, error.c_str());
-      continue;
+  // Yield to command/service callbacks after every servo, including a timeout.
+  // Publish only readings collected in this sweep; never reuse a failed read.
+  if (next_servo_ == 0) {
+    sweep_ = sensor_msgs::msg::JointState{};
+    sweep_.header.stamp = now();
+    const auto started = std::chrono::steady_clock::now();
+    publish_temperatures_ = started >= next_temperature_;
+    if (publish_temperatures_) {
+      next_temperature_ = started + std::chrono::seconds(1);
     }
-
-    const uint16_t raw_position = static_cast<uint16_t>(data[0] | (data[1] << 8));
-    const double position = saprog::ax::to_radians(raw_position, servo.zero_position, servo.direction);
-    const uint16_t speed = static_cast<uint16_t>(data[2] | (data[3] << 8));
-    const uint16_t load = static_cast<uint16_t>(data[4] | (data[5] << 8));
-    const double voltage = data[6] / 10.0;
-    sensor_msgs::msg::Temperature temperature;
-    temperature.header.stamp = states.header.stamp;
-    temperature.header.frame_id = "servo_" + std::to_string(id);
-    temperature.temperature = data[7];
-    temperature_pub_->publish(temperature);
-
-    states.name.push_back("servo_" + std::to_string(id));
-    states.position.push_back(position);
-    bool torque_enabled = false;
-    if (bus_->get_torque(id, torque_enabled, error)) {
-      states.effort.push_back(torque_enabled ? 1.0 : 0.0);
-    } else {
-      states.effort.push_back(-1.0);
-      RCLCPP_WARN(get_logger(), "Servo %u torque state: %s", id, error.c_str());
-    }
-    RCLCPP_DEBUG(get_logger(),
-                 "ID %u: position=%.3f rad (raw %u) speed=%u load=%u voltage=%.1fV temperature=%uC",
-                 id, position, raw_position, speed, load, voltage, data[7]);
   }
-  state_pub_->publish(states);
+  const auto &servo = config_.servos[next_servo_];
+  std::array<uint8_t, 8> data{};
+  std::string error;
+  bool torque_enabled = false;
+  if (bus_->read_state(servo.id, data, torque_enabled, error)) {
+    const uint16_t raw_position = static_cast<uint16_t>(data[0] | (data[1] << 8));
+    sweep_.name.push_back("servo_" + std::to_string(servo.id));
+    sweep_.position.push_back(
+        saprog::ax::to_radians(raw_position, servo.zero_position, servo.direction));
+    sweep_.effort.push_back(torque_enabled ? 1.0 : 0.0);
+    // Temperature changes slowly; keep its publication at 1 Hz per servo
+    // rather than flooding desktop callbacks with 240 temperature messages/s.
+    if (publish_temperatures_) {
+      sensor_msgs::msg::Temperature temperature;
+      temperature.header.stamp = now();
+      temperature.header.frame_id = sweep_.name.back();
+      temperature.temperature = data[7];
+      temperature_pub_->publish(temperature);
+    }
+  } else {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                         "Servo %u: %s", servo.id, error.c_str());
+  }
+  if (++next_servo_ == config_.servos.size()) {
+    next_servo_ = 0;
+    state_pub_->publish(sweep_);
+  }
+  // Do not run an overdue timer continuously when USB replies time out.
+  // Leave a scheduling gap so services and position commands remain runnable.
+  if (timer_->time_until_trigger().count() <= 0) {
+    timer_->reset();
+  }
 }

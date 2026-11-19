@@ -161,6 +161,10 @@ if(BUILD_TESTING)
   target_include_directories(dynamixel_bus_test PRIVATE test/stubs include)
   add_test(NAME dynamixel_bus_test COMMAND dynamixel_bus_test)
   set_tests_properties(dynamixel_bus_test PROPERTIES LABELS "native;hardware_stub")
+  add_test(NAME readback_latency_test
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_readback_latency.py"
+      "$<TARGET_FILE:saprog_nodes>" "${CMAKE_CURRENT_SOURCE_DIR}/config/saprog.yaml")
+  set_tests_properties(readback_latency_test PROPERTIES LABELS "ros;pty;latency" TIMEOUT 30)
 endif()
 
 ament_package()

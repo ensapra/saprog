@@ -65,9 +65,12 @@ public:
     *error = read_error;
     data[0] = registers[{id, address}] & 0xff;
     if (size > 1) data[1] = registers[{id, address}] >> 8;
-    if (size == 4) {
-      data[2] = registers[{id, static_cast<uint16_t>(address + 2)}] & 0xff;
-      data[3] = registers[{id, static_cast<uint16_t>(address + 2)}] >> 8;
+    for (uint16_t offset = 2; offset < size; ++offset) {
+      data[offset] = registers[{id, static_cast<uint16_t>(address + offset)}] & 0xff;
+    }
+    // Word registers are represented as words in this fake.
+    for (uint16_t offset = 2; offset + 1 < size; offset += 2) {
+      data[offset + 1] = registers[{id, static_cast<uint16_t>(address + offset)}] >> 8;
     }
     return read_result;
   }

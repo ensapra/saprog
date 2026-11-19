@@ -7,11 +7,13 @@
 #include <stdexcept>
 #include <thread>
 
-void check(bool condition)
+void check_at(bool condition, int line)
 {
   if (!condition)
-    throw std::runtime_error("Bus regression check failed");
+    throw std::runtime_error("Bus regression check failed at line " + std::to_string(line));
 }
+
+#define check(...) check_at((__VA_ARGS__), __LINE__)
 
 int main()
 {
@@ -29,8 +31,21 @@ int main()
   sdk.read_result = COMM_RX_TIMEOUT;
   check(!bus.get_limits(13, lower, upper, error));
   sdk = {};
+  sdk.registers[{13, 24}] = 1;
+  sdk.registers[{13, 36}] = 700;
+  sdk.registers[{13, 38}] = 123;
+  sdk.registers[{13, 40}] = 456;
+  sdk.registers[{13, 42}] = 0x2578;
+  std::array<uint8_t, 8> state{};
+  bool enabled = false;
+  check(bus.read_state(13, state, enabled, error));
+  check(enabled && sdk.reads == 1 && sdk.tx_only_writes.empty());
+  check(state == std::array<uint8_t, 8>{188, 2, 123, 0, 200, 1, 120, 37});
+  sdk.read_result = COMM_RX_TIMEOUT;
+  check(!bus.read_state(13, state, enabled, error));
+  sdk = {};
   check(bus.set_torque(12, false, error));
-  check(error.empty() && sdk.reads == 1 && sdk.writes.empty());
+  check(error.empty() && sdk.reads == 0 && sdk.writes.empty());
   check(sdk.tx_only_writes == std::vector<uint16_t>({24}));
 
   sdk = {};

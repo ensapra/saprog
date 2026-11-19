@@ -91,3 +91,20 @@ Configure `SAPROG_BUILD_ROBOT_VIEW=OFF` to build the core package without the
 RViz, Qt, and X11 embedding target; the default remains ON for the full desktop
 build. A successful pure Python run does not establish a Jazzy build, display
 embedding, serial behavior, or live-hardware timing.
+
+## Servo response latency
+
+The virtual AX serial bus test runs the real controller on a pseudo-terminal,
+in an isolated ROS domain, without accessing robot hardware. After the core
+build above:
+
+```sh
+python3 src/saprog/test/test_readback_latency.py \
+  "$HOME/saprog-build/install/saprog/lib/saprog/saprog_nodes" \
+  src/saprog/config/saprog.yaml
+```
+
+It checks full-sweep frequency, position-command torque enable and torque-off
+service/telemetry latency with delayed serial replies. Its timings describe the
+virtual bus; USB/IP, disconnected servos and physical motion need separate live
+measurement.

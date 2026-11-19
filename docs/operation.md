@@ -96,7 +96,11 @@ Creator edits radian targets; **Save targets** saves all typed values without
 moving or needing fresh telemetry. Each servo shows its live position and torque
 state. **Fix** sends its typed target and enables torque in the same position
 command; torque stays on. **Release** disables torque. The button follows
-reported torque state, not command publication. Layout: front-left 31..33,
+reported torque state, not command publication. A changed target while torque is
+on shows **Move**; after sending, the button returns to **Release**. Released
+servos update the target when physically moved, except while that entry has
+focus. Fix/Release show progress immediately and wait for hardware confirmation.
+Layout: front-left 31..33,
 front-right 11..13, back-left 41..43, back-right 21..23.
 
 Player automatically discovers JSON snapshots; **Refresh** reloads names and
@@ -149,6 +153,27 @@ Legacy embedded-pose migration currently has the ambiguity tracked in
 [#3](https://github.com/ensapra/saprog/issues/3).
 
 ## Hardware diagnostics and monitoring
+
+Servo telemetry targets 20 complete sweeps per second (`poll_rate`), subject to
+USB/bus response times. Each timer callback reads one servo's position, torque,
+and temperature in one transaction, allowing commands between servo reads.
+Missing replies still incur SDK timeouts; they are omitted from that sweep.
+Creator keeps only the latest telemetry message. Temperature publication stays
+at one sweep per second to avoid flooding desktop callbacks.
+
+FTDI adapters should use a 1 ms driver latency timer instead of the 16 ms default.
+Install the reconnect rule once on Linux/WSL (then reconnect the adapter):
+
+```sh
+sudo install -m 644 scripts/99-saprog-serial.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+```
+
+The current setting is visible in
+`/sys/bus/usb-serial/devices/ttyUSB0/latency_timer` (use the actual adapter name).
+Restart Home after building these backend/configuration changes; an already
+running backend retains its old polling behavior. This setup does not alter
+servo EEPROM or change torque at startup.
 
 Limits are read from servo CW/CCW registers at startup and when Creator/Player
 opens, via `/saprog/refresh_limits`. They stay in memory; incomplete reads prevent

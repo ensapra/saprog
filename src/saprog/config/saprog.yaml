@@ -2,7 +2,7 @@
   ros__parameters:
     device_name: /dev/ttyUSB0
     baud_rate: 1000000
-    poll_rate: 1.0
+    poll_rate: 20.0  # Full servo sweeps per second; commands run between reads
     protocol_version: 1.0
     moving_speed: 1023
     torque_limit: 1023

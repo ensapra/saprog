@@ -22,6 +22,7 @@ public:
   ~DynamixelBus();
 
   bool read(uint8_t id, std::array<uint8_t, 8> &data, std::string &error);
+  bool read_state(uint8_t id, std::array<uint8_t, 8> &data, bool &enabled, std::string &error);
   bool get_torque(uint8_t id, bool &enabled, std::string &error);
   bool get_limits(uint8_t id, uint16_t &lower, uint16_t &upper, std::string &error);
   bool set_position(uint8_t id, uint16_t position, int speed, int torque_limit, std::string &error);
@@ -64,6 +65,7 @@ private:
     int torque_enabled{-1};
   };
 
+  void observe_torque(uint8_t id, bool enabled);
   bool set_setting(uint8_t id, uint16_t address, uint16_t value, uint16_t size, std::string &error);
   bool set_settings(const std::vector<uint8_t> &ids, const std::vector<uint16_t> &values,
                     uint16_t address, uint16_t size, std::string &error);

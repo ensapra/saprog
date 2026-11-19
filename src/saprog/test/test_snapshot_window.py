@@ -30,20 +30,26 @@ class SnapshotWindowTest(unittest.TestCase):
         app.external_busy = lambda: False
         app.target_values = {"servo_13": Value("0.4")}
         app.target_edited = {"servo_13"}
+        app.target_inputs = {"servo_13"}
+        app.command_targets, app.command_wait = {}, {}
+        app.positions = {}
+        app.last_state = 0.0
         app.bounds = {"servo_13": (-1, 1)}
         app.current_labels = {"servo_13": Mock()}
         app.torque_buttons = {"servo_13": Mock()}
         app.manual_buttons = {}
+        for widget in (*app.current_labels.values(), *app.torque_buttons.values()):
+            widget._display_options = {}
         app.status = Value()
         app.moving_speed, app.torque_strength = Value(250), Value(600)
         app.dependencies = NS(JointState=lambda: NS(header=NS()))
-        app.node = NS(get_clock=lambda: NS(now=lambda: NS(to_msg=lambda: None)))
+        app.node = NS(get_clock=lambda: NS(now=lambda: NS(to_msg=lambda: NS(sec=1, nanosec=1))))
         app.command_pub = Mock()
         return app
 
     def report(self, app, torque, position=0.1):
         app._state(NS(name=["servo_13"], position=[position], effort=[torque],
-                      header=NS(stamp=NS(sec=1, nanosec=0))))
+                      header=NS(stamp=NS(sec=2, nanosec=0))))
 
     def test_fix_sends_typed_target_and_waits_for_reported_torque(self):
         app = self.servo_app()
@@ -78,6 +84,40 @@ class SnapshotWindowTest(unittest.TestCase):
         self.assertNotIn("servo_13", app.fixed)
         self.assertEqual(app.torque_buttons["servo_13"].configure.call_args.kwargs["text"],
                          "Fix")
+
+    def test_released_servo_follows_motion_but_preserves_input_and_loaded_targets(self):
+        app = self.servo_app()
+        self.report(app, 0.0, 0.1)
+        self.assertEqual(app.target_values["servo_13"].get(), "0.4")
+        app.target_inputs.clear()
+        self.report(app, 0.0, 0.2)
+        self.assertEqual(float(app.target_values["servo_13"].get()), 0.2)
+        app.target_values["servo_13"].set("0.5")
+        self.report(app, 0.0, 0.2)
+        self.assertEqual(app.target_values["servo_13"].get(), "0.5")
+        self.report(app, 1.0, 0.3)
+        self.assertEqual(app.target_values["servo_13"].get(), "0.5")
+
+    def test_fix_shows_progress_immediately_and_move_does_not_require_other_servos(self):
+        app = self.servo_app()
+        self.report(app, 0.0)
+        app.toggle_torque("servo_13")
+        self.assertEqual(app.torque_buttons["servo_13"]._display_options["text"], "Fixing...")
+        self.assertEqual(app.torque_buttons["servo_13"]._display_options["state"], "disabled")
+        app.target_inputs.clear()
+        self.report(app, 0.0, 0.2)
+        self.assertEqual(app.target_values["servo_13"].get(), "0.4")
+        self.report(app, 1.0, 0.3)
+        self.assertEqual(app.torque_buttons["servo_13"]._display_options["text"], "Release")
+        app.target_values["servo_13"].set("0.6")
+        app._target_changed("servo_13")
+        self.assertEqual(app.torque_buttons["servo_13"]._display_options["text"], "Move")
+        app.joints.append("servo_12")
+        app.toggle_torque("servo_13")
+        self.assertEqual(app.command_pub.publish.call_args.args[0].position, [0.6])
+        self.assertEqual(app.command_wait, {})
+        app._update_joint_buttons("servo_13")
+        self.assertEqual(app.torque_buttons["servo_13"]._display_options["text"], "Release")
 
     def test_creator_builds_leg_panels_and_configures_each_window(self):
         import tkinter as tk
@@ -126,6 +166,7 @@ class SnapshotWindowTest(unittest.TestCase):
             app.hold_after_load, app.status = Value(False), Value()
             app.moving_speed, app.torque_strength = Value(250), Value(600)
             app.fixed, app.torque_state = set(), {}
+            app.command_targets, app.command_wait = {}, {}
             app._set_playback_controls = lambda locked: None
             app.target_values = {joint: Value() for joint in targets}
             app.target_edited = set()

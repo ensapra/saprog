@@ -18,6 +18,7 @@ from saprog_desktop.playback import FRESH_SECONDS
 from saprog_desktop.snapshot_config import SnapshotConfigurationClient
 from saprog_desktop.snapshot_files import write_json_atomic
 from saprog_desktop.snapshot_units import (
+    AX_TICK_RADIANS,
     LEG_JOINTS,
     to_radians,
     validate_snapshot,
@@ -76,6 +77,8 @@ class SnapshotWindow:
         self.target_values = {}
         self.target_tolerance = TARGET_TOLERANCE
         self.target_edited = set()
+        self.command_targets = {}
+        self.command_wait = {}
         self.target_inputs = set()
         self.manual_buttons = {}
         self.torque_buttons = {}
@@ -99,7 +102,7 @@ class SnapshotWindow:
         )
         self.configuration.refresh()
         self.subscription = node.create_subscription(
-            dependencies.JointState, "/saprog/joint_states", self._state, 10
+            dependencies.JointState, "/saprog/joint_states", self._state, 1
         )
         self.command_pub = node.create_publisher(
             dependencies.JointState, "/saprog/position_command", 100
@@ -270,6 +273,8 @@ class SnapshotWindow:
             self.target_values.clear()
             self.target_edited.clear()
             self.target_inputs.clear()
+            self.command_targets.clear()
+            self.command_wait.clear()
             self.manual_buttons.clear()
             self.torque_buttons.clear()
             unknown_joints = [joint for joint in self.joints if joint not in LEG_FOR_JOINT]
@@ -314,7 +319,7 @@ class SnapshotWindow:
                 entry.pack(side="left", padx=(0, 5))
                 entry.bind("<FocusIn>", lambda _event, j=joint: self.target_inputs.add(j))
                 entry.bind("<FocusOut>", lambda _event, j=joint: self.target_inputs.discard(j))
-                target.trace_add("write", lambda *_args, j=joint: self._update_joint_buttons(j))
+                target.trace_add("write", lambda *_args, j=joint: self._target_changed(j))
                 self.target_values[joint] = target
                 toggle = self.dependencies.ttk.Button(
                     controls,
@@ -358,6 +363,7 @@ class SnapshotWindow:
         for joint in set(self.joints) - set(found):
             self.fixed.discard(joint)
             self.torque_state[joint] = "Torque unknown"
+        previous_positions = self.positions
         self.positions, self.last_state = found, now
         valid = bool(self.joints) and set(found) == set(self.joints)
         self.latest_state_complete = valid
@@ -372,8 +378,21 @@ class SnapshotWindow:
                     if value is not None
                     else "No current reading",
                 )
-                if value is not None and joint not in self.target_inputs:
+                waiting = self.command_wait.get(joint)
+                if waiting is not None and joint in self.fixed and self.last_state_stamp > waiting[0]:
+                    del self.command_wait[joint]
+                moved_released = (
+                    state == "Torque off" and previous_positions.get(joint) != value
+                    and joint not in self.command_wait
+                )
+                if (
+                    value is not None and joint not in self.target_inputs
+                    and (joint not in self.target_edited or moved_released)
+                ):
                     self.target_values[joint].set(repr(value))
+                    self.target_edited.add(joint)
+                if state == "Torque off" and joint not in self.command_wait:
+                    self.command_targets.pop(joint, None)
                 self._update_joint_buttons(joint)
 
     def _complete_state(self):
@@ -398,6 +417,7 @@ class SnapshotWindow:
                 {joint: self.services[joint]}, self.dependencies.SetBool, timeout=TORQUE_TIMEOUT
             )
         if not enabled:
+            self.command_wait.pop(joint, None)
             self._wait_post_fix.pop(joint, None)
         token = object()
         self.pending[joint] = (token, time.monotonic(), enabled)
@@ -453,8 +473,13 @@ class SnapshotWindow:
             joint, target=target, require_fresh=False, apply_motion_settings=True
         )
 
+    def _target_changed(self, joint):
+        if joint in self.target_inputs:
+            self.target_edited.add(joint)
+        self._update_joint_buttons(joint)
+
     def _target_differs_from_current(self, joint):
-        current = self.positions.get(joint)
+        current = self.command_targets.get(joint, self.positions.get(joint))
         if current is None:
             return False
         try:
@@ -463,7 +488,7 @@ class SnapshotWindow:
             )
         except (ValueError, KeyError):
             return False
-        return not math.isclose(target, current, rel_tol=0.0, abs_tol=1e-9)
+        return not math.isclose(target, current, rel_tol=0.0, abs_tol=AX_TICK_RADIANS / 2)
 
     def _update_joint_buttons(self, joint):
         button = self.torque_buttons.get(joint)
@@ -472,11 +497,19 @@ class SnapshotWindow:
         pending = joint in self.pending or self.playback_state is not None or self.external_busy()
         is_fixed = joint in self.fixed
         moving = is_fixed and self._target_differs_from_current(joint)
+        waiting = joint in self.command_wait
+        operation = self.pending.get(joint)
+        if operation is not None:
+            text = "Fixing..." if operation[2] else "Releasing..."
+        elif waiting:
+            text = "Fixing..."
+        else:
+            text = "Move" if moving else "Release" if is_fixed else "Fix"
         configure_changed(
             button,
-            text="Move" if moving else "Release" if is_fixed else "Fix",
+            text=text,
             style="Accent.TButton" if moving else "Release.TButton" if is_fixed else "Fix.TButton",
-            state="disabled" if pending else "normal",
+            state="disabled" if pending or waiting else "normal",
         )
         manual = self.manual_buttons.get(joint)
         if manual is not None:
@@ -494,8 +527,10 @@ class SnapshotWindow:
         if self.playback_state is not None or joint in self.pending:
             self.status.set("Wait for the current snapshot or torque operation to finish")
             return
-        if require_fresh and not self._complete_state():
-            self.status.set("Manual move requires fresh readings for every configured joint")
+        if require_fresh and (
+            time.monotonic() - self.last_state > FRESH_SECONDS or joint not in self.positions
+        ):
+            self.status.set(f"Manual move requires a fresh reading for {joint}")
             return
         if target is None:
             try:
@@ -517,6 +552,12 @@ class SnapshotWindow:
         except Exception as exc:
             self.status.set(f"Could not send {joint} target: {exc}")
             return
+        self.command_targets[joint] = target
+        if joint not in self.fixed:
+            self.command_wait[joint] = (
+                message.header.stamp.sec * 1_000_000_000 + message.header.stamp.nanosec,
+                time.monotonic(),
+            )
         self.target_edited.add(joint)
         self.status.set(f"Sent {joint} target {target:.3f} rad; waiting for telemetry")
         self._update_joint_buttons(joint)
@@ -694,6 +735,7 @@ class SnapshotWindow:
                     )
                     return
                 for joint, position in zip(joints, positions):
+                    self.command_targets[joint] = position
                     if joint in self.target_values:
                         self.target_values[joint].set(repr(position))
                         self.target_edited.add(joint)
@@ -706,6 +748,10 @@ class SnapshotWindow:
 
     def _poll(self):
         self.configuration.poll()
+        for joint, (_stamp, started) in list(self.command_wait.items()):
+            if time.monotonic() - started >= TORQUE_TIMEOUT:
+                del self.command_wait[joint]
+                self.status.set(f"{joint}: torque-on was not confirmed by fresh telemetry")
         if not self.joints and self.pending_snapshot_path is None:
             self.status.set(self.configuration.error)
         for joint, (token, _started, enabled) in list(self.pending.items()):

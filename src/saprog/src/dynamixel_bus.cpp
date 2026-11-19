@@ -57,12 +57,36 @@ bool DynamixelBus::get_torque(uint8_t id, bool &enabled, std::string &error)
     return false;
   }
   enabled = value != 0;
+  observe_torque(id, enabled);
+  return true;
+}
+
+void DynamixelBus::observe_torque(uint8_t id, bool enabled)
+{
   auto &settings = settings_[id];
   if (settings.torque_enabled == 1 && !enabled) {
     settings.torque_limit = -1;
     settings.speed = -1;
   }
   settings.torque_enabled = enabled ? 1 : 0;
+}
+
+bool DynamixelBus::read_state(uint8_t id, std::array<uint8_t, 8> &data, bool &enabled,
+                               std::string &error)
+{
+  auto lock = lock_bus();
+  // AX registers 24..43 contain torque enable and the full telemetry block.
+  // One reply gives position and torque from the same transaction.
+  constexpr auto start = saprog::ax_register::torque_enable.address;
+  constexpr auto offset = saprog::ax_register::present_position.address - start;
+  std::array<uint8_t, offset + 8> registers{};
+  if (!transport_.read(id, start, static_cast<uint16_t>(registers.size()), registers.data(), error)) {
+    settings_.erase(id);
+    return false;
+  }
+  std::copy_n(registers.begin() + offset, data.size(), data.begin());
+  enabled = registers[0] != 0;
+  observe_torque(id, enabled);
   return true;
 }
 

@@ -19,6 +19,10 @@ private:
   void read_servos();
 
   SaprogConfig config_;
+  size_t next_servo_{0};
+  sensor_msgs::msg::JointState sweep_;
+  std::chrono::steady_clock::time_point next_temperature_{};
+  bool publish_temperatures_{false};
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameter_callback_;
   std::shared_ptr<DynamixelBus> bus_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr state_pub_;
