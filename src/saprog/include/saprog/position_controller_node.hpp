@@ -18,6 +18,7 @@
 #include "saprog/action/play_timeline.hpp"
 #include "saprog/config.hpp"
 #include "saprog/dynamixel_bus.hpp"
+#include "saprog/timeline_executor.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_srvs/srv/set_bool.hpp"
 #include "std_srvs/srv/trigger.hpp"
@@ -48,9 +49,10 @@ private:
                                   uint32_t step, uint32_t count,
                                   std::chrono::steady_clock::time_point deadline,
                                   std::string &error);
-  bool wait_for_timeline_arrival(const std::shared_ptr<TimelineGoalHandle> &goal_handle,
-                                 uint32_t step, uint32_t count, const std::vector<double> &targets,
-                                 int64_t sent_stamp_ns, std::string &error);
+  saprog::timeline::ArrivalStatus
+  wait_for_timeline_arrival(const std::shared_ptr<TimelineGoalHandle> &goal_handle, uint32_t step,
+                            uint32_t count, const std::vector<double> &targets,
+                            int64_t sent_stamp_ns, std::string &error);
   bool apply_timeline_end_torque(bool enabled,
                                  std::optional<std::chrono::steady_clock::time_point> latest_start,
                                  std::string &error);

@@ -17,8 +17,7 @@
 
 namespace
 {
-constexpr double kArrivalTimeoutSeconds = 30.0;
-constexpr double kNoProgressSeconds = 8.0;
+constexpr double kArrivalTimeoutSeconds = 5.0;
 constexpr double kTelemetryFreshSeconds = 2.5;
 constexpr auto kTimelineFeedbackInterval = std::chrono::milliseconds(100);
 constexpr auto kTimelineDeadlineLateness = std::chrono::milliseconds(20);
@@ -395,25 +394,31 @@ bool PositionControllerNode::wait_for_timeline_deadline(
   }
 }
 
-bool PositionControllerNode::wait_for_timeline_arrival(
+saprog::timeline::ArrivalStatus PositionControllerNode::wait_for_timeline_arrival(
     const std::shared_ptr<TimelineGoalHandle> &goal_handle, uint32_t step, uint32_t count,
     const std::vector<double> &targets, int64_t sent_stamp_ns, std::string &error)
 {
   const auto started = std::chrono::steady_clock::now();
-  auto last_progress = started;
   auto last_feedback = started;
-  std::vector<double> best_errors(targets.size(), std::numeric_limits<double>::infinity());
   int64_t last_sample_stamp = sent_stamp_ns;
   std::unique_lock<std::mutex> state_lock(state_mutex_);
   while (true) {
     if (timeline_cancelled()) {
       error = "Timeline canceled";
-      return false;
+      return saprog::timeline::ArrivalStatus::failed;
     }
     const auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration<double>(now - started).count() >= kArrivalTimeoutSeconds) {
-      error = "Timed out waiting for fresh joint arrival telemetry";
-      return false;
+      {
+        std::lock_guard<std::mutex> lock(timeline_mutex_);
+        if (timeline_cancel_requested_) {
+          error = "Timeline canceled";
+          return saprog::timeline::ArrivalStatus::failed;
+        }
+        timeline_final_action_started_ = true;
+      }
+      error = "Timed out waiting for all joints to reach their timeline targets within 5 seconds";
+      return saprog::timeline::ArrivalStatus::timed_out;
     }
     const int64_t ros_now_ns = this->now().nanoseconds();
     const double source_age = static_cast<double>(ros_now_ns - observed_stamp_ns_) / 1e9;
@@ -422,27 +427,15 @@ bool PositionControllerNode::wait_for_timeline_arrival(
         std::chrono::duration<double>(now - state_received_).count() <= kTelemetryFreshSeconds) {
       last_sample_stamp = observed_stamp_ns_;
       bool arrived = true;
-      bool progress = false;
       for (size_t joint = 0; joint < config_.servos.size(); ++joint) {
         const auto name = "servo_" + std::to_string(config_.servos[joint].id);
         const double error_rad = std::abs(observed_positions_.at(name) - targets[joint]);
         if (error_rad > config_.target_tolerance + saprog::ax::tick_radians / 2.0) {
           arrived = false;
-          if (error_rad < best_errors[joint] - saprog::ax::tick_radians / 2.0) {
-            best_errors[joint] = error_rad;
-            progress = true;
-          }
         }
       }
       if (arrived) {
-        return true;
-      }
-      if (progress) {
-        last_progress = now;
-      }
-      if (std::chrono::duration<double>(now - last_progress).count() >= kNoProgressSeconds) {
-        error = "No progress toward timeline targets for 8 seconds";
-        return false;
+        return saprog::timeline::ArrivalStatus::arrived;
       }
     }
     if (std::chrono::duration<double>(now - last_feedback).count() >= 0.1) {
@@ -590,6 +583,20 @@ void PositionControllerNode::execute_timeline(const std::shared_ptr<TimelineGoal
     canceled = execution.canceled;
     completed_steps = execution.completed_steps;
     error = execution.error;
+    if (execution.timed_out) {
+      publish_timeline_feedback(goal_handle, step_count, step_count,
+                                "Arrival timeout; disabling torque on all joints", 0.0);
+      std::string torque_error;
+      if (!bus_->set_torques(servo_ids, false, torque_error)) {
+        RCLCPP_ERROR(get_logger(),
+                     "Timeline arrival timed out; failed to disable torque on all joints: %s",
+                     torque_error.c_str());
+        error += "; failed to disable torque on all joints: " + torque_error;
+      } else {
+        RCLCPP_WARN(get_logger(),
+                    "Timeline arrival timed out; disabled torque on all configured joints");
+      }
+    }
   } catch (const std::exception &exception) {
     error = std::string("Timeline execution failed: ") + exception.what();
   }

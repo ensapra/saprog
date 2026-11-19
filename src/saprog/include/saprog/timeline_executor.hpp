@@ -31,8 +31,16 @@ struct ExecutionResult
 {
   bool succeeded{false};
   bool canceled{false};
+  bool timed_out{false};
   uint32_t completed_steps{0};
   std::string error;
+};
+
+enum class ArrivalStatus
+{
+  arrived,
+  failed,
+  timed_out
 };
 
 // The adapter supplies monotonic time, cancellable waits, command dispatch,
@@ -45,7 +53,7 @@ struct ExecutorHooks
   std::function<bool(size_t, std::chrono::steady_clock::time_point, std::string &)> wait_until;
   std::function<bool(size_t, std::optional<std::chrono::steady_clock::time_point>, std::string &)>
       send_motion;
-  std::function<bool(size_t, std::string &)> wait_for_arrival;
+  std::function<ArrivalStatus(size_t, std::string &)> wait_for_arrival;
   std::function<bool(bool, std::optional<std::chrono::steady_clock::time_point>, std::string &)>
       run_end_action;
 };
@@ -137,8 +145,10 @@ inline ExecutionResult execute(const ExecutionPlan &plan, const ExecutorHooks &h
         }
         next_dispatch = deadline;
       } else if (step.duration_mode == 0) {
-        if (!hooks.wait_for_arrival(i, result.error)) {
+        const auto arrival = hooks.wait_for_arrival(i, result.error);
+        if (arrival != ArrivalStatus::arrived) {
           result.canceled = hooks.canceled();
+          result.timed_out = !result.canceled && arrival == ArrivalStatus::timed_out;
           break;
         }
       } else {

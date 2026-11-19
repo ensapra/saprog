@@ -135,7 +135,7 @@ int main(int argc, char **argv)
   };
   hooks.wait_for_arrival = [&](size_t step, std::string &) {
     check(step == 2);
-    return true;
+    return saprog::timeline::ArrivalStatus::arrived;
   };
   hooks.run_end_action = [&](bool torque, std::optional<Clock::time_point> latest_start,
                              std::string &) {
@@ -164,13 +164,23 @@ int main(int argc, char **argv)
 
   hooks.wait_for_arrival = [](size_t, std::string &error) {
     error = "Stale telemetry";
-    return false;
+    return saprog::timeline::ArrivalStatus::failed;
   };
   final_action_called = false;
   const auto stale = saprog::timeline::execute({{{0, 0, 0.0}}, false, true, true}, hooks);
   check(!stale.succeeded && stale.error == "Stale telemetry" && !final_action_called);
 
-  hooks.wait_for_arrival = [](size_t, std::string &) { return true; };
+  hooks.wait_for_arrival = [](size_t, std::string &error) {
+    error = "Timed out waiting for joint arrival";
+    return saprog::timeline::ArrivalStatus::timed_out;
+  };
+  const auto timed_out = saprog::timeline::execute({{{0, 0, 0.0}}, false, true, true}, hooks);
+  check(!timed_out.succeeded && !timed_out.canceled && timed_out.timed_out &&
+        !final_action_called);
+
+  hooks.wait_for_arrival = [](size_t, std::string &) {
+    return saprog::timeline::ArrivalStatus::arrived;
+  };
   hooks.wait_until = [&](size_t, Clock::time_point target, std::string &) {
     fake_now = target + std::chrono::milliseconds(21);
     return true;

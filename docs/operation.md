@@ -129,7 +129,9 @@ strength (1..1023); expanding groups copies values, combining them averages valu
 Legacy torque-off transitions are rejected.
 
 **Until reached** advances on fresh complete arrival telemetry, without the
-snapshot player's stable dwell. **X seconds** advances after a finite non-negative
+snapshot player's stable dwell. Each such move has a 5-second arrival timeout;
+if the joints do not all arrive, playback fails and aborts, and torque is disabled
+on all configured joints. **X seconds** advances after a finite non-negative
 duration, including zero, regardless of arrival; duration starts after command
 transmission. Wait rows send no commands. Speed controls servo travel separately.
 
