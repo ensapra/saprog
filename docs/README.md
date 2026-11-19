@@ -1,76 +1,46 @@
-# Maintainer context
+# Project context
 
-Read [operation.md](operation.md) for setup, controls and file formats, and
-[imu.md](imu.md) for the sensor contract. Keep durable project knowledge here;
-implementation tasks and acceptance criteria belong in the linked GitHub issues.
+ROS 2 Jazzy control and desktop tools for a 12-servo quadruped. Use this page for the code map and invariants; consult the linked guide only when relevant.
 
-Read the [reusable API and usage map](reusability.md) before adding shared code.
-The [project refactoring review](refactor-review.md) records responsibility
-boundaries, source findings, issue dependencies and validation limits. Its
-[tracking issue #7](https://github.com/ensapra/saprog/issues/7) links the focused
-implementation backlog; existing broad issues below remain open.
+## Guides
+
+- [Operation](operation.md): launch, USB, controls, ROS interfaces and file formats.
+- [IMU](imu.md): sensor contract, calibration and limitations.
+- [Robot view](robot-view.md): RViz process, display support and limitations.
+- [Desktop style](desktop-style.md): required for desktop UI changes.
+- [Testing](testing.md): test suites and environments; [validation history](validation.md).
+- [Reusable API map](reusability.md): existing shared owners. Update it when shared APIs change.
+- [Refactor review](refactor-review.md): boundaries, backlog and validation limits.
 
 ## Code map
 
-For any desktop tab, window, or Tk UI change, follow the current
-[desktop style guide](desktop-style.md).
+| Area | Owner |
+| --- | --- |
+| Backend and serial bus | [main.cpp](../src/saprog/src/main.cpp), [dynamixel_bus.cpp](../src/saprog/src/dynamixel_bus.cpp) |
+| Commands and limits | [position_controller_node.cpp](../src/saprog/src/position_controller_node.cpp), [servo_units.hpp](../src/saprog/include/saprog/servo_units.hpp), [config](../src/saprog/config/saprog.yaml) |
+| Desktop | [saprog_desktop](../src/saprog/scripts/saprog_desktop/) |
+| Documents | [snapshot and timeline modules](../src/saprog/scripts/saprog_desktop/) |
+| IMU | [imu_node.cpp](../src/saprog/src/imu_node.cpp), [imu_filter.hpp](../src/saprog/include/saprog/imu_filter.hpp) |
+| Robot view | [robot view modules](../src/saprog/scripts/saprog_desktop/), [URDF](../urdf/) |
 
-| Area | Start here | Responsibility |
-| --- | --- | --- |
-| Backend | [main.cpp](../src/saprog/src/main.cpp) | Creates readback and controller nodes sharing one serial connection |
-| Hardware | [dynamixel_bus.cpp](../src/saprog/src/dynamixel_bus.cpp) | Serial locking, synchronized writes, verified register cache |
-| Commands | [position_controller_node.cpp](../src/saprog/src/position_controller_node.cpp) | Limits, torque services, position commands and timeline worker |
-| Units/config | [servo_units.hpp](../src/saprog/include/saprog/servo_units.hpp), [saprog.yaml](../src/saprog/config/saprog.yaml) | AX conversions, IDs, zero positions, directions and defaults |
-| Desktop | [home.py](../src/saprog/scripts/saprog_desktop/apps/home.py), [scripts/](../src/saprog/scripts/) | Tk windows and ROS clients |
-| Documents | [snapshot_units.py](../src/saprog/scripts/saprog_desktop/snapshot_units.py), [timeline_model.py](../src/saprog/scripts/saprog_desktop/compat/timeline_model.py), [snapshot_files.py](../src/saprog/scripts/saprog_desktop/snapshot_files.py) | Validation, reference resolution and atomic JSON storage |
-| IMU | [imu_node.cpp](../src/saprog/src/imu_node.cpp), [imu_filter.hpp](../src/saprog/include/saprog/imu_filter.hpp) | Serial lifecycle, estimation, calibration and zero |
-| Visualization | [robot_view.py](../src/saprog/scripts/saprog_desktop/views/robot_view.py), [robot_view_session.py](../src/saprog/scripts/saprog_desktop/robot_view_session.py), [robot_view_bridge.py](../src/saprog/scripts/saprog_desktop/ros/robot_view_bridge.py), [urdf/](../urdf/) | Tk viewport, owned ROS 2 renderer process, and servo/IMU state to robot transforms |
+## Invariants
 
-See [robot-view.md](robot-view.md) for installed launch behavior, display frame
-limitations and the X11 smoke-check procedure.
-
-## Behavior to preserve
-
-- ROS node callbacks are serialized. The timeline worker runs separately, with
-  bus, goal and telemetry locks protecting shared state. Tk callbacks use `spin_once`.
-- Startup leaves torque unchanged; position commands enable it. Stop prevents
-  later timeline steps but does not undo motion already transmitted.
-- ROS positions are radians. AX encoders cover 300 degrees in 0..1023 ticks;
-  commands apply configured zero/direction and measured hardware limits.
-- ROS owns timeline timing; Creator/Player send poses once and immediately unlock controls.
-  Never equate publishing a command or reading its goal register with arrival.
-- IMU state belongs to its backend. A display closing must not reset calibration
-  or zero. Sensor-relative orientation is not a calibrated robot mounting transform.
+- One serial bus owner; ROS callbacks serialize, while timeline work uses locks. Tk callbacks use `spin_once`.
+- Startup does not change torque. Position commands enable it. Stop cannot undo transmitted motion.
+- ROS positions are radians; AX conversion uses 300 degrees / 1023 ticks plus configured zero, direction and measured limits.
+- A sent command or accepted goal register does not prove physical arrival. Snapshot playback and timeline timing have distinct policies.
+- IMU calibration/zero belong to its backend. Closing a display does not reset them; sensor-relative attitude is not a calibrated robot mounting transform.
 
 ## Open work
 
-| Priority | Next task | Issue |
-| --- | --- | --- |
-| High | Extract/test timeline execution; bound durations, final torque actions and runtime parameter changes | [#1](https://github.com/ensapra/saprog/issues/1) |
-| High | Compose views/ROS clients/shared playback; bound pending requests | [#2](https://github.com/ensapra/saprog/issues/2) |
-| High | Reject ambiguous legacy migration: matching a snapshot name alone can select a different pose | [#3](https://github.com/ensapra/saprog/issues/3) |
-| Medium | Validate a measured sensor-to-base mounting transform and display reference | [#4](https://github.com/ensapra/saprog/issues/4) |
-| Medium | Separate IMU transport/estimation; evaluate maintained fusion and trajectory libraries with regression evidence | [#5](https://github.com/ensapra/saprog/issues/5) |
+| Issue | Focus |
+| --- | --- |
+| [#1](https://github.com/ensapra/saprog/issues/1) | Timeline execution bounds, final torque action and runtime parameters |
+| [#2](https://github.com/ensapra/saprog/issues/2) | Compose views/clients/playback and bound requests |
+| [#3](https://github.com/ensapra/saprog/issues/3) | Legacy migration ambiguity (closed; preserve pose matching) |
+| [#4](https://github.com/ensapra/saprog/issues/4) | Sensor mounting/reference and robot view |
+| [#5](https://github.com/ensapra/saprog/issues/5) | IMU extraction and library evaluation |
 
-Domain/storage helpers have clear responsibilities. The controller and window
-classes still need separation; avoid expanding their inheritance or responsibilities.
+## Validation status
 
-## Validation and handoff
-
-The last code review passed 34 Python tests under WSL/ROS Jazzy, Ruff checks,
-offline validation of 17 snapshots/four sequences, and 12 URDF joint mappings.
-It fixed UI lockups after lost torque responses/failed timeline submission,
-centralized conversions/status displays, and rejected invalid startup configuration.
-
-A fresh build of `saprog_description` and `saprog` passed in WSL Ubuntu 24.04
-with ROS Jazzy on 2026-11-18. All eight registered CTest suites passed,
-including the separated pure Python, ROS/Tk, POSIX process and native tests.
-Use WSL for ROS build/test commands; Windows CMake Tools did not discover these
-ROS package targets. Live motion, reconnects, mounting, sensor accuracy and
-deadline behavior still need hardware checks.
-
-[Tests](../src/saprog/test/) use Python `unittest` and CTest. The [validation
-guide](testing.md) documents the pure Python, POSIX process, ROS/Tk, and native
-test suites and their environment requirements.
-Formatting tools are pinned in [requirements-dev.txt](../requirements-dev.txt),
-with [Ruff](../pyproject.toml) and [clang-format](../.clang-format) settings.
+Historical: Python tests, Ruff, snapshot validation and URDF mapping checks passed. A fresh ROS Jazzy build and all eight CTest suites passed on 2026-11-18. These results do not cover live motion, reconnects, mounting accuracy or hardware timing. Use WSL for ROS builds/tests; see [testing](testing.md).

@@ -1,64 +1,9 @@
-ROS is available in WSL; use the WSL ROS environment for ROS-related commands.
+# Agent guide
 
-## ROS validation
-
-Use the `Ubuntu-24.04` WSL distro and source `/opt/ros/jazzy/setup.bash`.
-The Windows checkout is available in WSL at
-`/mnt/c/Users/pauso/Documents/GitHub/saprog`. Build and test ROS packages
-inside WSL with `colcon` and `ctest`; Windows CMake Tools does not discover
-these ROS targets. Keep build/install/log directories under `/home/<user>`
-rather than `/tmp`, which may be cleared when WSL stops. Run build and test
-steps in the same WSL invocation when they depend on temporary files. If
-`wsl.exe` returns `E_ACCESSDENIED` from the agent shell, retry through approved
-elevated execution before diagnosing WSL as unavailable. See
-[docs/testing.md](docs/testing.md) for the project test guide.
-
-# Agent entry point
-
-Start with [docs/README.md](docs/README.md) for architecture, behavior to preserve,
-validation limits and open issues. Keep project context in [docs/](docs/README.md).
-Before creating or changing any desktop tab, window, or UI, read and follow
-[docs/desktop-style.md](docs/desktop-style.md).
-
-Before adding helpers or dependencies between modules, read
-[docs/reusability.md](docs/reusability.md) and check the linked source for an
-existing owner to reuse. Prefer small modules with one clear responsibility and
-explicit dependencies; avoid duplicated behavior, generic utility buckets and
-wrappers that only forward calls. Keep code concise without removing validation,
-error handling, resource cleanup or hardware safeguards.
-
-When shared functions/classes are added, moved, changed or removed, update the
-reuse map in the same commit with source links, responsibility, inputs/outputs
-and units, a caller/usage example, dependency/lifetime constraints and replaced
-APIs. Keep proposed APIs in issues until implemented. See the
-[refactoring review](docs/refactor-review.md) for the implementation backlog.
-
-Use the judge/developer workflow only when the user explicitly invokes `$work`
-or selects it through `/skills`. Ordinary requests and follow-ups do not enable it.
-
-## Issue workflow
-
-For substantial tasks, create a GitHub issue before implementation with the
-problem and acceptance criteria. Small, self-contained tasks do not need an
-issue. When an issue is used, implement against it and include its reference in
-the commit message. Include a concise summary of the change in the commit body
-or an issue comment. If issue creation is unavailable for a substantial task, report the
-blocker and do not claim the workflow is complete.
-
-## GitHub tasks
-
-Use the GitHub CLI (`gh`) for GitHub tasks when the needed operation is
-supported, including issues, pull requests, reviews and repository queries.
-Use browser workflows only when `gh` does not support the operation or access
-through the CLI is unavailable. Always run `gh` commands with network
-escalation, even when sandbox network access has not yet failed.
-
-## Commits
-
-When relevant task changes form a coherent completed unit, validate as
-appropriate and automatically create a local git commit. Use a descriptive
-message that explains what changed and why; include useful context in the body
-when needed. Commit at meaningful completed milestones and skip commits when a
-task creates no relevant changes. Stage only files or hunks owned by the task,
-preserving unrelated and pre-existing work. Do not create empty commits or
-automatically push. Report validation blockers honestly.
+- Start with [docs/README.md](docs/README.md); consult linked docs only for the area being changed.
+- ROS commands run in Ubuntu 24.04 WSL from `/mnt/c/Users/pauso/Documents/GitHub/saprog`, sourcing `/opt/ros/jazzy/setup.bash`. Keep colcon build/install/log under `/home/<user>` and run dependent build/test steps in one WSL call. If WSL returns `E_ACCESSDENIED`, retry with approved elevation. See [testing](docs/testing.md).
+- For desktop UI changes, follow [desktop style](docs/desktop-style.md). Before shared helpers or new module dependencies, check [reuse map](docs/reusability.md) and its linked owner. Keep one clear owner and preserve validation, cleanup and hardware safeguards. Update the reuse map when a shared API changes.
+- Put proposed APIs in issues; do not document them as implemented. For substantial tasks, create an issue with acceptance criteria before implementation. Small, self-contained work needs no issue.
+- Use the judge/developer workflow only when `$work` or `/skills` explicitly selects it.
+- Use `gh` for supported GitHub work; run GitHub CLI commands with network escalation.
+- At a coherent milestone, validate as appropriate and commit only task-owned files/hunks. Preserve unrelated work; do not push. Include an issue reference when applicable.
