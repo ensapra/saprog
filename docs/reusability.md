@@ -214,7 +214,11 @@ and owns transport subscriptions, runtime actuator attachment and private
 session command/status files. Its force controller is
 [actuators.cpp](../src/saprog_simulation/src/actuators.cpp); private Gazebo topics
 carry target position, maximum speed and effort limit in SI units, plus
-simulated joint feedback. No ROS command adapters are shared with hardware.
+simulated joint feedback. It detects native mimic followers from the SDF joint
+axis and applies motor forces only to the driven joints, while publishing
+feedback for both leaders and followers. The simulation world selects Bullet
+Featherstone to enforce the source mimic constraints even after release.
+No ROS command adapters are shared with hardware.
 
 [_launcher_setup.bash](../tabs/_launcher_setup.bash) owns ROS/workspace setup
 and installed-package verification for [_launch_window.bash](../tabs/_launch_window.bash).

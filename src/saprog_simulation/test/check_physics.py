@@ -62,8 +62,13 @@ def main():
                     time.sleep(0.1)
                 assert marker.exists(), "robot spawn timed out"
                 # Scene service includes the complete imported model, even while paused.
-                scene = service("scene/info", "Empty", "Scene", "")
-                assert 'name: "saprog"' in scene, "spawn was accepted but model is absent"
+                deadline = time.monotonic() + 30
+                while True:
+                    scene = service("scene/info", "Empty", "Scene", "")
+                    if 'name: "saprog"' in scene:
+                        break
+                    assert time.monotonic() < deadline, "spawn was accepted but model is absent"
+                    time.sleep(0.1)
                 description = Path(get_package_share_directory("saprog_description"))
                 robot = ET.parse(description / "urdf" / "URDF.urdf").getroot()
                 for mesh in robot.findall("./link/visual/geometry/mesh"):

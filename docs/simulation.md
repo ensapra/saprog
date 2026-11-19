@@ -2,6 +2,7 @@
 
 Tracking: [issue #34](https://github.com/ensapra/saprog/issues/34).
 Playback: [issue #35](https://github.com/ensapra/saprog/issues/35).
+Native knee coupling: [issue #37](https://github.com/ensapra/saprog/issues/37).
 
 Open Home's **Simulation** tab and choose **Start Gazebo**. The robot appears
 in a separate Gazebo Harmonic window, initially paused, above a ground plane.
@@ -92,8 +93,14 @@ graph. Multiple links can reference the same STL. Joint names and hardware
 mappings remain unchanged. The free base starts at 0.5 m with a
 180-degree pitch, matching the current Robot view's model orientation.
 
-The [world](../src/saprog_simulation/worlds/inspection.sdf) uses a 1 ms physics
-step, Earth gravity, and a static frictional ground plane. No external world
+The [world](../src/saprog_simulation/worlds/inspection.sdf) explicitly selects
+**Bullet Featherstone** (`gz-physics-bullet-featherstone-plugin`) because this
+Harmonic engine supports native mimic constraints. Gazebo's default DART engine
+does not support them. There is no fallback to independent knee joints. See
+the [Gazebo Harmonic release notes](https://github.com/gazebosim/gz-harmonic/blob/main/release_notes.md)
+and [engine selection](https://gazebosim.org/api/sim/8/physics.html).
+The world uses a 1 ms physics step, Earth gravity, and a static frictional ground
+plane. No external world
 assets are needed. The robot is passive until playback begins and can fold or
 fall when unpaused. Desktop sessions attach the
 [actuator plugin](../src/saprog_simulation/src/actuators.cpp) to the existing
@@ -103,11 +110,15 @@ teleport the joints or pin the base. Raw AX speed settings use 0.111 rpm per
 unit and are capped by URDF velocity limits. Torque settings scale the URDF
 effort limit by `value / 1023`. These are approximate actuators with simulation
 PD gains, not calibrated motor dynamics.
-The existing knee mimic ratio is an approximate linkage. The installed default
-physics engine reports that it cannot enforce mimic constraints. During
-playback, the actuator plugin drives knee targets derived from the source
-multiplier and offset; this approximates the target pose, not the physical
-closed linkage. With forces released, the knees move independently.
+The source knee mimic multiplier and offset are enforced by native physics
+constraints, including while the robot is passive or its simulated motors are
+released. Only the 12 driven joints receive motor forces; the four knee
+followers remain passive, with constraint forces transferred through the
+solver. Their measured positions still participate in arrival checks, and
+derived follower targets are validated against the URDF limits.
+The linear mimic relationship itself remains an approximation of the physical
+linkage; native enforcement does not establish the real linkage geometry.
+Stop and restart Gazebo after updating to reload the engine and actuator plugin.
 Collision meshes, friction, exported inertias and joint calibration still need
 physical validation. See [single-leg calibration](leg-simulation.md) before
 using this model for locomotion or hardware motion planning.
@@ -132,3 +143,5 @@ The playback check starts the same session used by the desktop, attaches the
 actuators, queues a pose while paused, verifies actual joint arrival, executes
 timed sequence steps and waits, checks release on completion, and cancels while
 paused. It also stops its owned processes.
+The same test checks all four source mimic relationships before any motor
+command, after reaching a pose, and over multiple samples after motor release.

@@ -27,6 +27,7 @@ class Actuators : public gz::sim::System,
     double lower, upper, max_speed, max_effort;
     double target = 0, reference = 0, speed = 0, effort = 0;
     bool initialized = false;
+    bool mimic = false;
   };
   std::map<std::string, Servo> servos;
   std::mutex mutex;
@@ -52,8 +53,9 @@ class Actuators : public gz::sim::System,
       const auto &axis = axes->front();
       joint.EnablePositionCheck(ecm);
       joint.EnableVelocityCheck(ecm);
-      servos.emplace(*joint.Name(ecm), Servo{
+      auto [entry, inserted] = servos.emplace(*joint.Name(ecm), Servo{
         joint, axis.Lower(), axis.Upper(), axis.MaxVelocity(), axis.Effort()});
+      entry->second.mimic = axis.Mimic().has_value();
     }
     feedback = node.Advertise<gz::msgs::JointTrajectory>("/saprog_simulation/feedback");
     node.Subscribe("/saprog_simulation/targets", &Actuators::Command, this);
@@ -121,6 +123,9 @@ class Actuators : public gz::sim::System,
     if (dt <= 0) return;
     for (auto &[name, servo] : servos)
     {
+      // The native constraint transfers forces between leader and follower.
+      // Followers are measured, but must never receive a second motor force.
+      if (servo.mimic) continue;
       auto position = servo.joint.Position(ecm);
       auto velocity = servo.joint.Velocity(ecm);
       if (!position || position->empty() || !velocity || velocity->empty()) continue;
@@ -135,8 +140,8 @@ class Actuators : public gz::sim::System,
         const double delta = servo.speed * dt;
         servo.reference += std::clamp(servo.target - servo.reference, -delta, delta);
         // PD gains are simulation defaults, not measured AX servo parameters.
-        force = std::clamp(8.0 * (servo.reference - position->front()) -
-          0.005 * velocity->front(), -servo.effort, servo.effort);
+        force = std::clamp(16.0 * (servo.reference - position->front()) -
+          0.12 * velocity->front(), -servo.effort, servo.effort);
       }
       servo.joint.SetForce(ecm, {force});
     }
