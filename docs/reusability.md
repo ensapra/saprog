@@ -180,6 +180,20 @@ Current backend extraction additions:
 
 ## Shell and installed resources
 
+[SimulationSession](../src/saprog/scripts/saprog_desktop/simulation_session.py)
+owns one hardware-independent Gazebo launch process group and a temporary spawn
+marker. `start()` launches the simulation with its own Gazebo partition;
+`poll()` returns `starting`, `running`, `stopping`, `stopped`, or `error` and
+updates `message`. Call these on the UI thread. `stop()` sends TERM and schedules
+KILL after three seconds; `close()` prevents restart and removes the marker.
+Cleanup timers keep the interpreter alive until owned descendants are stopped.
+[SimulationView](../src/saprog/scripts/saprog_desktop/views/simulation.py), used
+by Home and the standalone simulation app, owns this session and its Tk refresh.
+It does not depend on ROS nodes or hardware; only its launcher sources ROS.
+[launch_simulation.sh](../tabs/launch_simulation.sh) opens standalone controls;
+its internal `--launch` mode loads the installed `saprog_simulation` package
+without controller setup. This API does not replace the embedded RViz owner.
+
 [_launcher_setup.bash](../tabs/_launcher_setup.bash) owns ROS/workspace setup
 and installed-package verification for [_launch_window.bash](../tabs/_launch_window.bash).
 `saprog_source_ros(distro)` sources `/opt/ros/<distro>/setup.bash` into the

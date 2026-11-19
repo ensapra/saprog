@@ -45,7 +45,7 @@
     </collision>
   </link>
   <link
-    name="front_right_11">
+    name="front_right_11_link">
     <inertial>
       <origin
         xyz="-0.0668309543925347 -1.07055895468E-08 -0.0007093485166609"
@@ -93,7 +93,7 @@
     <parent
       link="base" />
     <child
-      link="front_right_11" />
+      link="front_right_11_link" />
     <axis
       xyz="1 0 0" />
     <limit
@@ -103,7 +103,7 @@
       velocity="0" />
   </joint>
   <link
-    name="front_right_12">
+    name="front_right_12_link">
     <inertial>
       <origin
         xyz="-0.0188686106793472 0.00185156920819329 -0.00340163463424928"
@@ -149,9 +149,9 @@
       xyz="-0.0554999999999997 0 -0.0229500000000014"
       rpy="3.14159265358979 -1.5707963267949 0" />
     <parent
-      link="front_right_11" />
+      link="front_right_11_link" />
     <child
-      link="front_right_12" />
+      link="front_right_12_link" />
     <axis
       xyz="1 0 0" />
     <limit
@@ -161,7 +161,7 @@
       velocity="0" />
   </joint>
   <link
-    name="froint_right_joint_13">
+    name="front_right_joint_13_link">
     <inertial>
       <origin
         xyz="0.0262146247096934 0.0108079014002521 -0.0155462242636584"
@@ -207,9 +207,9 @@
       xyz="-0.0678 0 0"
       rpy="-3.1416 0 0" />
     <parent
-      link="front_right_12" />
+      link="front_right_12_link" />
     <child
-      link="froint_right_joint_13" />
+      link="front_right_joint_13_link" />
     <axis
       xyz="1 0 0" />
     <limit
@@ -219,7 +219,7 @@
       velocity="0" />
   </joint>
   <link
-    name="front_right_leg">
+    name="front_right_leg_link">
     <inertial>
       <origin
         xyz="-0.0268491461047792 -0.0566782868150267 -0.0132393267908589"
@@ -265,9 +265,9 @@
       xyz="-0.0133 -0.091093 -0.04022"
       rpy="1.6323 1.5708 1.6312" />
     <parent
-      link="front_right_12" />
+      link="front_right_12_link" />
     <child
-      link="front_right_leg" />
+      link="front_right_leg_link" />
     <axis
       xyz="0 0 -1" />
     <limit
@@ -281,7 +281,7 @@
       offset="0" />
   </joint>
   <link
-    name="back_right_21">
+    name="back_right_21_link">
     <inertial>
       <origin
         xyz="-0.0667766694376131 1.06422267213968E-08 0.000656686893057715"
@@ -329,7 +329,7 @@
     <parent
       link="base" />
     <child
-      link="back_right_21" />
+      link="back_right_21_link" />
     <axis
       xyz="-1 0 0" />
     <limit
@@ -339,7 +339,7 @@
       velocity="0" />
   </joint>
   <link
-    name="back_right_22">
+    name="back_right_22_link">
     <inertial>
       <origin
         xyz="-0.0188686107273106 -0.00185156858096744 0.00340163477238542"
@@ -385,9 +385,9 @@
       xyz="-0.0555 0 0.0229499999999994"
       rpy="3.14159265358979 1.5707963267949 0" />
     <parent
-      link="back_right_21" />
+      link="back_right_21_link" />
     <child
-      link="back_right_22" />
+      link="back_right_22_link" />
     <axis
       xyz="1 0 0" />
     <limit
@@ -397,7 +397,7 @@
       velocity="0" />
   </joint>
   <link
-    name="back_right_joint_23">
+    name="back_right_joint_23_link">
     <inertial>
       <origin
         xyz="0.0262146246955013 0.0104959198836313 -0.0157585354869499"
@@ -443,9 +443,9 @@
       xyz="-0.0678 0 0"
       rpy="0 0 0" />
     <parent
-      link="back_right_22" />
+      link="back_right_22_link" />
     <child
-      link="back_right_joint_23" />
+      link="back_right_joint_23_link" />
     <axis
       xyz="1 0 0" />
     <limit
@@ -455,7 +455,7 @@
       velocity="0" />
   </joint>
   <link
-    name="back_right_leg">
+    name="back_right_leg_link">
     <inertial>
       <origin
         xyz="-0.0239182985439538 -0.0579760300027724 -0.0132393277667488"
@@ -501,9 +501,9 @@
       xyz="-0.0133 0.091093 0.04022"
       rpy="0 -1.5708 0" />
     <parent
-      link="back_right_22" />
+      link="back_right_22_link" />
     <child
-      link="back_right_leg" />
+      link="back_right_leg_link" />
     <axis
       xyz="0 0 -1" />
     <limit
@@ -517,7 +517,7 @@
       offset="0" />
   </joint>
   <link
-    name="back_left_41">
+    name="back_left_41_link">
     <inertial>
       <origin
         xyz="0.066776669437613 -1.06422269052775E-08 0.000656686893057937"
@@ -565,7 +565,7 @@
     <parent
       link="base" />
     <child
-      link="back_left_41" />
+      link="back_left_41_link" />
     <axis
       xyz="-1 0 0" />
     <limit
@@ -575,7 +575,7 @@
       velocity="0" />
   </joint>
   <link
-    name="back_left_42">
+    name="back_left_42_link">
     <inertial>
       <origin
         xyz="-0.0188686672803259 0.00185163185888957 0.0034012460091719"
@@ -621,9 +621,9 @@
       xyz="0.0554999999999999 0 0.0229499999999996"
       rpy="0 1.5707963267949 0" />
     <parent
-      link="back_left_41" />
+      link="back_left_41_link" />
     <child
-      link="back_left_42" />
+      link="back_left_42_link" />
     <axis
       xyz="-1 0 0" />
     <limit
@@ -633,7 +633,7 @@
       velocity="0" />
   </joint>
   <link
-    name="back_left_joint_43">
+    name="back_left_joint_43_link">
     <inertial>
       <origin
         xyz="0.070785374696645 0.0134618307912534 -0.0133144671083809"
@@ -679,9 +679,9 @@
       xyz="0.0292 0 0"
       rpy="0 0 3.1416" />
     <parent
-      link="back_left_42" />
+      link="back_left_42_link" />
     <child
-      link="back_left_joint_43" />
+      link="back_left_joint_43_link" />
     <axis
       xyz="1 0 0" />
     <limit
@@ -691,7 +691,7 @@
       velocity="0" />
   </joint>
   <link
-    name="back_left_leg">
+    name="back_left_leg_link">
     <inertial>
       <origin
         xyz="-0.0475053780454212 -0.0409456507168567 0.0012393201570756"
@@ -737,9 +737,9 @@
       xyz="-0.0253 -0.091093 0.04022"
       rpy="-1.59 -1.5708 1.5902" />
     <parent
-      link="back_left_42" />
+      link="back_left_42_link" />
     <child
-      link="back_left_leg" />
+      link="back_left_leg_link" />
     <axis
       xyz="0 0 -1" />
     <limit
@@ -753,7 +753,7 @@
       offset="0" />
   </joint>
   <link
-    name="front_left_31">
+    name="front_left_31_link">
     <inertial>
       <origin
         xyz="0.0667766694376131 1.06422268636441E-08 -0.00065668689305793"
@@ -801,7 +801,7 @@
     <parent
       link="base" />
     <child
-      link="front_left_31" />
+      link="front_left_31_link" />
     <axis
       xyz="1 0 0" />
     <limit
@@ -811,7 +811,7 @@
       velocity="0" />
   </joint>
   <link
-    name="front_left_32">
+    name="front_left_32_link">
     <inertial>
       <origin
         xyz="-0.0188686672803259 -0.00185163185888966 -0.00340124600917163"
@@ -857,9 +857,9 @@
       xyz="0.0555 0 -0.0229499999999996"
       rpy="1.5558762890122 -1.57079631189374 1.5558762890122" />
     <parent
-      link="front_left_31" />
+      link="front_left_31_link" />
     <child
-      link="front_left_32" />
+      link="front_left_32_link" />
     <axis
       xyz="-1 0 0" />
     <limit
@@ -869,7 +869,7 @@
       velocity="0" />
   </joint>
   <link
-    name="front_left_joint_33">
+    name="front_left_joint_33_link">
     <inertial>
       <origin
         xyz="0.0707853746995644 0.0104959765151749 -0.0157585025997027"
@@ -915,9 +915,9 @@
       xyz="0.0292 0 0"
       rpy="-3.1416 0 -3.1416" />
     <parent
-      link="front_left_32" />
+      link="front_left_32_link" />
     <child
-      link="front_left_joint_33" />
+      link="front_left_joint_33_link" />
     <axis
       xyz="1 0 0" />
     <limit
@@ -927,7 +927,7 @@
       velocity="0" />
   </joint>
   <link
-    name="front_left_leg">
+    name="front_left_leg_link">
     <inertial>
       <origin
         xyz="-0.0239184469880763 -0.0579759901196718 0.00123932595648805"
@@ -973,9 +973,9 @@
       xyz="-0.0253 0.091093 -0.04022"
       rpy="3.1416 1.5708 0" />
     <parent
-      link="front_left_32" />
+      link="front_left_32_link" />
     <child
-      link="front_left_leg" />
+      link="front_left_leg_link" />
     <axis
       xyz="0 0 -1" />
     <limit

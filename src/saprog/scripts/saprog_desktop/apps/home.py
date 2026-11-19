@@ -15,6 +15,7 @@ from tkinter import messagebox, ttk
 
 from saprog_desktop.desktop_style import apply_style
 from saprog_desktop.views.robot_view import RobotView
+from saprog_desktop.views.simulation import SimulationView
 from saprog_desktop.views import snapshot_player
 from saprog_desktop.snapshot_files import default_snapshot_directory
 from saprog_desktop.apps.static_animator import build_animator_views
@@ -51,10 +52,12 @@ class Home:
         self.panels.pack(fill="both", expand=True)
         home_panel = ttk.Frame(self.panels)
         robot_panel = ttk.Frame(self.panels, padding=14)
+        simulation_panel = ttk.Frame(self.panels, padding=14)
         animator_panel = ttk.Frame(self.panels, padding=14)
         tools_panel = ttk.Frame(self.panels, padding=14)
         self.panels.add(home_panel, text="Home")
         self.panels.add(robot_panel, text="Robot")
+        self.panels.add(simulation_panel, text="Simulation")
         self.panels.add(animator_panel, text="Static Animator")
         self.panels.add(tools_panel, text="Other panels")
         workspace = ttk.Panedwindow(home_panel, orient="horizontal")
@@ -77,6 +80,7 @@ class Home:
         self.monitor = TemperatureMonitor(temperature_panel, self.node, dependencies)
         self.imu_monitor = ImuMonitor(imu_panel, self.node, embedded=True, dependencies=dependencies)
         self.robot_view = RobotView(robot_panel, WORKSPACE)
+        self.simulation_view = SimulationView(simulation_panel, WORKSPACE)
         self.animator_nodes = [
             dependencies.Node("saprog_static_animator_creator"),
             dependencies.Node("saprog_static_animator_player"),
@@ -228,11 +232,13 @@ class Home:
         if process and process.poll() is None:
             self.status.set(f"{self.title(script)} is already open")
             return
-        if not self._ensure_backend():
+        hardware_free = script.name == "launch_simulation.sh"
+        if not hardware_free and not self._ensure_backend():
             return
         try:
             env = os.environ.copy()
-            env["SAPROG_HOME_BACKEND_PID"] = str(self.backend.pid)
+            if not hardware_free:
+                env["SAPROG_HOME_BACKEND_PID"] = str(self.backend.pid)
             process = subprocess.Popen(
                 ["bash", str(script)],
                 cwd=str(WORKSPACE),
@@ -265,6 +271,7 @@ class Home:
                     process.wait()
         self.imu_monitor.close()
         self.robot_view.close()
+        self.simulation_view.close()
         self._stop_backend()
         if self.imu_backend is not None and self.imu_backend.poll() is None:
             try:

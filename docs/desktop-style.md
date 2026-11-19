@@ -97,6 +97,7 @@ change.
 | [Snapshot Player](../src/saprog/scripts/saprog_desktop/views/snapshot_player.py) | `620x680` when standalone | Scrollable snapshot list between playback controls and status box. |
 | [Timeline](../src/saprog/scripts/saprog_desktop/views/timeline_window.py) | `1200x900` when standalone | Sequence/editor panes, lifecycle/actions, and status box; inherits Player behavior and swaps in the timeline editor layout. |
 | [Robot](../src/saprog/scripts/saprog_desktop/views/robot_view.py) | Home's resizable Robot notebook panel | ttk controls/status around an expanding native Tk frame used as the embedded RViz viewport; its rendering is external to Tk. |
+| [Simulation](../src/saprog/scripts/saprog_desktop/views/simulation.py) | Home notebook panel; standalone `900x650`, minimum `700x500` | Shared ttk Start/Stop controls and copyable status; Gazebo opens in its own window. Embedded mode leaves root styling and window lifecycle to Home. |
 
 Home embeds Temperature, IMU, and Robot components in its one root. The
 standalone Creator, Player, Timeline, and IMU launchers start separate

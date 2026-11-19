@@ -128,7 +128,7 @@ if(BUILD_TESTING)
     LABELS "python;ros;tk"
     ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/scripts:$ENV{PYTHONPATH}")
   add_test(NAME saprog_process_python_tests
-    COMMAND "${Python3_EXECUTABLE}" -m unittest test_robot_view)
+    COMMAND "${Python3_EXECUTABLE}" -m unittest test_robot_view test_simulation)
   set_tests_properties(saprog_process_python_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/test"
     LABELS "python;process"

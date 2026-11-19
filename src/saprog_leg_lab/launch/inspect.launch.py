@@ -19,8 +19,8 @@ def single_leg_description(path):
     """Extract the base and front-right branch; retain source frames and limits."""
     source = ET.parse(path).getroot()
     names = {
-        "base", "front_right_11", "front_right_12",
-        "front_right_joint_13", "front_right_leg",
+        "base", "front_right_11_link", "front_right_12_link",
+        "front_right_joint_13_link", "front_right_leg_link",
     }
     robot = ET.Element("robot", name="saprog_front_right_inspection")
     found = set()
