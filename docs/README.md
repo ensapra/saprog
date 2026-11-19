@@ -4,6 +4,7 @@ ROS 2 Jazzy control and desktop tools for a 12-servo quadruped. Use this page fo
 
 ## Guides
 
+- [Code guide](code-guide.md): Python desktop architecture, C++ ROS nodes, data flow and modification map
 - [Operation](operation.md): launch, USB, controls, ROS interfaces and file formats.
 - [IMU](imu.md): sensor contract, calibration and limitations.
 - [Robot view](robot-view.md): RViz process, display support and limitations.

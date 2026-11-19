@@ -9,6 +9,12 @@ Runtime requires Linux/WSL, ROS 2 Jazzy, `colcon`, `flock`, Tk and the package's
 bash ./launch_home.sh
 ```
 
+Desktop entry-point compatibility: `startup.py` is the canonical ROS/Tk
+bootstrap, and app implementations live under `saprog_desktop/apps/` or
+`saprog_desktop/views/`. Executable names and root scripts in
+`src/saprog/scripts/` remain forwarding shims for one compatibility cycle so
+installed and external launchers keep working.
+
 Home builds all packages before opening; a failed build prevents launching stale
 applications. It starts the shared servo controller and independent IMU backend.
 Tool launchers reuse installed executables; restart Home after source changes.
@@ -91,6 +97,9 @@ Mappings are saved in the user's Saprog configuration directory. The Home /
 middle button mapping toggles all-joint torque using the latest fresh torque
 state reported by `/saprog/joint_states`; it waits for every configured joint
 to report a known state before acting.
+The **Release all joints** mapping is independent of active playback and torque
+requests. Pressing it cancels an active timeline or snapshot playback and starts
+torque-off requests for every configured joint.
 
 Creator edits radian targets; **Save targets** saves all typed values without
 moving or needing fresh telemetry. Each servo shows its live position and torque

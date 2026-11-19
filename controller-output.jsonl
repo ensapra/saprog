@@ -1,16 +1,1 @@
-{"type": "devices", "devices": [{"index": 0, "name": "Controller (Xbox One For Windows)"}]}
-{"type": "selected", "index": 0, "button_count": 16, "hat_count": 1}
-{"type": "input_state", "input": "button:4", "pressed": true}
-{"type": "input_state", "input": "button:4", "pressed": false}
-{"type": "input_state", "input": "button:5", "pressed": true}
-{"type": "input_state", "input": "button:5", "pressed": false}
-{"type": "input_state", "input": "button:6", "pressed": true}
-{"type": "input_state", "input": "button:6", "pressed": false}
-{"type": "input_state", "input": "button:4", "pressed": true}
-{"type": "input_state", "input": "button:4", "pressed": false}
-{"type": "input_state", "input": "button:5", "pressed": true}
-{"type": "input_state", "input": "button:5", "pressed": false}
-{"type": "input_state", "input": "button:4", "pressed": true}
-{"type": "input_state", "input": "button:4", "pressed": false}
-{"type": "input_state", "input": "button:4", "pressed": true}
-{"type": "input_state", "input": "button:4", "pressed": false}
+{"type": "devices", "devices": []}

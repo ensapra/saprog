@@ -46,6 +46,7 @@ class ControllerTests(unittest.TestCase):
         values = app._action_values()
 
         self.assertIn("Toggle torque", values)
+        self.assertIn("Release all joints", values)
         self.assertIn("Set snapshot: standing", values)
         self.assertIn("Play sequence: wave", values)
         self.assertEqual(
@@ -60,6 +61,31 @@ class ControllerTests(unittest.TestCase):
             app._action_label("snapshot:standing.json"),
             "Set snapshot: standing",
         )
+        self.assertEqual(app._action_key_from_label("Release all joints"), "release")
+        self.assertEqual(app._action_label("release"), "Release all joints")
+
+    def test_refresh_files_reloads_snapshots_and_sequences(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            snapshots = root / "snapshots"
+            sequences = root / "sequences"
+            snapshots.mkdir()
+            sequences.mkdir()
+            (snapshots / "standing.json").touch()
+            (sequences / "wave.json").touch()
+
+            app = ControllerTab.__new__(ControllerTab)
+            app.closed = False
+            app.directory = snapshots
+            app.sequence_directory = sequences
+            app.snapshot_paths = []
+            app.sequence_paths = []
+            app._build_mappings = lambda: None
+
+            app.refresh_files()
+
+        self.assertEqual(app.snapshot_paths, [snapshots / "standing.json"])
+        self.assertEqual(app.sequence_paths, [sequences / "wave.json"])
 
     def test_dispatches_snapshot_sequence_and_torque_by_physical_input(self):
         app = ControllerTab.__new__(ControllerTab)
@@ -69,6 +95,7 @@ class ControllerTests(unittest.TestCase):
             "button_actions": {
                 "button:0": "snapshot:standing.json",
                 "button:1": "sequence:wave.json",
+                "button:2": "release",
                 "hat:0:up": "torque",
             }
         }
@@ -76,9 +103,11 @@ class ControllerTests(unittest.TestCase):
         app.on_snapshot = lambda path: calls.append(("snapshot", path))
         app.on_sequence = lambda path: calls.append(("sequence", path))
         app.on_torque = lambda: calls.append(("torque", None))
+        app.on_release = lambda: calls.append(("release", None))
 
         app._dispatch(0)
         app._dispatch(1)
+        app._dispatch(2)
         app._dispatch("hat:0:up")
 
         self.assertEqual(
@@ -86,6 +115,7 @@ class ControllerTests(unittest.TestCase):
             [
                 ("snapshot", str(app.snapshot_paths[0])),
                 ("sequence", str(app.sequence_paths[0])),
+                ("release", None),
                 ("torque", None),
             ],
         )

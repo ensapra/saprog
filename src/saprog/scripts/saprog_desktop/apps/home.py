@@ -65,6 +65,7 @@ class Home:
         self.panels.add(animator_panel, text="Static Animator")
         self.panels.add(tools_panel, text="Other panels")
         self.panels.add(controller_panel, text="Controller")
+        self.controller_panel = controller_panel
         self._panel_names = {
             str(home_panel): "Home",
             str(robot_panel): "Robot",
@@ -128,7 +129,9 @@ class Home:
             on_snapshot=self._play_controller_snapshot,
             on_sequence=self._play_controller_sequence,
             on_torque=self._toggle_controller_torque,
+            on_release=self._release_all_controller,
         )
+        self.panels.bind("<<NotebookTabChanged>>", self._on_panel_changed)
         self._torque_subscription = self.node.create_subscription(
             dependencies.JointState, "/saprog/joint_states", self._observe_torque, 10
         )
@@ -189,6 +192,10 @@ class Home:
         self.root.tk.call("wm", "protocol", str(panel), "WM_DELETE_WINDOW", callback)
         self.panels.select(placeholder)
 
+    def _on_panel_changed(self, _event=None):
+        if self.panels.select() == str(self.controller_panel):
+            self.controller.refresh_files()
+
     def _restore_panel(self, placeholder):
         original, _placeholder, index = self._detached_panels.pop(placeholder)
         self.panels.forget(placeholder)
@@ -241,11 +248,23 @@ class Home:
             return
         # If any joint is off, make the set uniformly enabled; otherwise release all.
         enabled = not all(self._observed_torque[joint] for joint in joints)
-        self.player.set_all_torque(enabled)
+        if enabled:
+            self.player.set_all_torque(True)
+        else:
+            self._release_all_controller()
         self._controller_torque_pending = self.player.torque_batch is not None
         self.controller.status.set(
             "Enabling torque on all joints..." if enabled else "Disabling torque on all joints..."
         )
+
+    def _release_all_controller(self):
+        """Cancel active animation/playback and release every joint before other actions resume."""
+        if self.timeline.run_steps is not None:
+            self.timeline.stop()
+        self.player.stop_playback_and_disable_all_torque()
+        self.creator.release_all()
+        self._controller_torque_pending = self.player.torque_batch is not None
+        self.controller.status.set("Disabling torque on all joints...")
 
     def _play_controller_snapshot(self, path):
         if self.timeline.run_steps is not None:

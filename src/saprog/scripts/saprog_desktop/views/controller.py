@@ -19,7 +19,7 @@ class ControllerTab:
     POLL_MS = 30
 
     def __init__(self, parent, root, dependencies, snapshot_directory, sequence_directory,
-                 *, usb_helper=None, on_snapshot, on_sequence, on_torque):
+                 *, usb_helper=None, on_snapshot, on_sequence, on_torque, on_release=None):
         self.root = root
         self.dependencies = dependencies
         self.ttk = dependencies.ttk
@@ -29,6 +29,7 @@ class ControllerTab:
         self.on_snapshot = on_snapshot
         self.on_sequence = on_sequence
         self.on_torque = on_torque
+        self.on_release = on_release
         self.closed = False
         self.joystick = None
         self.device_ids = []
@@ -127,7 +128,7 @@ class ControllerTab:
         return f"{kind}:{path.name}"
 
     def _action_values(self):
-        values = ["Unmapped", "Toggle torque"]
+        values = ["Unmapped", "Toggle torque", "Release all joints"]
         values += [f"Set snapshot: {path.stem}" for path in self.snapshot_paths]
         values += [f"Play sequence: {path.stem}" for path in self.sequence_paths]
         return values
@@ -135,6 +136,8 @@ class ControllerTab:
     def _action_label(self, action):
         if action == "torque":
             return "Toggle torque"
+        if action == "release":
+            return "Release all joints"
         kind, separator, filename = action.partition(":")
         if not separator:
             return "Unmapped"
@@ -157,6 +160,8 @@ class ControllerTab:
     def _action_key_from_label(self, label):
         if label == "Toggle torque":
             return "torque"
+        if label == "Release all joints":
+            return "release"
         if label.startswith("Set snapshot: "):
             name = label[len("Set snapshot: "):]
             path = next((item for item in self.snapshot_paths if item.stem == name), None)
@@ -315,8 +320,7 @@ class ControllerTab:
     def refresh(self):
         if self.closed:
             return
-        self.snapshot_paths = sorted(self.directory.glob("*.json"))
-        self.sequence_paths = sorted(self.sequence_directory.glob("*.json"))
+        self.refresh_files()
         if self._native_windows_available():
             self._start_native_bridge()
             return
@@ -345,6 +349,13 @@ class ControllerTab:
             except OSError as exc:
                 self.usb_error = f"Could not start USB discovery: {exc}"
         self._enumerate_devices()
+
+    def refresh_files(self):
+        if self.closed:
+            return
+        self.snapshot_paths = sorted(self.directory.glob("*.json"))
+        self.sequence_paths = sorted(self.sequence_directory.glob("*.json"))
+        self._build_mappings()
 
     def _finish_usb_preflight(self):
         process = self.usb_process
@@ -580,6 +591,10 @@ class ControllerTab:
         action = self.settings.get("button_actions", {}).get(
             f"button:{button}" if isinstance(button, int) else button
         )
+        if action == "release":
+            if self.on_release is not None:
+                self.on_release()
+            return
         if action == "torque":
             self.on_torque()
             return

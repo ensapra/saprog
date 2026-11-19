@@ -1,13 +1,30 @@
 """Pure serializer for the saprog PlayTimeline action goal."""
 
-from saprog_desktop.timeline_domain import FIXED_SECONDS, MOTION_STEP, UNTIL_REACHED, WAIT_STEP, motion_settings, transition_duration, wait_seconds
+from saprog_desktop.timeline_domain import (
+    FIXED_SECONDS,
+    MOTION_STEP,
+    UNTIL_REACHED,
+    WAIT_STEP,
+    motion_settings,
+    transition_duration,
+    wait_seconds,
+)
 
 
 def timeline_action_data(steps, joints, loop=False, run_end_action=True, end_torque_enabled=True):
     """Return goal fields matching PlayTimeline.action, with row-major joint data."""
-    data = {"joint_names": list(joints), "step_kinds": [], "duration_modes": [], "durations": [],
-            "positions": [], "speeds": [], "torque_limits": [], "loop": bool(loop),
-            "run_end_action": bool(run_end_action and not loop), "end_torque_enabled": bool(end_torque_enabled)}
+    data = {
+        "joint_names": list(joints),
+        "step_kinds": [],
+        "duration_modes": [],
+        "durations": [],
+        "positions": [],
+        "speeds": [],
+        "torque_limits": [],
+        "loop": bool(loop),
+        "run_end_action": bool(run_end_action and not loop),
+        "end_torque_enabled": bool(end_torque_enabled),
+    }
     for step in steps:
         if step.get("kind") == "wait":
             data["step_kinds"].append(WAIT_STEP)
