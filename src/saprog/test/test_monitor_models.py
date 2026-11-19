@@ -77,11 +77,11 @@ class ImuDisplayMathTests(unittest.TestCase):
         self.assertNotEqual(first_polygon(small)[1], first_polygon(large)[1])
         self.assertTrue(any("Waiting for IMU samples" in item[2].get("text", "") for item in large.items))
 
-    def test_mounted_sensor_roll_is_displayed_as_pitch(self):
+    def test_mounted_box_does_not_remap_sensor_labels(self):
         canvas = FakeCanvas(800, 500)
         draw_orientation(canvas, (math.pi / 2, 0.0, 0.0))
         labels = [item[2].get("text", "") for item in canvas.items if item[0] == "text"]
-        self.assertTrue(any("Roll    0.0" in text and "Pitch   90.0" in text for text in labels))
+        self.assertTrue(any("Roll   90.0" in text and "Pitch    0.0" in text for text in labels))
 
     def test_unavailable_service_and_close_retire_callbacks(self):
         monitor = ImuMonitor.__new__(ImuMonitor)

@@ -29,17 +29,12 @@ def draw_orientation(canvas, orientation, zeroed=False, magnetic_heading=False):
     center_x, center_y = width / 2, height / 2 - 12
     scale = min(width, height - 70) * 0.19
     rotation = orientation_matrix(orientation or (0.0, 0.0, 0.0))
-    # The IMU is mounted a quarter-turn from the display frame: sensor roll
-    # is the displayed pitch, and sensor pitch is the displayed roll.
-    sensor_pitch = math.asin(max(-1.0, min(1.0, -rotation[2][0])))
-    sensor_roll = 0.0
-    sensor_yaw = 0.0
-    if abs(math.cos(sensor_pitch)) > 1e-6:
-        sensor_roll = math.atan2(rotation[2][1], rotation[2][2])
-        sensor_yaw = math.atan2(rotation[1][0], rotation[0][0])
+    pitch = math.asin(max(-1.0, min(1.0, -rotation[2][0])))
+    if abs(math.cos(pitch)) > 1e-6:
+        roll = math.atan2(rotation[2][1], rotation[2][2])
+        yaw = math.atan2(rotation[1][0], rotation[0][0])
     else:
-        sensor_yaw = math.atan2(-rotation[0][1], rotation[1][1])
-    roll, pitch, yaw = sensor_pitch, sensor_roll, sensor_yaw
+        roll, yaw = 0.0, math.atan2(-rotation[0][1], rotation[1][1])
 
     camera_heading = orientation_matrix((0.0, 0.0, math.radians(-25)))
     camera_pitch = orientation_matrix((math.radians(-55), 0.0, 0.0))
@@ -50,8 +45,12 @@ def draw_orientation(canvas, orientation, zeroed=False, magnetic_heading=False):
     def camera_point(point):
         return transform(camera_pitch, transform(camera_heading, point))
 
+    # The physical IMU is mounted 90 degrees around its vertical Y axis.
+    # Apply that mounting rotation to the box, while keeping the sensor's
+    # reported roll/pitch values and the ground reference in their own frame.
+    mounting_rotation = orientation_matrix((0.0, math.pi / 2, 0.0))
     world_vertices = [
-        transform(rotation, point)
+        transform(rotation, transform(mounting_rotation, point))
         for point in (
             (-1.25, -0.85, -0.45), (1.25, -0.85, -0.45),
             (1.25, 0.85, -0.45), (-1.25, 0.85, -0.45),
