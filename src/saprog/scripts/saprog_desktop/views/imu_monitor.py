@@ -61,9 +61,15 @@ class ImuMonitor:
         )
         self.toggle_button.pack(side="left")
         self.status = tk.StringVar(value="Disconnected")
-        ttk.Label(actions, textvariable=self.status, style="Muted.TLabel").pack(
-            side="left", padx=(12, 0)
+        self.status_label = ttk.Label(
+            actions,
+            textvariable=self.status,
+            style="Muted.TLabel",
+            anchor="w",
+            justify="left",
         )
+        self.status_label.pack(side="left", fill="x", expand=True, padx=(12, 0))
+        actions.bind("<Configure>", self._fit_status)
 
         readings = ttk.LabelFrame(body, text="Latest sample", padding=10)
         readings.pack(fill="x", pady=(0, 10))
@@ -322,6 +328,10 @@ class ImuMonitor:
             self.status.set("Waiting for /saprog/imu/status from the C++ ROS backend…")
         self.render_model()
         self.root.after(50, self.poll_messages)
+
+    def _fit_status(self, event):
+        available = event.width - self.toggle_button.winfo_reqwidth() - 24
+        self.status_label.configure(wraplength=max(200, available))
 
     def close(self):
         if self.closed:
