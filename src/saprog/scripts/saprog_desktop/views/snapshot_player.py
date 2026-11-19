@@ -365,16 +365,34 @@ class SnapshotPlayer:
             return
         self._start_disable_all_torque()
 
+    def set_all_torque(self, enabled):
+        """Set all configured joints' torque without interrupting active motion."""
+        if not enabled:
+            self.stop_playback_and_disable_all_torque()
+            return
+        if self.playback is not None or self.torque_batch is not None:
+            self.status.set("Finish the active motion or torque operation before enabling torque")
+            return
+        if not self.joints:
+            self.status.set("Cannot enable torque: joint configuration is not available")
+            return
+        self._start_torque_batch(True)
+
     def _start_disable_all_torque(self):
+        self._start_torque_batch(False)
+
+    def _start_torque_batch(self, enabled):
         self.torque_batch = {
             "pending": set(self.joints),
             "failed": {},
+            "enabled": bool(enabled),
         }
         self._update_buttons()
-        self.status.set("Disabling torque on all joints...")
+        action = "Enabling" if enabled else "Disabling"
+        self.status.set(f"{action} torque on all joints...")
         batch = self.torque_batch
         batch["adapter"] = self.torque_adapter
-        self.torque_adapter.start(False)
+        self.torque_adapter.start(enabled)
 
     def _finish_disable_torque(self, batch):
         if self.torque_batch is not batch or batch["pending"]:
@@ -382,12 +400,14 @@ class SnapshotPlayer:
         self.torque_batch = None
         self._update_buttons()
         if batch["failed"]:
+            action = "enable" if batch["enabled"] else "disable"
             self.status.set(
-                "Torque disable incomplete: "
+                f"Torque {action} incomplete: "
                 + "; ".join(f"{joint}: {reason}" for joint, reason in batch["failed"].items())
             )
         else:
-            self.status.set(f"Torque disabled on all {len(self.joints)} joints")
+            state = "enabled" if batch["enabled"] else "disabled"
+            self.status.set(f"Torque {state} on all {len(self.joints)} joints")
 
     def _check_torque_timeout(self):
         batch = self.torque_batch

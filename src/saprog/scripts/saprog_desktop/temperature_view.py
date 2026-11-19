@@ -42,16 +42,17 @@ def draw_temperature(canvas, history, colors, labels, now):
     for name, points in visible:
         segment, previous = [], None
         for stamp, value in points:
-            if previous is not None and stamp - previous > STALE_SECONDS:
+            x = max(left, left + (stamp - cutoff) / history.window_seconds * (right - left))
+            y = bottom - (value - low) / (high - low) * (bottom - top)
+            if previous is not None and stamp - previous[0] > STALE_SECONDS:
                 _draw_segment(canvas, segment, colors[name])
                 segment = []
-            segment.extend(
-                (
-                    left + (stamp - cutoff) / history.window_seconds * (right - left),
-                    bottom - (value - low) / (high - low) * (bottom - top),
-                )
-            )
-            previous = stamp
+                previous = None
+            if previous is None:
+                segment.extend((x, y))
+            else:
+                segment.extend((x, previous[1], x, y))
+            previous = (stamp, y)
         _draw_segment(canvas, segment, colors[name])
     if not values:
         canvas.create_text(
@@ -65,7 +66,11 @@ def draw_temperature(canvas, history, colors, labels, now):
 
 def _draw_segment(canvas, coordinates, color):
     if len(coordinates) >= 4:
-        canvas.create_line(*coordinates, fill=color, width=2)
+        for index in range(0, len(coordinates) - 2, 2):
+            x1, y1, x2, y2 = coordinates[index : index + 4]
+            canvas.create_line(x1, y1, x2, y2, fill=color, width=2)
     elif coordinates:
         x, y = coordinates
         canvas.create_oval(x - 2, y - 2, x + 2, y + 2, fill=color, outline=color)
+
+

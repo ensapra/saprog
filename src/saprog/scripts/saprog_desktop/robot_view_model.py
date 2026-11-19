@@ -20,11 +20,25 @@ SERVO_JOINT_NAMES = {
 }
 
 IDENTITY_QUATERNION = (0.0, 0.0, 0.0, 1.0)
+# Apply +90 degrees about Z after the existing 180-degree X mounting correction.
+IMU_MOUNTING_QUATERNION = (math.sqrt(0.5), math.sqrt(0.5), 0.0, 0.0)
 ORIENTATION_MAX_AGE_SECONDS = 0.5
 
 
+def apply_imu_mounting_rotation(quaternion):
+    """Compose sensor attitude with the fixed X/Z mounting correction."""
+    x, y, z, w = quaternion
+    mx, my, mz, mw = IMU_MOUNTING_QUATERNION
+    return (
+        w * mx + x * mw + y * mz - z * my,
+        w * my - x * mz + y * mw + z * mx,
+        w * mz + x * my - y * mx + z * mw,
+        w * mw - x * mx - y * my - z * mz,
+    )
+
+
 class OrientationReference:
-    """Return the latest sensor-relative quaternion, or identity when stale."""
+    """Hold the latest valid quaternion; report freshness independently."""
 
     def __init__(self, max_age=ORIENTATION_MAX_AGE_SECONDS, clock=time.monotonic):
         self.max_age = max_age
@@ -43,6 +57,8 @@ class OrientationReference:
         return True
 
     def current(self):
-        if self.received_at is None or self.clock() - self.received_at > self.max_age:
-            return IDENTITY_QUATERNION
         return self.quaternion
+
+    def is_fresh(self):
+        """Whether an orientation sample has arrived within the freshness limit."""
+        return self.received_at is not None and self.clock() - self.received_at <= self.max_age

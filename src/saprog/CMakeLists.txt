@@ -114,7 +114,7 @@ if(BUILD_TESTING)
   add_test(NAME saprog_pure_python_tests
     COMMAND "${Python3_EXECUTABLE}" -m unittest
       test_player_settings test_snapshot_units test_monitor_models test_playback_adapters
-      test_project_data)
+      test_project_data test_controller)
   set_tests_properties(saprog_pure_python_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/test"
     LABELS "python;pure"

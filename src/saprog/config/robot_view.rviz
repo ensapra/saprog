@@ -34,6 +34,19 @@ Visualization Manager:
       Collision Enabled: false
       Update Interval: 0
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Magnetic Compass
+      Namespaces:
+        magnetic_compass: true
+      Queue Size: 10
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /saprog/robot_view/compass
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 29; 41; 57
@@ -47,14 +60,14 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 0.75
+      Distance: 0.95
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.06
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
       Focal Point:
-        X: 0
-        Y: 0
+        X: 0.13
+        Y: -0.13
         Z: 0.08
       Name: Current View
       Near Clip Distance: 0.01

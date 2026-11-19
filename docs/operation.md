@@ -76,9 +76,27 @@ separate desktop window.
 
 ## Snapshots and torque
 
+The Home window's **Controller** tab can bind gamepad buttons to snapshot and
+sequence files. The tab shows every available physical button and D-pad
+direction, with a dropdown for each action. Controller input uses SDL through
+`python3-pygame`. Under WSL,
+When running under WSL, Home polls the controller through native Windows Pygame
+instead of requiring a WSL `/dev/input` or `xpad` device. Leave the controller
+shared but unattached in Windows. Approve a Windows USB sharing prompt if one
+is shown. WSL takes exclusive access only to devices explicitly attached with
+`usbipd`. The default hardware ID is
+`2E24:1125`; override it with `SAPROG_CONTROLLER_USB_HARDWARE_ID` or set
+`SAPROG_CONTROLLER_USB_BUSID` to the intended BUSID when multiple devices match.
+Mappings are saved in the user's Saprog configuration directory. The Home /
+middle button mapping toggles all-joint torque using the latest fresh torque
+state reported by `/saprog/joint_states`; it waits for every configured joint
+to report a known state before acting.
+
 Creator edits radian targets; **Save targets** saves all typed values without
-moving or needing fresh telemetry. **Move** sends one joint. **Fix** reads and
-holds its current position; **Release** disables torque. Layout: front-left 31..33,
+moving or needing fresh telemetry. Each servo shows its live position and torque
+state. **Fix** sends its typed target and enables torque in the same position
+command; torque stays on. **Release** disables torque. The button follows
+reported torque state, not command publication. Layout: front-left 31..33,
 front-right 11..13, back-left 41..43, back-right 21..23.
 
 Player automatically discovers JSON snapshots; **Refresh** reloads names and
@@ -86,7 +104,7 @@ Player automatically discovers JSON snapshots; **Refresh** reloads names and
 Both tools default to [snapshots/](../snapshots/); `--directory PATH` overrides it.
 
 - Speed 1..1023 and torque strength 0..1023 apply to subsequent moves; zero strength
-  is rejected before GUI movement. Fix uses controller defaults. Player persists
+  is rejected before GUI movement. Fix uses these slider settings. Player persists
   strength in `saprog/snapshot_player.json` under `$XDG_CONFIG_HOME`/`~/.config`
   (Windows: `%APPDATA%`). Windows keep independent slider settings.
 - Pose playback sends one synchronized command and immediately unlocks controls for further commands. It does not wait for arrival telemetry or automatically release torque. Use the manual torque-release controls when needed; command publication does not confirm physical arrival.
@@ -138,10 +156,13 @@ position commands. With the controller stopped, [read_servo_limits.py](../script
 inspects limits without changing hardware/configuration.
 
 Set `status_return_level` to match EEPROM (1 or 2); the application does not change
-it. Level 1 uses transmit-only writes plus readback. Verified settings are cached;
-`verify_goal_registers` adds synchronized-goal readbacks for diagnostics. Reading
-a goal confirms acceptance, not arrival. Check power, cabling, IDs, baud rate and
-competing port owners on failure.
+it. At level 1, writes are transmit-only and are not followed by register
+readbacks; the bus caches requested settings after successful transmission.
+At level 2, writes use status acknowledgements, with a register-read fallback
+when an acknowledgement times out. `verify_goal_registers` optionally
+reads synchronized goals for diagnostics. Reading a goal confirms acceptance,
+not arrival. Check power, cabling, IDs, baud rate and competing port owners on
+failure.
 
 `/saprog/position_command` uses `JointState`: positions in radians, optional equal
 speeds in rad/s (0.111 rpm per AX unit), and effort as raw torque limits.

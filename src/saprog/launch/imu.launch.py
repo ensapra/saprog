@@ -18,6 +18,7 @@ def generate_launch_description():
             DeclareLaunchArgument("device", default_value=os.environ.get("SAPROG_IMU_DEVICE", "")),
             DeclareLaunchArgument("baud_rate", default_value="115200"),
             DeclareLaunchArgument("auto_connect", default_value="true"),
+            DeclareLaunchArgument("use_magnetometer", default_value="true"),
             Node(
                 package="saprog",
                 executable="imu_node",
@@ -30,6 +31,9 @@ def generate_launch_description():
                         ),
                         "auto_connect": ParameterValue(
                             LaunchConfiguration("auto_connect"), value_type=bool
+                        ),
+                        "use_magnetometer": ParameterValue(
+                            LaunchConfiguration("use_magnetometer"), value_type=bool
                         ),
                         "usb_helper": PathJoinSubstitution(
                             [

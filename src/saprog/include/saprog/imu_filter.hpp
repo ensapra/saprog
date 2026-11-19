@@ -115,12 +115,21 @@ public:
           const double k = std::sin(correction) / horizontal;
           attitude = multiply({std::cos(correction), a[1] * k, -a[0] * k, 0}, attitude);
         }
-        if (magnetic_heading && norm(s.mag) > 1e-9) {
-          const double error = std::remainder(heading - yaw(attitude), 2 * pi);
-          attitude = multiply({std::cos(error * weight / 2), 0, 0, std::sin(error * weight / 2)},
-                              attitude);
-        }
         attitude = normalize(attitude);
+      }
+      // Magnetometer yaw is an independent observation. Keep applying it while
+      // the accelerometer is unreliable or the robot is turning; otherwise the
+      // heading can freeze precisely while the magnetic vector is changing.
+      // Project the measured field through the current sensor-to-world attitude
+      // so this correction does not depend on a potentially contaminated accel.
+      if (magnetic_heading && norm(s.mag) > 1e-9 && dt > 0) {
+        const auto magnetic_world = rotate(attitude, s.mag);
+        if (std::hypot(magnetic_world[0], magnetic_world[1]) > 1e-9) {
+          const double error = std::atan2(-magnetic_world[1], magnetic_world[0]);
+          const double weight = 1 - std::exp(-dt / 0.5);
+          attitude = normalize(multiply(
+              {std::cos(error * weight / 2), 0, 0, std::sin(error * weight / 2)}, attitude));
+        }
       }
     }
     last_time_ms = s.time_ms;

@@ -27,7 +27,7 @@ from saprog_desktop.torque import TorqueBatch
 SCHEMA = 1
 TARGET_TOLERANCE = 0.05
 TORQUE_TIMEOUT = 8.0
-LEG_LAYOUT = (
+LEG_LAYOUT = tuple(
     (name, position, joints)
     for (name, joints), position in zip(LEG_JOINTS, ((0, 0), (0, 1), (1, 0), (1, 1)))
 )
@@ -48,6 +48,7 @@ class SnapshotWindow:
         show_snapshot_loader=True,
         initial_torque_strength=1023,
         torque_strength_changed=None,
+        show_status_box=True,
         dependencies=None,
     ):
         if dependencies is None:
@@ -60,6 +61,7 @@ class SnapshotWindow:
         self.external_busy = lambda: False
         self.stop_external_operation = None
         self.torque_strength_changed = torque_strength_changed
+        self.show_status_box = show_status_box
         self.joints = []
         self.positions = {}
         self.last_state = 0.0
@@ -74,6 +76,7 @@ class SnapshotWindow:
         self.target_values = {}
         self.target_tolerance = TARGET_TOLERANCE
         self.target_edited = set()
+        self.target_inputs = set()
         self.manual_buttons = {}
         self.torque_buttons = {}
         self.current_labels = {}
@@ -147,7 +150,7 @@ class SnapshotWindow:
         )
         self.dependencies.ttk.Label(
             frame,
-            text="Applies to every joint on the next Move or Load Snapshot.",
+            text="Applies to the next Fix or Load Snapshot.",
             style="Muted.TLabel",
         ).pack(anchor="w")
         rows = self.dependencies.ttk.Frame(frame)
@@ -222,10 +225,11 @@ class SnapshotWindow:
             wraplength=480,
         ).pack(anchor="w")
         self.release_all_button = self.dependencies.ttk.Button(
-            frame, text="Release all joints", command=self.release_all
+            frame, text="Release all joints", style="Release.TButton", command=self.release_all
         )
         self.release_all_button.pack(anchor="w", pady=8)
-        self._build_status_box(frame, 64)
+        if self.show_status_box:
+            self._build_status_box(frame, 64)
 
     def _build_status_box(self, parent, width):
         self.status_box = status_box(
@@ -265,6 +269,7 @@ class SnapshotWindow:
             self.current_labels.clear()
             self.target_values.clear()
             self.target_edited.clear()
+            self.target_inputs.clear()
             self.manual_buttons.clear()
             self.torque_buttons.clear()
             unknown_joints = [joint for joint in self.joints if joint not in LEG_FOR_JOINT]
@@ -281,35 +286,36 @@ class SnapshotWindow:
                     if joint in LEG_FOR_JOINT
                     else self.other_servos_frame
                 )
-                servo_row = self.dependencies.ttk.Frame(leg_frame)
-                servo_row.pack(fill="x", pady=3)
+                servo_row = self.dependencies.ttk.Frame(leg_frame, padding=(4, 5))
+                servo_row.pack(fill="x", pady=2)
                 heading = self.dependencies.ttk.Frame(servo_row)
                 heading.pack(fill="x")
-                self.dependencies.ttk.Label(heading, text=joint, width=9).pack(side="left")
+                self.dependencies.ttk.Label(heading, text=joint, style="TLabelframe.Label").pack(
+                    side="left", anchor="w"
+                )
                 label = self.dependencies.ttk.Label(
-                    heading, text="Waiting for telemetry", width=24, anchor="e"
+                    heading, text="Waiting for telemetry", anchor="e"
                 )
                 label.pack(side="left", fill="x", expand=True)
                 self.current_labels[joint] = label
                 low, high = self.bounds[joint]
                 self.dependencies.ttk.Label(
-                    servo_row, text=f"Limits: {low:.3f} .. {high:.3f} rad"
-                ).pack(anchor="w")
+                    servo_row,
+                    text=f"Limits  {low:.3f} to {high:.3f} rad",
+                    style="Muted.TLabel",
+                ).pack(anchor="w", pady=(1, 4))
                 controls = self.dependencies.ttk.Frame(servo_row)
                 controls.pack(fill="x")
                 self.dependencies.ttk.Label(controls, text="Target (rad)").pack(
-                    side="left", padx=(0, 3)
+                    side="left", padx=(0, 6)
                 )
                 target = self.dependencies.tk.StringVar()
                 entry = self.dependencies.ttk.Entry(controls, textvariable=target, width=10)
-                entry.pack(side="left")
-                entry.bind("<KeyRelease>", lambda _event, j=joint: self.target_edited.add(j))
+                entry.pack(side="left", padx=(0, 5))
+                entry.bind("<FocusIn>", lambda _event, j=joint: self.target_inputs.add(j))
+                entry.bind("<FocusOut>", lambda _event, j=joint: self.target_inputs.discard(j))
+                target.trace_add("write", lambda *_args, j=joint: self._update_joint_buttons(j))
                 self.target_values[joint] = target
-                move = self.dependencies.ttk.Button(
-                    controls, text="Move", command=lambda j=joint: self.move_to_manual_value(j)
-                )
-                move.pack(side="left", padx=3)
-                self.manual_buttons[joint] = move
                 toggle = self.dependencies.ttk.Button(
                     controls,
                     text="Fix",
@@ -340,16 +346,18 @@ class SnapshotWindow:
                     found[joint] = float(position)
                     if has_torque and msg.effort[index] in (0.0, 1.0):
                         enabled = msg.effort[index] == 1.0
-                        if joint not in self.pending and self.playback_state is None:
-                            if enabled:
-                                self.fixed.add(joint)
-                                self.torque_state[joint] = "fixed"
-                            else:
-                                self.fixed.discard(joint)
-                                self.torque_state[joint] = "released"
-                    elif joint not in self.pending and self.playback_state is None:
+                        if enabled:
+                            self.fixed.add(joint)
+                            self.torque_state[joint] = "Torque on"
+                        else:
+                            self.fixed.discard(joint)
+                            self.torque_state[joint] = "Torque off"
+                    else:
                         self.fixed.discard(joint)
-                        self.torque_state[joint] = "torque state unknown"
+                        self.torque_state[joint] = "Torque unknown"
+        for joint in set(self.joints) - set(found):
+            self.fixed.discard(joint)
+            self.torque_state[joint] = "Torque unknown"
         self.positions, self.last_state = found, now
         valid = bool(self.joints) and set(found) == set(self.joints)
         self.latest_state_complete = valid
@@ -360,15 +368,12 @@ class SnapshotWindow:
                 state = self.torque_state.get(joint, "torque unknown")
                 configure_changed(
                     label,
-                    text=f"{value:.3f} rad | {state}"
+                    text=f"Current {value:.3f} rad | {state}"
                     if value is not None
                     else "No current reading",
                 )
-                if value is not None and joint not in self.target_edited:
+                if value is not None and joint not in self.target_inputs:
                     self.target_values[joint].set(repr(value))
-                    # Seed the editor once; subsequent telemetry belongs only
-                    # in the live label, even after a Move command is sent.
-                    self.target_edited.add(joint)
                 self._update_joint_buttons(joint)
 
     def _complete_state(self):
@@ -394,8 +399,6 @@ class SnapshotWindow:
             )
         if not enabled:
             self._wait_post_fix.pop(joint, None)
-        self.fixed.discard(joint)
-        self.torque_state[joint] = "torque operation pending"
         token = object()
         self.pending[joint] = (token, time.monotonic(), enabled)
         self._update_joint_buttons(joint)
@@ -410,26 +413,57 @@ class SnapshotWindow:
             return
         del self.pending[joint]
         if result == "success":
-            if enabled:
-                self.fixed.add(joint)
-                self.torque_state[joint] = "fixed"
-                self.status.set(
-                    f"{joint} holds its freshly read position; waiting for new telemetry"
-                )
-                self._wait_post_fix[joint] = self.node.get_clock().now().nanoseconds
-            else:
-                self.fixed.discard(joint)
-                self.torque_state[joint] = "released"
-                self.status.set(f"{joint} released")
+            self.status.set(f"{joint} torque request accepted; waiting for telemetry")
         else:
-            self.torque_state[joint] = "torque state unknown"
             self.status.set(f"{joint} torque operation failed: {result.split(': ', 1)[-1]}")
         self._update_joint_buttons(joint)
 
     def toggle_torque(self, joint):
         if joint in self.pending:
             return
-        self.torque(joint, joint not in self.fixed)
+        if joint in self.fixed:
+            if self._target_differs_from_current(joint):
+                try:
+                    target = to_radians(
+                        float(self.target_values[joint].get().strip()),
+                        self.bounds[joint],
+                        "radians",
+                    )
+                except ValueError as exc:
+                    self.status.set(f"{joint}: {exc}")
+                    return
+                self.move_to_manual_value(joint, target=target, apply_motion_settings=False)
+            else:
+                self.torque(joint, False)
+            return
+        if self.external_busy() or self.playback_state is not None:
+            self.status.set("Wait for the current snapshot operation to finish")
+            return
+        if self.torque_strength.get() <= 0:
+            self.status.set("Set Torque strength above zero before moving")
+            return
+        try:
+            target = to_radians(
+                float(self.target_values[joint].get().strip()), self.bounds[joint], "radians"
+            )
+        except ValueError as exc:
+            self.status.set(f"{joint}: {exc}")
+            return
+        self.move_to_manual_value(
+            joint, target=target, require_fresh=False, apply_motion_settings=True
+        )
+
+    def _target_differs_from_current(self, joint):
+        current = self.positions.get(joint)
+        if current is None:
+            return False
+        try:
+            target = to_radians(
+                float(self.target_values[joint].get().strip()), self.bounds[joint], "radians"
+            )
+        except (ValueError, KeyError):
+            return False
+        return not math.isclose(target, current, rel_tol=0.0, abs_tol=1e-9)
 
     def _update_joint_buttons(self, joint):
         button = self.torque_buttons.get(joint)
@@ -437,49 +471,54 @@ class SnapshotWindow:
             return
         pending = joint in self.pending or self.playback_state is not None or self.external_busy()
         is_fixed = joint in self.fixed
+        moving = is_fixed and self._target_differs_from_current(joint)
         configure_changed(
             button,
-            text="..." if joint in self.pending else "Release" if is_fixed else "Fix",
-            style="Release.TButton" if is_fixed else "Fix.TButton",
+            text="Move" if moving else "Release" if is_fixed else "Fix",
+            style="Accent.TButton" if moving else "Release.TButton" if is_fixed else "Fix.TButton",
             state="disabled" if pending else "normal",
         )
         manual = self.manual_buttons.get(joint)
         if manual is not None:
             configure_changed(manual, state="disabled" if pending else "normal")
 
-    def move_to_manual_value(self, joint):
+    def move_to_manual_value(
+        self, joint, target=None, require_fresh=True, apply_motion_settings=False
+    ):
         if self.external_busy():
             self.status.set("Wait for snapshot playback to finish before sending a manual move")
             return
-        if self.torque_strength.get() <= 0:
+        if apply_motion_settings and self.torque_strength.get() <= 0:
             self.status.set("Set Torque strength above zero before moving")
             return
         if self.playback_state is not None or joint in self.pending:
             self.status.set("Wait for the current snapshot or torque operation to finish")
             return
-        if not self._complete_state():
+        if require_fresh and not self._complete_state():
             self.status.set("Manual move requires fresh readings for every configured joint")
             return
-        try:
-            value = to_radians(
-                float(self.target_values[joint].get().strip()), self.bounds[joint], "radians"
-            )
-        except ValueError as exc:
-            self.status.set(f"{joint}: {exc}")
-            return
+        if target is None:
+            try:
+                target = to_radians(
+                    float(self.target_values[joint].get().strip()),
+                    self.bounds[joint],
+                    "radians",
+                )
+            except ValueError as exc:
+                self.status.set(f"{joint}: {exc}")
+                return
         message = self.dependencies.JointState()
         message.header.stamp = self.node.get_clock().now().to_msg()
-        message.name, message.position = [joint], [value]
-        set_motion(message, self.moving_speed.get(), self.torque_strength.get())
+        message.name, message.position = [joint], [target]
+        if apply_motion_settings:
+            set_motion(message, self.moving_speed.get(), self.torque_strength.get())
         try:
             self.command_pub.publish(message)
         except Exception as exc:
             self.status.set(f"Could not send {joint} target: {exc}")
             return
-        self.fixed.add(joint)
-        self.torque_state[joint] = "moving to manual target"
         self.target_edited.add(joint)
-        self.status.set(f"Sent {joint} target {value:.3f} rad; waiting for telemetry")
+        self.status.set(f"Sent {joint} target {target:.3f} rad; waiting for telemetry")
         self._update_joint_buttons(joint)
 
     @property
@@ -489,6 +528,10 @@ class SnapshotWindow:
         return self._post_fix
 
     def release_all(self):
+        if not self.joints and self.stop_external_operation is not None:
+            self.status.set("Releasing torque through the Player controller")
+            self.stop_external_operation()
+            return
         was_playing = self.playback_state is not None
         self.playback_state = None
         if was_playing:
@@ -605,9 +648,6 @@ class SnapshotWindow:
             "phase": "sending",
             "last_send": 0.0,
         }
-        self.fixed.clear()
-        for joint in self.joints:
-            self.torque_state[joint] = "torque state unknown after command"
         self._set_playback_controls(True)
         self.status.set(f"Sending commands for '{name}'...")
 

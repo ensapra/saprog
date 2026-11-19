@@ -24,7 +24,8 @@ Tests compare every mapped name to the URDF. The replacement description uses
 
 The bridge publishes a complete display joint state at 20 Hz, initially zero.
 Partial telemetry replaces only the supplied finite positions; other joints keep
-their previous display value. The URDF axes use logical servo radians directly, so the bridge forwards
+their previous display value. The readback node applies each servo's configured
+zero and direction. The URDF axes use logical servo radians directly, so the bridge forwards
 angles unchanged. Axes for 11, 31, 12, 22, 13, 23, 33 and 43 were reversed
 from the CAD convention, with their bounds mirrored and the four knee mimic
 multipliers negated to preserve the corrected motion. This does not change
@@ -56,14 +57,24 @@ passed TF checks. Physical mounting and linkage accuracy remain unvalidated.
 The supplied replacement URDF/meshes are pre-existing workspace changes and
 are not included in the bridge fix commits.
 
-The bridge publishes the IMU orientation as `world -> base` without a measured
-sensor-to-base mounting transform. The quaternion is sensor-relative: zero uses
-the saved `imu_zero` reference, while clear-zero returns to the estimator's
-local `imu_world` reference. Neither is a calibrated map/world alignment. When
-orientation updates stop for more than 0.5 seconds, the bridge returns the base
-to identity rather than holding an old orientation. The floor and base height
-are visual references, not measured robot position. See the [IMU contract](imu.md)
-and open mounting work in [issue #4](https://github.com/ensapra/saprog/issues/4).
+The bridge publishes the absolute IMU `data` attitude as `world -> base`, so
+the IMU monitor's zero setting does not change the robot's magnetic-north
+reference. Magnetic heading is enabled by default. A thin, flat arrow pointing
+north is rendered on the ground beside the robot in RViz and on the IMU canvas.
+The robot rotates against this world-fixed reference, so its facing direction
+can be compared with north directly. This uses the current
+fixed 180-degree X-axis mounting correction followed by +90 degrees about Z,
+not a measured sensor-to-base
+transform. Magnetometer distortion can still bias the heading. When valid IMU
+data stops for more than 0.5 seconds, diagnostics mark it stale while the bridge
+holds the last valid orientation until samples resume. The floor and base height are visual
+references, not measured robot position. See the [IMU contract](imu.md) and open
+mounting work in [issue #4](https://github.com/ensapra/saprog/issues/4).
+
+The bridge logs a once-per-second heading diagnostic while it runs: magnetic or
+relative mode, IMU bearing, robot bearing after the mounting correction, and
+the raw magnetic-field vector in microtesla. Use it to distinguish an estimator
+heading offset from a display mounting offset; it does not calibrate either.
 
 ## X11 smoke check
 
@@ -75,7 +86,7 @@ window on an X11 display:
 2. Resize the window and verify the render panel tracks the viewport.
 3. Publish a known joint state and orientation; confirm the mapped leg and base
    respond. Stop orientation publication for over 0.5 seconds and confirm the
-   base returns to identity.
+   base holds its last orientation, then follows new samples when they resume.
 4. Stop and restart the view, then close Home while it is running. Confirm no
    renderer or launch child remains and the UI does not wait for process exit.
 5. Repeat with an invalid `DISPLAY` and with a launch executable that exits

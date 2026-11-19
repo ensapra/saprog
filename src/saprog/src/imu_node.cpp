@@ -43,7 +43,7 @@ public:
     auto_connect_ = declare_parameter<bool>("auto_connect", true);
     frame_ = declare_parameter<std::string>("frame_id", "imu_link");
     helper_ = declare_parameter<std::string>("usb_helper", env("SAPROG_IMU_USB_HELPER"));
-    filter_.magnetic_heading = declare_parameter<bool>("use_magnetometer", false);
+    filter_.magnetic_heading = declare_parameter<bool>("use_magnetometer", true);
     // Defaults match SparkFun calculated output; raw counts require explicit scales.
     accel_scale_ = declare_parameter<double>("accel_scale", 1.0);
     gyro_scale_ = declare_parameter<double>("gyro_scale", 1.0);

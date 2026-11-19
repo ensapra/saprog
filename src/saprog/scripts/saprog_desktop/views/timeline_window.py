@@ -724,7 +724,7 @@ class TimelineWindow:
             self.status.set(
                 "Wait for the running timeline to finish or stop it before loading another sequence."
             )
-            return
+            return False
         previous_steps, previous_dirty = copy.deepcopy(self.steps), self.dirty
 
         def restore_editor():
@@ -733,7 +733,7 @@ class TimelineWindow:
 
         if not self.discard():
             restore_editor()
-            return
+            return False
         path = selected_path or self.dependencies.filedialog.askopenfilename(
             parent=self.root,
             initialdir=self.sequence_directory,
@@ -741,7 +741,7 @@ class TimelineWindow:
         )
         if not path:
             restore_editor()
-            return
+            return False
         try:
             document = load_timeline(
                 path,
@@ -753,13 +753,14 @@ class TimelineWindow:
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             restore_editor()
             self.status.set(f"Load failed: {exc}")
-            return
+            return False
         self.presenter.replace(document["steps"])
         self.on_end.set("Torque " + lifecycle["on_end"])
         self.loop.set(document.get("loop", False))
         self.redraw()
         self._update_buttons()
         self.status.set(f"Loaded {path}")
+        return True
 
     def play_timeline(self, selected=False):
         if self.run_steps is not None or not self._ready() or not self.apply():

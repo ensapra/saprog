@@ -4,6 +4,8 @@ from unittest.mock import Mock
 
 from saprog_desktop.imu_model import orientation_matrix, quaternion_to_euler
 from saprog_desktop.imu_view import draw_orientation
+from saprog_desktop.compass_view import draw_compass
+from saprog_desktop.desktop_style import ACCENT_LIGHT
 from saprog_desktop.temperature_model import TemperatureHistory
 from imu_monitor import ImuMonitor
 
@@ -53,11 +55,28 @@ class FakeCanvas:
     def create_line(self, *args, **kwargs):
         self.items.append(("line", args, kwargs))
 
+    def create_oval(self, *args, **kwargs):
+        self.items.append(("oval", args, kwargs))
+
     def create_text(self, *args, **kwargs):
         self.items.append(("text", args, kwargs))
 
 
 class ImuDisplayMathTests(unittest.TestCase):
+    def test_ground_compass_projects_a_fixed_north_arrow(self):
+        canvas = FakeCanvas(500, 400)
+        projection = lambda point: (point[0] * 100, -point[1] * 100)
+        draw_compass(
+            canvas, lambda point: point, projection, (2.0, 0.0, 0.0), 0.5,
+        )
+        north = next(item for item in canvas.items
+                     if item[0] == "line" and item[2].get("arrow") == "last")
+        self.assertGreater(north[1][2], north[1][0])
+        self.assertEqual(north[2]["fill"], ACCENT_LIGHT)
+        self.assertEqual(sum(item[0] == "line" for item in canvas.items), 1)
+        self.assertFalse(any(item[0] == "text" for item in canvas.items))
+        self.assertFalse(any(item[0] == "polygon" for item in canvas.items))
+
     def test_quaternion_projection_and_rotation_basis(self):
         self.assertEqual(quaternion_to_euler((0, 0, 0, 1)), (0.0, 0.0, 0.0))
         self.assertAlmostEqual(quaternion_to_euler((0, 0, math.sin(0.25), math.cos(0.25)))[2], 0.5)

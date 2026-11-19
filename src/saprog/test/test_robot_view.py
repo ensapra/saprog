@@ -1,4 +1,5 @@
 import os
+import math
 import signal
 import subprocess
 import tempfile
@@ -23,7 +24,8 @@ except ImportError:
     rclpy = None
 else:
     from saprog_desktop.ros.robot_view_bridge import RobotViewBridge
-    from sensor_msgs.msg import JointState
+    from sensor_msgs.msg import Imu, JointState
+    from visualization_msgs.msg import Marker
 
 
 @unittest.skipIf(rclpy is None, "bridge integration requires ROS")
@@ -33,6 +35,7 @@ class RobotViewBridgeTest(unittest.TestCase):
         self.node = RobotViewBridge()
         self.node.joint_publisher = Mock()
         self.node.tf_broadcaster = Mock()
+        self.node.compass_publisher = Mock()
 
     def tearDown(self):
         self.node.destroy_node()
@@ -47,6 +50,28 @@ class RobotViewBridgeTest(unittest.TestCase):
         self.assertEqual(pose.header.stamp, base.header.stamp)
         self.assertAlmostEqual(base.transform.translation.z, 0.183)
         self.assertEqual(base.transform.rotation.w, 1.0)
+
+    def test_absolute_magnetic_yaw_rotates_world_to_base(self):
+        message = Imu()
+        message.orientation.z = math.sin(math.pi / 4)
+        message.orientation.w = math.cos(math.pi / 4)
+        message.orientation_covariance[0] = 0.0
+        self.node.on_orientation(message)
+        self.node.publish_base_transform()
+        rotation = self.node.tf_broadcaster.sendTransform.call_args.args[0].transform.rotation
+        self.assertAlmostEqual(rotation.x, 0.0)
+        self.assertAlmostEqual(rotation.y, 1.0)
+        self.assertAlmostEqual(rotation.z, 0.0)
+        self.assertAlmostEqual(rotation.w, 0.0)
+        markers = self.node.compass_publisher.publish.call_args.args[0].markers
+        north = next(marker for marker in markers if marker.id == 1)
+        self.assertEqual(north.pose.orientation.w, 1.0)
+        self.assertEqual(north.type, Marker.ARROW)
+        self.assertEqual(north.scale.z, 0.008)
+        self.assertEqual(next(marker for marker in markers if marker.id == 0).action,
+                         Marker.DELETE)
+        self.assertEqual(next(marker for marker in markers if marker.id == 2).action,
+                         Marker.DELETE)
 
     def test_logical_angles_pass_through_for_every_servo(self):
         for angle in (0.35, -0.35, 0.0):
@@ -99,8 +124,12 @@ class RobotViewBridgeTest(unittest.TestCase):
     def test_partial_readback_preserves_other_joints_and_rejects_nonfinite(self):
         self.node.on_joints(JointState(name=["servo_13"], position=[-0.2]))
         self.node.on_joints(JointState(
-            name=["servo_11", "servo_13", "servo_12", "servo_99", "servo_bad", "servo_21"],
-            position=[0.3, float("nan"), float("inf"), 1.0, 1.0],
+            name=["servo_11", "servo_13", "servo_12", "servo_99", "servo_bad", "servo_21", "servo_42", "servo_33"],
+            position=[0.3, float("nan"), float("inf"), 1.0, 1.0, 0.0, 0.4, 0.5],
+        ))
+        self.node.on_joints(JointState(
+            name=["servo_12", "servo_21", "servo_22", "servo_23", "servo_31", "servo_43"],
+            position=[0.2, 0.6, 0.4, -0.7, 0.8, -0.9],
         ))
         self.node.publish_base_transform()
         pose = self.node.joint_publisher.publish.call_args.args[0]
@@ -108,8 +137,14 @@ class RobotViewBridgeTest(unittest.TestCase):
         self.assertEqual(len(values), 12)
         self.assertEqual(values["front_right_joint_13"], -0.2)
         self.assertEqual(values["front_right_11"], 0.3)
-        self.assertEqual(values["front_right_12"], 0.0)
-        self.assertEqual(values["back_right_21"], 0.0)
+        self.assertEqual(values["front_right_12"], 0.2)
+        self.assertEqual(values["back_right_21"], 0.6)
+        self.assertEqual(values["back_right_22"], 0.4)
+        self.assertEqual(values["back_right_joint_23"], -0.7)
+        self.assertEqual(values["front_left_31"], 0.8)
+        self.assertEqual(values["back_left_42"], 0.4)
+        self.assertEqual(values["front_left_joint_33"], 0.5)
+        self.assertEqual(values["back_left_joint_43"], -0.9)
 
 
 class FakeProcess:
@@ -149,7 +184,7 @@ class RobotViewSessionTest(unittest.TestCase):
                 # Reversed crank coordinates must still drive the same knee motion.
                 self.assertLess(float(mimic.attrib["multiplier"]), 0.0)
 
-    def test_orientation_resets_to_identity_after_stale_timeout_and_rejects_invalid(self):
+    def test_orientation_holds_last_pose_after_stale_timeout_and_rejects_invalid(self):
         now = [1.0]
         reference = OrientationReference(max_age=0.5, clock=lambda: now[0])
         self.assertEqual(reference.current(), IDENTITY_QUATERNION)
@@ -157,6 +192,12 @@ class RobotViewSessionTest(unittest.TestCase):
         self.assertTrue(reference.update((0, 0.1, 0, 0.995)))
         self.assertEqual(reference.current(), (0.0, 0.1, 0.0, 0.995))
         now[0] += 0.51
+        self.assertFalse(reference.is_fresh())
+        self.assertEqual(reference.current(), (0.0, 0.1, 0.0, 0.995))
+        self.assertFalse(reference.update((float("nan"), 0, 0, 1)))
+        self.assertEqual(reference.current(), (0.0, 0.1, 0.0, 0.995))
+        self.assertTrue(reference.update((0, 0, 0, 1)))
+        self.assertTrue(reference.is_fresh())
         self.assertEqual(reference.current(), IDENTITY_QUATERNION)
 
     @unittest.skipUnless(hasattr(os, "killpg"), "renderer process groups require POSIX")

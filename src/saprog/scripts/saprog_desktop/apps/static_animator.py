@@ -99,6 +99,7 @@ def build_animator_views(
             directory,
             container=creator_panel,
             show_snapshot_loader=False,
+            show_status_box=False,
             initial_torque_strength=snapshot_player.load_torque_strength(
                 snapshot_player.player_settings_path()
             ),
@@ -117,6 +118,7 @@ def build_animator_views(
             can_start_playback=lambda: not creator.playback_state and not creator.pending,
             dependencies=dependencies,
         )
+        creator.status = player.status
         creator.external_busy = lambda: player.playback is not None or player.torque_batch is not None
         creator.stop_external_operation = player.stop_playback_and_disable_all_torque
         views = AnimatorViews(creator, player, None, notebook, snapshots_split, on_closed)

@@ -1,991 +1,493 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
-     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
-     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
-<robot
-  name="URDF">
-  <link
-    name="base">
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="URDF">
+  <link name="base">
     <inertial>
-      <origin
-        xyz="0.00583040916746454 -9.34434310181799E-09 0.0181188265555621"
-        rpy="0 0 0" />
-      <mass
-        value="0.271546416121327" />
-      <inertia
-        ixx="0.000186745746102273"
-        ixy="-2.30786146759589E-10"
-        ixz="-2.17328976487894E-05"
-        iyy="0.000219377827300682"
-        iyz="-7.65078713750185E-12"
-        izz="0.000355073904267322" />
+      <origin xyz="0.00583040916746454 -9.34434310181799E-09 0.0181188265555621" rpy="0 0 0" />
+      <mass value="0.35983293811259121" />
+      <inertia ixx="0.00024746145229913514" ixy="-3.0582048715782825E-10" ixz="-2.8798805472615931E-05" iyy="0.00029070303811003304" iyz="-1.0138249121031552E-11" izz="0.00047051729882722132" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/base.STL" />
+        <mesh filename="package://saprog_description/meshes/chassis.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
+      <material name="saprog_base">
+        <color rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/base.STL" />
+        <mesh filename="package://saprog_description/meshes/chassis.stl" />
       </geometry>
     </collision>
   </link>
-  <link
-    name="front_right_11_link">
+  <link name="front_right_11_link">
     <inertial>
-      <origin
-        xyz="-0.0668309543925347 -1.07055895468E-08 -0.0007093485166609"
-        rpy="0 0 0" />
-      <mass
-        value="0.052439328164142" />
-      <inertia
-        ixx="5.25358596215592E-06"
-        ixy="1.37098512621916E-12"
-        ixz="6.7390095865863E-07"
-        iyy="1.24504119723819E-05"
-        iyz="1.03916620735771E-12"
-        izz="1.43129330087119E-05" />
+      <origin xyz="-0.0668309543925347 -1.07055895468E-08 -0.0007093485166609" rpy="0 0 0" />
+      <mass value="0.069488663468578862" />
+      <inertia ixx="6.9616579713760308E-06" ixy="1.8167266323105661E-12" ixz="8.9300299158682793E-07" iyy="1.6498351864576498E-05" iyz="1.3770250954583495E-12" izz="1.896642500791597E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_right_11.STL" />
+        <mesh filename="package://saprog_description/meshes/hip_mount.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
+      <material name="saprog_front_right_11">
+        <color rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0 0 0" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_right_11.STL" />
+        <mesh filename="package://saprog_description/meshes/hip_mount.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="front_right_11"
-    type="revolute">
-    <origin
-      xyz="0.0359999999999999 -0.0584999999999999 0.022"
-      rpy="1.5707963267949 0 -3.14159265358979" />
-    <parent
-      link="base" />
-    <child
-      link="front_right_11_link" />
-    <axis
-      xyz="1 0 0" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
+  <joint name="front_right_11" type="revolute">
+    <origin xyz="0.0359999999999999 -0.0584999999999999 0.022" rpy="1.5707963267949 0 -3.14159265358979" />
+    <parent link="base" />
+    <child link="front_right_11_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.2" upper="1.2" effort="2" velocity="3" />
   </joint>
-  <link
-    name="front_right_12_link">
+  <link name="front_right_12_link">
     <inertial>
-      <origin
-        xyz="-0.0188686106793472 0.00185156920819329 -0.00340163463424928"
-        rpy="0 0 0" />
-      <mass
-        value="0.0881772642411977" />
-      <inertia
-        ixx="8.4441158961186E-05"
-        ixy="8.10354179245297E-07"
-        ixz="1.65011117932447E-07"
-        iyy="2.57958199200857E-05"
-        iyz="-1.74913286644895E-05"
-        izz="7.42774530487409E-05" />
+      <origin xyz="-0.0188686106793472 0.00185156920819329 -0.00340163463424928" rpy="0 0 0" />
+      <mass value="0.11684589515062475" />
+      <inertia ixx="0.00011189508873157074" ixy="1.0738205622252409E-06" ixz="2.1866035366987236E-07" iyy="3.4182685249362535E-05" iyz="-2.3178196474609708E-05" izz="9.8426908179508589E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.02145 -1.5959455979e-16 0.0515" rpy="3.14159265359 -1.57079632679 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_right_12.STL" />
+        <mesh filename="package://saprog_description/meshes/right_linkage.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
+      <material name="saprog_front_right_12">
+        <color rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.02145 -1.5959455979e-16 0.0515" rpy="3.14159265359 -1.57079632679 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_right_12.STL" />
+        <mesh filename="package://saprog_description/meshes/right_linkage.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="front_right_12"
-    type="revolute">
-    <origin
-      xyz="-0.0554999999999997 0 -0.0229500000000014"
-      rpy="3.14159265358979 -1.5707963267949 0" />
-    <parent
-      link="front_right_11_link" />
-    <child
-      link="front_right_12_link" />
-    <axis
-      xyz="1 0 0" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
+  <joint name="front_right_12" type="revolute">
+    <origin xyz="-0.0554999999999997 0 -0.0229500000000014" rpy="3.14159265358979 -1.5707963267949 0" />
+    <parent link="front_right_11_link" />
+    <child link="front_right_12_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.6" upper="1.6" effort="2" velocity="3" />
   </joint>
-  <link
-    name="front_right_joint_13_link">
+  <link name="front_right_joint_13_link">
     <inertial>
-      <origin
-        xyz="0.0262146247096934 0.0108079014002521 -0.0155462242636584"
-        rpy="0 0 0" />
-      <mass
-        value="0.00962761173507207" />
-      <inertia
-        ixx="3.16602424547719E-06"
-        ixy="-1.24830410688071E-07"
-        ixz="2.18335467333274E-07"
-        iyy="2.12435475829653E-06"
-        iyz="9.23449943076938E-07"
-        izz="1.2520273955746E-06" />
+      <origin xyz="0.0262146247096934 0.0108079014002521 -0.0155462242636584" rpy="0 0 0" />
+      <mass value="0.012757788768202268" />
+      <inertia ixx="4.1953778019178287E-06" ixy="-1.6541589495189869E-07" ixz="2.8932178088336515E-07" iyy="2.8150355478444766E-06" iyz="1.2236865835445733E-06" izz="1.6590927723596656E-06" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.08925 -8.3494115226e-05 -0.055064149755" rpy="1.5707963268 1.5707889804 1.5707963268" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_right_joint_13.STL" />
+        <mesh filename="package://saprog_description/meshes/right_crank.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="1 0 0 1" />
+      <material name="saprog_front_right_joint_13">
+        <color rgba="1 0 0 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.08925 -8.3494115226e-05 -0.055064149755" rpy="1.5707963268 1.5707889804 1.5707963268" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_right_joint_13.STL" />
+        <mesh filename="package://saprog_description/meshes/right_crank.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="froint_right_joint_13"
-    type="revolute">
-    <origin
-      xyz="-0.0678 0 0"
-      rpy="-3.1416 0 0" />
-    <parent
-      link="front_right_12_link" />
-    <child
-      link="front_right_joint_13_link" />
-    <axis
-      xyz="1 0 0" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
+  <joint name="front_right_joint_13" type="revolute">
+    <origin xyz="-0.0678 -8.3898639056e-05 -0.0035641491397" rpy="3.1415853072 0 0" />
+    <parent link="front_right_12_link" />
+    <child link="front_right_joint_13_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0" upper="0.614" effort="2" velocity="3" />
   </joint>
-  <link
-    name="front_right_leg_link">
+  <link name="front_right_leg_link">
     <inertial>
-      <origin
-        xyz="-0.0268491461047792 -0.0566782868150267 -0.0132393267908589"
-        rpy="0 0 0" />
-      <mass
-        value="0.0438741519324772" />
-      <inertia
-        ixx="1.01466872638116E-05"
-        ixy="-1.4917762017852E-06"
-        ixz="-1.10057048418222E-07"
-        iyy="4.54579454297186E-06"
-        iyz="-2.16438282719995E-07"
-        izz="1.2635116714646E-05" />
+      <origin xyz="0.0359929727531 -0.0816295847925 -0.030373328111" rpy="-1.10211827e-11 -2.16937579012e-12 3.62499899213e-11" />
+      <mass value="0.058138734521201316" />
+      <inertia ixx="1.3445628715702212E-05" ixy="-1.9767899034063193E-06" ixz="-1.4583934363042477E-07" iyy="6.0237458841029412E-06" iyz="-2.8680777416845726E-07" izz="1.6743108731713807E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.01527 0.0911 0.03975" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_right_leg.STL" />
+        <mesh filename="package://saprog_description/meshes/right_leg.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
+      <material name="saprog_front_right_leg">
+        <color rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.01527 0.0911 0.03975" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_right_leg.STL" />
+        <mesh filename="package://saprog_description/meshes/right_leg.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="front_right_leg"
-    type="revolute">
-    <origin
-      xyz="-0.0133 -0.091093 -0.04022"
-      rpy="1.6323 1.5708 1.6312" />
-    <parent
-      link="front_right_12_link" />
-    <child
-      link="front_right_leg_link" />
-    <axis
-      xyz="0 0 -1" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
-    <mimic
-      joint="froint_right_joint_13"
-      multiplier="-1"
-      offset="0" />
+  <joint name="front_right_leg" type="revolute">
+    <origin xyz="-0.0183000000001 0.0911 0.0362500000002" rpy="3.14159265359 -1.57079632679 0" />
+    <parent link="front_right_12_link" />
+    <child link="front_right_leg_link" />
+    <limit lower="-1.5" upper="1.5" effort="2" velocity="3" />
+    <axis xyz="0 0 1" />
+    <mimic joint="front_right_joint_13" multiplier="-2.4" offset="0" />
   </joint>
-  <link
-    name="back_right_21_link">
+  <link name="back_right_21_link">
     <inertial>
-      <origin
-        xyz="-0.0667766694376131 1.06422267213968E-08 0.000656686893057715"
-        rpy="0 0 0" />
-      <mass
-        value="0.0527515362322692" />
-      <inertia
-        ixx="5.25473117858989E-06"
-        ixy="-1.37098512257353E-12"
-        ixz="-6.73900958658632E-07"
-        iyy="1.24523069804063E-05"
-        iyz="1.03916619294491E-12"
-        izz="1.43140782251459E-05" />
+      <origin xyz="-0.0667766694376131 1.06422267213968E-08 0.000656686893057715" rpy="0 0 0" />
+      <mass value="0.069902378177324892" />
+      <inertia ixx="6.9631755262754713E-06" ixy="-1.8167266274796505E-12" ixz="-8.9300299158683069E-07" iyy="1.6500862987039121E-05" iyz="1.3770250763595881E-12" izz="1.896794256281545E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0 0 0" rpy="3.14159265359 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_right_21.STL" />
+        <mesh filename="package://saprog_description/meshes/hip_mount.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      <material name="saprog_back_right_21">
+        <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0 0 0" rpy="3.14159265359 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_right_21.STL" />
+        <mesh filename="package://saprog_description/meshes/hip_mount.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="back_right_21"
-    type="revolute">
-    <origin
-      xyz="-0.0359999999999999 -0.0585 0.022"
-      rpy="1.5707963267949 0 0" />
-    <parent
-      link="base" />
-    <child
-      link="back_right_21_link" />
-    <axis
-      xyz="-1 0 0" />
-    <limit
-      lower="0"
-      upper="1"
-      effort="0"
-      velocity="0" />
+  <joint name="back_right_21" type="revolute">
+    <origin xyz="-0.0359999999999999 -0.0585 0.022" rpy="1.5707963267949 0 0" />
+    <parent link="base" />
+    <child link="back_right_21_link" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.2" upper="1.2" effort="2" velocity="3" />
   </joint>
-  <link
-    name="back_right_22_link">
+  <link name="back_right_22_link">
     <inertial>
-      <origin
-        xyz="-0.0188686107273106 -0.00185156858096744 0.00340163477238542"
-        rpy="0 0 0" />
-      <mass
-        value="0.0881772642941295" />
-      <inertia
-        ixx="8.4441161459662E-05"
-        ixy="-8.10354619742476E-07"
-        ixz="-1.65011192459971E-07"
-        iyy="2.57958200453483E-05"
-        iyz="-1.74913294091578E-05"
-        izz="7.42774552452462E-05" />
+      <origin xyz="-0.0188686107273106 -0.00185156858096744 0.00340163477238542" rpy="0 0 0" />
+      <mass value="0.11684589522076601" />
+      <inertia ixx="0.00011189509204236371" ixy="-1.0738211459390545E-06" ixz="-2.1866045242815578E-07" iyy="3.418268541535113E-05" iyz="-2.3178197461388272E-05" izz="9.8426911090152618E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.0214499997662 -2.412081819e-11 0.0515000001104" rpy="3.14159265294 -1.57079632229 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_right_22.STL" />
+        <mesh filename="package://saprog_description/meshes/right_linkage.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      <material name="saprog_back_right_22">
+        <color rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.0214499997662 -2.412081819e-11 0.0515000001104" rpy="3.14159265294 -1.57079632229 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_right_22.STL" />
+        <mesh filename="package://saprog_description/meshes/right_linkage.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="back_right_22"
-    type="revolute">
-    <origin
-      xyz="-0.0555 0 0.0229499999999994"
-      rpy="3.14159265358979 1.5707963267949 0" />
-    <parent
-      link="back_right_21_link" />
-    <child
-      link="back_right_22_link" />
-    <axis
-      xyz="1 0 0" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
+  <joint name="back_right_22" type="revolute">
+    <origin xyz="-0.0555 0 0.0229499999999994" rpy="3.14159265358979 1.5707963267949 0" />
+    <parent link="back_right_21_link" />
+    <child link="back_right_22_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.6" upper="1.6" effort="2" velocity="3" />
   </joint>
-  <link
-    name="back_right_joint_23_link">
+  <link name="back_right_joint_23_link">
     <inertial>
-      <origin
-        xyz="0.0262146246955013 0.0104959198836313 -0.0157585354869499"
-        rpy="0 0 0" />
-      <mass
-        value="0.00962761192302564" />
-      <inertia
-        ixx="3.16602424331755E-06"
-        ixy="-1.20454211391136E-07"
-        ixz="2.2077995927856E-07"
-        iyy="2.16080939138606E-06"
-        iyz="9.05334316082182E-07"
-        izz="1.2155727611549E-06" />
+      <origin xyz="0.0262146246955013 0.0104959198836313 -0.0157585354869499" rpy="0 0 0" />
+      <mass value="0.012757789017264237" />
+      <inertia ixx="4.1953777990560356E-06" ixy="-1.5961688396410938E-07" ixz="2.9256103821339674E-07" iyy="2.8633424926378888E-06" iyz="1.1996811137601283E-06" izz="1.6107858258036109E-06" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.089249999794 0.00142759874101 0.0559007918699" rpy="1.57079616272 -1.55086509991 1.57079649211" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_right_joint_23.STL" />
+        <mesh filename="package://saprog_description/meshes/right_crank.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="1 0 0 1" />
+      <material name="saprog_back_right_joint_23">
+        <color rgba="1 0 0 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.089249999794 0.00142759874101 0.0559007918699" rpy="1.57079616272 -1.55086509991 1.57079649211" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_right_joint_23.STL" />
+        <mesh filename="package://saprog_description/meshes/right_crank.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="back_right_joint_23"
-    type="revolute">
-    <origin
-      xyz="-0.0678 0 0"
-      rpy="0 0 0" />
-    <parent
-      link="back_right_22_link" />
-    <child
-      link="back_right_joint_23_link" />
-    <axis
-      xyz="1 0 0" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
+  <joint name="back_right_joint_23" type="revolute">
+    <origin xyz="-0.0678 -0.00032148884887 -0.0044118149277" rpy="0 0 0" />
+    <parent link="back_right_22_link" />
+    <child link="back_right_joint_23_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0" upper="0.614" effort="2" velocity="3" />
   </joint>
-  <link
-    name="back_right_leg_link">
+  <link name="back_right_leg_link">
     <inertial>
-      <origin
-        xyz="-0.0239182985439538 -0.0579760300027724 -0.0132393277667488"
-        rpy="0 0 0" />
-      <mass
-        value="0.0438741552473422" />
-      <inertia
-        ixx="1.02843039134397E-05"
-        ixy="-1.19820275620113E-06"
-        ixz="-9.88552186385757E-08"
-        iyy="4.40817933060839E-06"
-        iyz="-2.21777908771881E-07"
-        izz="1.26351181278143E-05" />
+      <origin xyz="-0.0828089691705 -0.0833731237069 -0.00066811589451" rpy="-2.08272940832e-11 1.00000008274e-11 3.82513530973e-17" />
+      <mass value="0.058138738913811716" />
+      <inertia ixx="1.3627987975221092E-05" ixy="-1.5877683984082419E-06" ixz="-1.3099551921387901E-07" iyy="5.8413885291393207E-06" iyz="-2.9388344601166141E-07" izz="1.6743110604338414E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.0105959704263 0.0917617130316 0.039749999863" rpy="-1.48299407476e-09 -1.31952671012e-09 0.0511138319976" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_right_leg.STL" />
+        <mesh filename="package://saprog_description/meshes/right_leg.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
+      <material name="saprog_back_right_leg">
+        <color rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.0105959704263 0.0917617130316 0.039749999863" rpy="-1.48299407476e-09 -1.31952671012e-09 0.0511138319976" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_right_leg.STL" />
+        <mesh filename="package://saprog_description/meshes/right_leg.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="back_right_leg"
-    type="revolute">
-    <origin
-      xyz="-0.0133 0.091093 0.04022"
-      rpy="0 -1.5708 0" />
-    <parent
-      link="back_right_22_link" />
-    <child
-      link="back_right_leg_link" />
-    <axis
-      xyz="0 0 -1" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
-    <mimic
-      joint="back_right_joint_23"
-      multiplier="-1"
-      offset="0" />
+  <joint name="back_right_leg" type="revolute">
+    <origin xyz="-0.0182999999992 0.0911 0.0362500000002" rpy="-3.14159265359 -1.57079632679 0" />
+    <parent link="back_right_22_link" />
+    <child link="back_right_leg_link" />
+    <limit lower="-1.5" upper="1.5" effort="2" velocity="3" />
+    <axis xyz="0 0 1" />
+    <mimic joint="back_right_joint_23" multiplier="-2.4" offset="0" />
   </joint>
-  <link
-    name="back_left_41_link">
+  <link name="back_left_41_link">
     <inertial>
-      <origin
-        xyz="0.066776669437613 -1.06422269052775E-08 0.000656686893057937"
-        rpy="0 0 0" />
-      <mass
-        value="0.0527515362322692" />
-      <inertia
-        ixx="5.2547311785899E-06"
-        ixy="-1.37098512634802E-12"
-        ixz="6.73900958658637E-07"
-        iyy="1.24523069804063E-05"
-        iyz="-1.03916620580434E-12"
-        izz="1.43140782251459E-05" />
+      <origin xyz="0.066776669437613 -1.06422269052775E-08 0.000656686893057937" rpy="0 0 0" />
+      <mass value="0.069902378177324892" />
+      <inertia ixx="6.9631755262754848E-06" ixy="-1.8167266324813219E-12" ixz="8.9300299158683736E-07" iyy="1.6500862987039121E-05" iyz="-1.3770250933999401E-12" izz="1.896794256281545E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="-2.77555756156e-17 -3.97089045673e-18 1.8323016715e-17" rpy="3.14159265359 0 -3.14159265359" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_left_41.STL" />
+        <mesh filename="package://saprog_description/meshes/hip_mount.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      <material name="saprog_back_left_41">
+        <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="-2.77555756156e-17 -3.97089045673e-18 1.8323016715e-17" rpy="3.14159265359 0 -3.14159265359" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_left_41.STL" />
+        <mesh filename="package://saprog_description/meshes/hip_mount.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="back_left_41"
-    type="revolute">
-    <origin
-      xyz="-0.0359999999999999 0.0584999999999999 0.022"
-      rpy="1.5707963267949 0 -3.14159265358979" />
-    <parent
-      link="base" />
-    <child
-      link="back_left_41_link" />
-    <axis
-      xyz="-1 0 0" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
+  <joint name="back_left_41" type="revolute">
+    <origin xyz="-0.0359999999999999 0.0584999999999999 0.022" rpy="1.5707963267949 0 -3.14159265358979" />
+    <parent link="base" />
+    <child link="back_left_41_link" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.2" upper="1.2" effort="2" velocity="3" />
   </joint>
-  <link
-    name="back_left_42_link">
+  <link name="back_left_42_link">
     <inertial>
-      <origin
-        xyz="-0.0188686672803259 0.00185163185888957 0.0034012460091719"
-        rpy="0 0 0" />
-      <mass
-        value="0.0881779508742527" />
-      <inertia
-        ixx="8.4441899082765E-05"
-        ixy="8.10480973500675E-07"
-        ixz="-1.65153440050155E-07"
-        iyy="2.57963489752386E-05"
-        iyz="1.7492182247609E-05"
-        izz="7.42778791958525E-05" />
+      <origin xyz="-0.0188686672803259 0.00185163185888957 0.0034012460091719" rpy="0 0 0" />
+      <mass value="0.1168468050252352" />
+      <inertia ixx="0.00011189606948516026" ixy="1.0739885804598401E-06" ixz="-2.1884894826266709E-07" iyy="3.4183386313559261E-05" iyz="2.3179327578920345E-05" izz="9.8427472877689559E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.141449999873 2.40605799173e-11 0.0515000002584" rpy="3.61260354964e-10 -1.57079632428 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_left_42.STL" />
+        <mesh filename="package://saprog_description/meshes/left_linkage.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      <material name="saprog_back_left_42">
+        <color rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.141449999873 2.40605799173e-11 0.0515000002584" rpy="3.61260354964e-10 -1.57079632428 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_left_42.STL" />
+        <mesh filename="package://saprog_description/meshes/left_linkage.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="back_left_42"
-    type="revolute">
-    <origin
-      xyz="0.0554999999999999 0 0.0229499999999996"
-      rpy="0 1.5707963267949 0" />
-    <parent
-      link="back_left_41_link" />
-    <child
-      link="back_left_42_link" />
-    <axis
-      xyz="-1 0 0" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
+  <joint name="back_left_42" type="revolute">
+    <origin xyz="0.0554999999999999 0 0.0229499999999996" rpy="0 1.5707963267949 0" />
+    <parent link="back_left_41_link" />
+    <child link="back_left_42_link" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.6" upper="1.6" effort="2" velocity="3" />
   </joint>
-  <link
-    name="back_left_joint_43_link">
+  <link name="back_left_joint_43_link">
     <inertial>
-      <origin
-        xyz="0.070785374696645 0.0134618307912534 -0.0133144671083809"
-        rpy="0 0 0" />
-      <mass
-        value="0.00962760396772415" />
-      <inertia
-        ixx="3.16600805951853E-06"
-        ixy="1.62553477620087E-07"
-        ixz="-1.91909892560382E-07"
-        iyy="1.7641893925684E-06"
-        iyz="1.01846629748723E-06"
-        izz="1.61217654065518E-06" />
+      <origin xyz="0.0707853532077 0.0105354069491 -0.0158268695173" rpy="-0.203324786289 1.47883501267e-06 -1.47959429556e-07" />
+      <mass value="0.012757778475495541" />
+      <inertia ixx="4.1953563534997495E-06" ixy="2.1540367311023898E-07" ixz="-2.5430459174986845E-07" iyy="2.3377714262718169E-06" iyz="1.3495951278905482E-06" izz="2.1363353995471316E-06" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="-0.112249999999 -0.000314035711643 0.0552725666175" rpy="3.1415853071 -1.57079632678 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_left_joint_43.STL" />
+        <mesh filename="package://saprog_description/meshes/left_crank.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="1 0 0 1" />
+      <material name="saprog_back_left_joint_43">
+        <color rgba="1 0 0 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="-0.112249999999 -0.000314035711643 0.0552725666175" rpy="3.1415853071 -1.57079632678 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_left_joint_43.STL" />
+        <mesh filename="package://saprog_description/meshes/left_crank.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="back_left_joint_43"
-    type="revolute">
-    <origin
-      xyz="0.0292 0 0"
-      rpy="0 0 3.1416" />
-    <parent
-      link="back_left_42_link" />
-    <child
-      link="back_left_joint_43_link" />
-    <axis
-      xyz="1 0 0" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
+  <joint name="back_left_joint_43" type="revolute">
+    <origin xyz="0.029200002313 -0.00031486034503 -0.0037725666174" rpy="0 0 -3.1415853072" />
+    <parent link="back_left_42_link" />
+    <child link="back_left_joint_43_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0" upper="0.614" effort="2" velocity="3" />
   </joint>
-  <link
-    name="back_left_leg_link">
+  <link name="back_left_leg_link">
     <inertial>
-      <origin
-        xyz="-0.0475053780454212 -0.0409456507168567 0.0012393201570756"
-        rpy="0 0 0" />
-      <mass
-        value="0.0438740738214293" />
-      <inertia
-        ixx="8.1228819453952E-06"
-        ixy="-3.07646857214931E-06"
-        ixz="1.88293251215401E-07"
-        iyy="6.56957674515218E-06"
-        iyz="1.53319024380078E-07"
-        izz="1.26351163059821E-05" />
+      <origin xyz="-0.0818271868889 -0.000432291661 0.0187442691832" rpy="-4.39056033816e-11 2.09405826013e-11 -4.22947799159e-11" />
+      <mass value="0.058138627607646903" />
+      <inertia ixx="1.3627953400602064E-05" ixy="-1.5877810048281365E-06" ixz="1.3099279843961616E-07" iyy="5.8413886785178237E-06" iyz="2.9389418810166168E-07" izz="1.6743104997466171E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.01527 0.0911 -0.15675" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_left_leg.STL" />
+        <mesh filename="package://saprog_description/meshes/left_leg.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
+      <material name="saprog_back_left_leg">
+        <color rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.01527 0.0911 -0.15675" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/back_left_leg.STL" />
+        <mesh filename="package://saprog_description/meshes/left_leg.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="back_left_leg"
-    type="revolute">
-    <origin
-      xyz="-0.0253 -0.091093 0.04022"
-      rpy="-1.59 -1.5708 1.5902" />
-    <parent
-      link="back_left_42_link" />
-    <child
-      link="back_left_leg_link" />
-    <axis
-      xyz="0 0 -1" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
-    <mimic
-      joint="back_left_joint_43"
-      multiplier="-1"
-      offset="0" />
+  <joint name="back_left_leg" type="revolute">
+    <origin xyz="-0.0152999999992 -0.0911 0.0362500000008" rpy="-3.5527136788e-15 -1.57079632679 0" />
+    <parent link="back_left_42_link" />
+    <child link="back_left_leg_link" />
+    <limit lower="-1.5" upper="1.5" effort="2" velocity="3" />
+    <axis xyz="0 0 1" />
+    <mimic joint="back_left_joint_43" multiplier="-2.4" offset="0" />
   </joint>
-  <link
-    name="front_left_31_link">
+  <link name="front_left_31_link">
     <inertial>
-      <origin
-        xyz="0.0667766694376131 1.06422268636441E-08 -0.00065668689305793"
-        rpy="0 0 0" />
-      <mass
-        value="0.0527515362322691" />
-      <inertia
-        ixx="5.25473117858989E-06"
-        ixy="1.37098512294825E-12"
-        ixz="-6.73900958658632E-07"
-        iyy="1.24523069804063E-05"
-        iyz="-1.03916620027208E-12"
-        izz="1.43140782251459E-05" />
+      <origin xyz="0.0667766694376131 1.06422268636441E-08 -0.00065668689305793" rpy="0 0 0" />
+      <mass value="0.069902378177324767" />
+      <inertia ixx="6.9631755262754713E-06" ixy="1.8167266279762016E-12" ixz="-8.9300299158683069E-07" iyy="1.6500862987039121E-05" iyz="-1.377025086069004E-12" izz="1.896794256281545E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0 5.96311194867e-18 -1.34441069388e-17" rpy="0 0 -3.14159265359" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_left_31.STL" />
+        <mesh filename="package://saprog_description/meshes/hip_mount.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
+      <material name="saprog_front_left_31">
+        <color rgba="0.752941176470588 0.752941176470588 0.752941176470588 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0 5.96311194867e-18 -1.34441069388e-17" rpy="0 0 -3.14159265359" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_left_31.STL" />
+        <mesh filename="package://saprog_description/meshes/hip_mount.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="front_left_31"
-    type="revolute">
-    <origin
-      xyz="0.0359999999999999 0.0584999999999999 0.022"
-      rpy="1.5707963267949 0 0" />
-    <parent
-      link="base" />
-    <child
-      link="front_left_31_link" />
-    <axis
-      xyz="1 0 0" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
+  <joint name="front_left_31" type="revolute">
+    <origin xyz="0.0359999999999999 0.0584999999999999 0.022" rpy="1.5707963267949 0 0" />
+    <parent link="base" />
+    <child link="front_left_31_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="-1.2" upper="1.2" effort="2" velocity="3" />
   </joint>
-  <link
-    name="front_left_32_link">
+  <link name="front_left_32_link">
     <inertial>
-      <origin
-        xyz="-0.0188686672803259 -0.00185163185888966 -0.00340124600917163"
-        rpy="0 0 0" />
-      <mass
-        value="0.0881779508742529" />
-      <inertia
-        ixx="8.44418990827642E-05"
-        ixy="-8.10480973500658E-07"
-        ixz="1.65153440050162E-07"
-        iyy="2.57963489752383E-05"
-        iyz="1.74921822476096E-05"
-        izz="7.4277879195852E-05" />
+      <origin xyz="-0.0188686672803259 -0.00185163185888966 -0.00340124600917163" rpy="0 0 0" />
+      <mass value="0.11684680502523545" />
+      <inertia ixx="0.0001118960694851592" ixy="-1.0739885804598176E-06" ixz="2.1884894826267638E-07" iyy="3.4183386313558862E-05" iyz="2.3179327578921142E-05" izz="9.8427472877688909E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.141449999989 0.00153653794583 -0.0514770730945" rpy="-1.57079633425 1.54095625123 1.57079633425" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_left_32.STL" />
+        <mesh filename="package://saprog_description/meshes/left_linkage.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
+      <material name="saprog_front_left_32">
+        <color rgba="0.501960784313725 0.501960784313725 0.501960784313725 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.141449999989 0.00153653794583 -0.0514770730945" rpy="-1.57079633425 1.54095625123 1.57079633425" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_left_32.STL" />
+        <mesh filename="package://saprog_description/meshes/left_linkage.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="front_left_32"
-    type="revolute">
-    <origin
-      xyz="0.0555 0 -0.0229499999999996"
-      rpy="1.5558762890122 -1.57079631189374 1.5558762890122" />
-    <parent
-      link="front_left_31_link" />
-    <child
-      link="front_left_32_link" />
-    <axis
-      xyz="-1 0 0" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
+  <joint name="front_left_32" type="revolute">
+    <origin xyz="0.0555 0 -0.0229499999999996" rpy="1.5558762890122 -1.57079631189374 1.5558762890122" />
+    <parent link="front_left_31_link" />
+    <child link="front_left_32_link" />
+    <axis xyz="-1 0 0" />
+    <limit lower="-1.6" upper="1.6" effort="2" velocity="3" />
   </joint>
-  <link
-    name="front_left_joint_33_link">
+  <link name="front_left_joint_33_link">
     <inertial>
-      <origin
-        xyz="0.0707853746995644 0.0104959765151749 -0.0157585025997027"
-        rpy="0 0 0" />
-      <mass
-        value="0.0096276040267596" />
-      <inertia
-        ixx="3.16600795343899E-06"
-        ixy="1.2045327800628E-07"
-        ixz="-2.20780533172957E-07"
-        iyy="2.16082812693992E-06"
-        iyz="9.05348654901048E-07"
-        izz="1.21553770037452E-06" />
+      <origin xyz="0.0707853746995644 0.0104959765151749 -0.0157585025997027" rpy="0 0 0" />
+      <mass value="0.012757778553724891" />
+      <inertia ixx="4.1953562129311015E-06" ixy="1.5961564711252463E-07" ixz="-2.9256179869519576E-07" iyy="2.8633673195882463E-06" iyz="1.1997001144871324E-06" izz="1.610739365887856E-06" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="-0.1122499887 0.0012123798075 0.055657434733" rpy="1.5707963211 -1.5409635976 1.5707889711" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_left_joint_33.STL" />
+        <mesh filename="package://saprog_description/meshes/left_crank.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="1 0 0 1" />
+      <material name="saprog_front_left_joint_33">
+        <color rgba="1 0 0 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="-0.1122499887 0.0012123798075 0.055657434733" rpy="1.5707963211 -1.5409635976 1.5707889711" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_left_joint_33.STL" />
+        <mesh filename="package://saprog_description/meshes/left_crank.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="front_left_joint_33"
-    type="revolute">
-    <origin
-      xyz="0.0292 0 0"
-      rpy="-3.1416 0 -3.1416" />
-    <parent
-      link="front_left_32_link" />
-    <child
-      link="front_left_joint_33_link" />
-    <axis
-      xyz="1 0 0" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
+  <joint name="front_left_joint_33" type="revolute">
+    <origin xyz="0.029200002384 0.0003245738905 0.0041803527303" rpy="3.1415853072 0 3.1415853072" />
+    <parent link="front_left_32_link" />
+    <child link="front_left_joint_33_link" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0" upper="0.614" effort="2" velocity="3" />
   </joint>
-  <link
-    name="front_left_leg_link">
+  <link name="front_left_leg_link">
     <inertial>
-      <origin
-        xyz="-0.0239184469880763 -0.0579759901196718 0.00123932595648805"
-        rpy="0 0 0" />
-      <mass
-        value="0.0438740712506122" />
-      <inertia
-        ixx="1.02842778218486E-05"
-        ixy="-1.19821226958298E-06"
-        ixz="9.88531654177004E-08"
-        iyy="4.40817944333625E-06"
-        iyz="2.21786015245003E-07"
-        izz="1.26351138966117E-05" />
+      <origin xyz="-0.0818271868889 -0.000432291661 0.0187442691832" rpy="-4.39056033816e-11 2.09405826013e-11 -4.22947799159e-11" />
+      <mass value="0.058138627607646903" />
+      <inertia ixx="1.3627953400602064E-05" ixy="-1.5877810048281365E-06" ixz="1.3099279843961616E-07" iyy="5.8413886785178237E-06" iyz="2.9389418810166168E-07" izz="1.6743104997466171E-05" />
     </inertial>
     <visual>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.01527 0.0911 -0.15675" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_left_leg.STL" />
+        <mesh filename="package://saprog_description/meshes/left_leg.stl" />
       </geometry>
-      <material
-        name="">
-        <color
-          rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
+      <material name="saprog_front_left_leg">
+        <color rgba="0.250980392156863 0.250980392156863 0.250980392156863 1" />
       </material>
     </visual>
     <collision>
-      <origin
-        xyz="0 0 0"
-        rpy="0 0 0" />
+      <origin xyz="0.01527 0.0911 -0.15675" rpy="0 0 0" />
       <geometry>
-        <mesh
-          filename="package://saprog_description/meshes/front_left_leg.STL" />
+        <mesh filename="package://saprog_description/meshes/left_leg.stl" />
       </geometry>
     </collision>
   </link>
-  <joint
-    name="front_left_leg"
-    type="revolute">
-    <origin
-      xyz="-0.0253 0.091093 -0.04022"
-      rpy="3.1416 1.5708 0" />
-    <parent
-      link="front_left_32_link" />
-    <child
-      link="front_left_leg_link" />
-    <axis
-      xyz="0 0 -1" />
-    <limit
-      lower="0"
-      upper="0"
-      effort="0"
-      velocity="0" />
-    <mimic
-      joint="front_left_joint_33"
-      multiplier="-1"
-      offset="0" />
+  <joint name="front_left_leg" type="revolute">
+    <origin xyz="-0.0153000013656 0.0921409859052 -0.033515834682" rpy="-1.57079633425 1.54095625123 1.57079633425" />
+    <parent link="front_left_32_link" />
+    <child link="front_left_leg_link" />
+    <limit lower="-1.5" upper="1.5" effort="2" velocity="3" />
+    <axis xyz="0 0 1" />
+    <mimic joint="front_left_joint_33" multiplier="-2.4" offset="0" />
   </joint>
 </robot>

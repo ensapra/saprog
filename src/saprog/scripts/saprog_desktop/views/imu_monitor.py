@@ -33,6 +33,7 @@ class ImuMonitor:
         self.closed = False
         self.connected = False
         self.orientation = None
+        self.absolute_heading = None
         self.zeroed = False
         self.backend_status = None
         self.last_status_at = 0.0
@@ -99,7 +100,7 @@ class ImuMonitor:
             state="disabled",
         )
         self.zero_button.pack(side="left")
-        self.use_magnetometer = tk.BooleanVar(value=False)
+        self.use_magnetometer = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             reference_controls,
             text="Use magnetic heading",
@@ -194,6 +195,12 @@ class ImuMonitor:
                 dependencies.qos_profile_sensor_data,
             ),
             node.create_subscription(
+                dependencies.Imu,
+                "/saprog/imu/data",
+                self.receive_absolute_orientation,
+                dependencies.qos_profile_sensor_data,
+            ),
+            node.create_subscription(
                 dependencies.MagneticField,
                 "/saprog/imu/mag",
                 self.receive_mag,
@@ -228,7 +235,7 @@ class ImuMonitor:
         if hasattr(self, "model") and not self.closed:
             draw_orientation(
                 self.model, self.orientation, self.zeroed,
-                self.use_magnetometer.get(),
+                self.use_magnetometer.get(), self.absolute_heading,
             )
     def request(self, name, request=None):
         if self.closed:
@@ -281,6 +288,15 @@ class ImuMonitor:
         # Display conversion only; fusion and zero transforms happen in C++.
         self.orientation = quaternion_to_euler((q.x, q.y, q.z, q.w))
 
+    def receive_absolute_orientation(self, msg):
+        if self.closed:
+            return
+        if msg.orientation_covariance[0] < 0:
+            self.absolute_heading = None
+            return
+        q = msg.orientation
+        self.absolute_heading = quaternion_to_euler((q.x, q.y, q.z, q.w))[2]
+
     def receive_status(self, msg):
         if self.closed:
             return
@@ -315,6 +331,7 @@ class ImuMonitor:
         )
         if not msg.orientation_valid:
             self.orientation = None
+            self.absolute_heading = None
 
     @staticmethod
     def format_vector(vector, scale=1.0):
@@ -375,6 +392,7 @@ class ImuMonitor:
         )
         if not available:
             self.orientation = None
+            self.absolute_heading = None
             self.status.set("Waiting for /saprog/imu/status from the C++ ROS backend…")
         self.render_model()
         self.root.after(50, self.poll_messages)

@@ -25,14 +25,14 @@
       "control_mode": "Global Control",
       "duration": {
         "mode": "seconds",
-        "seconds": 0.3
+        "seconds": 0.5
       }
     },
     {
       "snapshot": "stand.json",
       "motion": {
-        "speed": 137,
-        "torque": 814
+        "speed": 371,
+        "torque": 790
       },
       "overrides": {},
       "control_mode": "Global Control",

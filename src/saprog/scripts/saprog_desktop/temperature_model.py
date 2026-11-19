@@ -61,5 +61,13 @@ class TemperatureHistory:
             recent = bool(points) and now - points[-1][0] <= self.stale_seconds
             fresh += int(recent)
             if name in self.selected:
-                visible.append((name, [(stamp, value) for stamp, value in points if stamp >= cutoff_window]))
+                samples = list(points)
+                first_visible = next(
+                    (index for index, (stamp, _value) in enumerate(samples) if stamp >= cutoff_window),
+                    len(samples),
+                )
+                start = max(0, first_visible - 1)
+                if start < first_visible and samples[start][0] < cutoff_window - self.stale_seconds:
+                    start = first_visible
+                visible.append((name, samples[start:]))
         return visible, fresh

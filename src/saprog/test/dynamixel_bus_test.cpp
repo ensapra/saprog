@@ -36,7 +36,7 @@ int main()
   sdk = {};
   DynamixelBus position_bus("fake", 1000000, 1.0, 1, false);
   check(position_bus.set_position(12, 700, 50, 512, error));
-  check(error.empty() && sdk.reads == 4);
+  check(error.empty() && sdk.reads == 0);
   check(sdk.tx_only_writes == std::vector<uint16_t>({34, 32, 30, 24}));
   check(sdk.registers[{12, 30}] == 700 && sdk.registers[{12, 24}] == 1);
   check(position_bus.set_torque(12, false, error));
@@ -46,24 +46,23 @@ int main()
   check(sdk.tx_only_writes.size() == writes_before_cached_torque);
 
   sdk = {};
-  DynamixelBus mismatch_bus("fake", 1000000, 1.0, 1, false);
+  DynamixelBus send_only_bus("fake", 1000000, 1.0, 1, false);
   sdk.apply_write = false;
-  check(!mismatch_bus.set_position(12, 700, 50, 512, error));
-  check(error.find("readback mismatch") != std::string::npos);
-  check(sdk.tx_only_writes == std::vector<uint16_t>({34})); // Never command a goal after failure.
+  check(send_only_bus.set_position(12, 700, 50, 512, error));
+  check(error.empty() && sdk.reads == 0);
+  check(sdk.tx_only_writes == std::vector<uint16_t>({34, 32, 30, 24}));
 
   sdk = {};
   DynamixelBus timeout_bus("fake", 1000000, 1.0, 1, false);
   sdk.read_result = COMM_RX_TIMEOUT;
-  check(!timeout_bus.set_torque(12, false, error));
-  check(error.find("readback failed") != std::string::npos);
-  check(sdk.tx_only_writes.size() == 1 && sdk.reads == 1); // No command retries.
+  check(timeout_bus.set_torque(12, false, error));
+  check(error.empty() && sdk.tx_only_writes.size() == 1 && sdk.reads == 0);
 
   sdk = {};
   DynamixelBus device_error_bus("fake", 1000000, 1.0, 1, false);
   sdk.read_error = 4;
-  check(!device_error_bus.set_torque(12, true, error));
-  check(error.find("readback device error") != std::string::npos);
+  check(device_error_bus.set_torque(12, true, error));
+  check(error.empty() && sdk.reads == 0);
 
   sdk = {};
   DynamixelBus transmit_error_bus("fake", 1000000, 1.0, 1, false);
@@ -91,13 +90,13 @@ int main()
   const std::vector<int> torque_limits{500, 600};
   check(streaming_bus.set_positions(ids, {100, 200}, 50, torque_limits, 0.1, error));
   check(sdk.group_writes == std::vector<uint16_t>({34, 32, 30, 24}));
-  check(sdk.reads == 6); // Verify changed settings; skip per-command goal reads.
+  check(sdk.reads == 0); // Group writes are sent without register readback.
   check(streaming_bus.set_positions(ids, {110, 210}, 50, torque_limits, 0.1, error));
   check(sdk.group_writes == std::vector<uint16_t>({34, 32, 30, 24, 30}));
-  check(sdk.reads == 6); // Reuse cached settings and keep the high-rate path lean.
+  check(sdk.reads == 0); // Reuse cached settings and keep the high-rate path lean.
   check(streaming_bus.set_positions(ids, {120, 220}, 60, {510, 610}, 0.1, error));
   check(sdk.group_writes == std::vector<uint16_t>({34, 32, 30, 24, 30, 34, 32, 30}));
-  check(sdk.reads == 10); // Reverify only settings that changed.
+  check(sdk.reads == 0); // Changed settings still do not trigger register readback.
 
   sdk = {};
   DynamixelBus failed_group_bus("fake", 1000000, 1.0, 1, false);
@@ -108,7 +107,7 @@ int main()
   sdk = {};
   DynamixelBus verified_bus("fake", 1000000, 1.0, 1, true);
   check(verified_bus.set_positions({11, 12}, {100, 200}, 50, {500, 600}, 0.1, error));
-  check(sdk.reads == 8); // Six changed-setting reads plus two goal-register reads.
+  check(sdk.reads == 2); // Only explicitly requested synchronized goal reads remain.
 
   sdk = {};
   DynamixelBus per_joint_bus("fake", 1000000, 1.0, 1, false);

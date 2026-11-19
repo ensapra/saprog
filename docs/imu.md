@@ -36,7 +36,11 @@ Gyro integration uses sensor timestamps and quaternions. Gravity correction is
 suppressed above 45 degrees/s or acceleration magnitude more than 8% from resting
 gravity; it resumes after 250 ms with a 0.5 s time constant. These heuristics cannot
 recover clipped rates/missing rotations or distinguish all translation from tilt.
-Magnetic heading is optional/off by default; without it yaw is relative and drifts.
+Magnetic heading is enabled by default and can be disabled with the
+`use_magnetometer:=false` launch argument or runtime service. Without it yaw is
+relative and drifts. Optional magnetometer calibration corrects hard-iron offsets
+and per-axis scaling; it does not correct general cross-axis soft-iron distortion
+or changing interference from steel, motors and wiring.
 Timestamp gaps, peak gyro rate and sample frequency are diagnostics, not calibration.
 
 **Zero** stores `q_zero`; display rotation is `inverse(q_zero) * q_current`. It
@@ -128,16 +132,15 @@ ros2 service call /saprog/imu/zero std_srvs/srv/Trigger '{}'
 Use one backend per device. Closing a display leaves the launch/backend running;
 stop standalone launch with Ctrl+C. Use `auto_connect:=false` for manual connection.
 
-The Robot view currently copies the orientation topic to `world -> base` without
-applying a sensor-to-base mounting transform. With zero set, the topic is relative
-to the saved `imu_zero` reference; after clear-zero it is relative to the filter's
-local `imu_world` reference. Neither reference is a measured robot/world alignment.
-The frame label on the topic is informational here: the bridge does not compose
-that reference with a calibrated mounting rotation. When no orientation arrives
-for 0.5 seconds, the view resets `world -> base` to identity rather than holding
-the last tilt indefinitely. Floor and height are illustrations, not measured
-position. A measured mounting transform and a declared display reference remain
-open under [#4](https://github.com/ensapra/saprog/issues/4).
+The Robot view uses the absolute `data` attitude, so monitor zeroing does not
+remove its magnetic-north reference. It composes that attitude with a fixed
+180-degree X-axis display rotation before publishing `world -> base`. This is
+the current assumed mounting correction, not a measured sensor-to-base transform.
+When valid IMU data stops for 0.5 seconds, diagnostics mark it stale while the
+view holds the last valid orientation until samples resume. Floor and height are
+illustrations, not measured position. A measured mounting transform and a
+declared display reference remain open under
+[#4](https://github.com/ensapra/saprog/issues/4).
 [Filter tests](../src/saprog/test/imu_filter_test.cpp) cover parsing, rotations,
 zero and calibration; physical units, mounting, clipping and serial lifecycle still
 need validation. Library/transport follow-up: [#5](https://github.com/ensapra/saprog/issues/5).

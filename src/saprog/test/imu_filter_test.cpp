@@ -56,6 +56,14 @@ int main()
   f.update({5000, {0, 0, 1}, {0, 0, 90}, {0, 0, 0}});
   check(f.time_gaps == 1, "long sensor timestamp gap was not reported");
 
+  Filter magnetic;
+  magnetic.set_heading(true);
+  magnetic.update({0, {0, 0, 1}, {0, 0, 0}, {1, 0, 0}});
+  magnetic.update({10, {0, 0, 1}, {0, 0, 0}, {1, 0, 0}});
+  magnetic.update({300, {2, 0, 0}, {0, 0, 0}, {0, -1, 0}});
+  check(yaw(magnetic.attitude) > 0.1,
+        "magnetic heading stopped updating while accelerometer data was unreliable");
+
   Filter calibration;
   calibration.update({0, {0, 0, 1}, {0.3, -0.2, 0.5}, {0, 0, 0}});
   calibration.start_calibration();

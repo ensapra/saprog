@@ -4,8 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace as NS
+from unittest.mock import Mock, patch
 
 from snapshot_window import SnapshotWindow
+from saprog_desktop.snapshot_units import LEG_JOINTS
 
 
 class Value:
@@ -20,6 +22,96 @@ class Value:
 
 
 class SnapshotWindowTest(unittest.TestCase):
+    def servo_app(self):
+        app = SnapshotWindow.__new__(SnapshotWindow)
+        app.joints = ["servo_13"]
+        app.fixed, app.torque_state, app.pending = set(), {}, {}
+        app.playback_state = None
+        app.external_busy = lambda: False
+        app.target_values = {"servo_13": Value("0.4")}
+        app.target_edited = {"servo_13"}
+        app.bounds = {"servo_13": (-1, 1)}
+        app.current_labels = {"servo_13": Mock()}
+        app.torque_buttons = {"servo_13": Mock()}
+        app.manual_buttons = {}
+        app.status = Value()
+        app.moving_speed, app.torque_strength = Value(250), Value(600)
+        app.dependencies = NS(JointState=lambda: NS(header=NS()))
+        app.node = NS(get_clock=lambda: NS(now=lambda: NS(to_msg=lambda: None)))
+        app.command_pub = Mock()
+        return app
+
+    def report(self, app, torque, position=0.1):
+        app._state(NS(name=["servo_13"], position=[position], effort=[torque],
+                      header=NS(stamp=NS(sec=1, nanosec=0))))
+
+    def test_fix_sends_typed_target_and_waits_for_reported_torque(self):
+        app = self.servo_app()
+        self.report(app, 0.0)
+        app.toggle_torque("servo_13")
+        message = app.command_pub.publish.call_args.args[0]
+        self.assertEqual(message.name, ["servo_13"])
+        self.assertEqual(message.position, [0.4])
+        self.assertEqual(message.effort, [600.0])
+        self.assertNotIn("servo_13", app.fixed)
+        self.report(app, 1.0, 0.3)
+        self.assertIn("servo_13", app.fixed)
+        self.assertEqual(app.target_values["servo_13"].get(), "0.4")
+        self.assertIn("Current 0.300 rad | Torque on",
+                      app.current_labels["servo_13"].configure.call_args.kwargs["text"])
+        self.assertEqual(app.torque_buttons["servo_13"].configure.call_args.kwargs["text"],
+                         "Release")
+        app.torque = Mock()
+        app.toggle_torque("servo_13")
+        app.torque.assert_called_once_with("servo_13", False)
+
+    def test_telemetry_updates_during_operations_and_ack_does_not_override_it(self):
+        app = self.servo_app()
+        token = object()
+        app.pending["servo_13"] = (token, 0, False)
+        app.playback_state = {"phase": "sending"}
+        self.report(app, 1.0)
+        self.assertIn("servo_13", app.fixed)
+        app._apply_torque_result("servo_13", False, token, "success")
+        self.assertIn("servo_13", app.fixed)
+        self.report(app, 0.0)
+        self.assertNotIn("servo_13", app.fixed)
+        self.assertEqual(app.torque_buttons["servo_13"].configure.call_args.kwargs["text"],
+                         "Fix")
+
+    def test_creator_builds_leg_panels_and_configures_each_window(self):
+        import tkinter as tk
+        from tkinter import ttk
+
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(str(exc))
+        self.addCleanup(root.destroy)
+        root.withdraw()
+        dependencies = NS(
+            tk=tk, ttk=ttk, AsyncParameterClient=Mock(), Trigger=Mock(),
+            JointState=Mock(), SetBool=Mock(),
+        )
+        joints = [joint for _name, members in LEG_JOINTS for joint in members]
+        config = NS(joints=joints, bounds={joint: (-1, 1) for joint in joints}, tolerance=0.05)
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "saprog_desktop.views.snapshot_window.SnapshotConfigurationClient"
+        ):
+            for embedded in (False, True):
+                with self.subTest(embedded=embedded):
+                    container = ttk.Frame(root) if embedded else None
+                    app = SnapshotWindow(
+                        root, Mock(), directory, container=container, dependencies=dependencies
+                    )
+                    self.assertEqual(set(app.leg_frames), {name for name, _ in LEG_JOINTS})
+                    app._configure(config)
+                    self.assertEqual(app.joints, joints, app.status.get())
+                    self.assertEqual(set(app.target_values), set(joints))
+                    for name, members in LEG_JOINTS:
+                        self.assertEqual(len(app.leg_frames[name].winfo_children()), len(members))
+                    app.close()
+
     def test_creator_load_sends_every_joint_in_one_command(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "pose.json"

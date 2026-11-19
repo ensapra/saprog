@@ -12,20 +12,20 @@ saprog_usb_is_wsl() {
   }
 }
 
-# usbipd bind is a one-time Windows administrator operation. For the IMU only,
-# request it through the standard UAC prompt when the device is not shared.
-saprog_usb_bind_imu() {
-  local usbipd_path="$1" bus_id="$2" windows_path output
+# usbipd bind is a one-time Windows administrator operation. Request it through
+# the standard UAC prompt when a caller's device is not already shared.
+saprog_usb_bind_device() {
+  local label="$1" usbipd_path="$2" bus_id="$3" windows_path output
   command -v powershell.exe >/dev/null 2>&1 || {
-    saprog_usb_fail IMU "IMU USB device is not shared and PowerShell interop is unavailable; run 'usbipd bind --busid ${bus_id}' in elevated Windows PowerShell."
+    saprog_usb_fail "$label" "USB device is not shared and PowerShell interop is unavailable; run 'usbipd bind --busid ${bus_id}' in elevated Windows PowerShell."
     return 1
   }
   windows_path="$(wslpath -w "$usbipd_path")" || {
-    saprog_usb_fail IMU "Could not resolve usbipd.exe's Windows path for administrator binding."
+    saprog_usb_fail "$label" "Could not resolve usbipd.exe's Windows path for administrator binding."
     return 1
   }
   if ! output="$(powershell.exe -NoProfile -Command "\$process = Start-Process -FilePath '${windows_path}' -ArgumentList 'bind --busid ${bus_id}' -Verb RunAs -Wait -PassThru; exit \$process.ExitCode" 2>&1)"; then
-    saprog_usb_fail IMU "Could not share USB device ${bus_id}; approve the Windows administrator prompt or run 'usbipd bind --busid ${bus_id}' in elevated PowerShell. ${output}"
+    saprog_usb_fail "$label" "Could not share USB device ${bus_id}; approve the Windows administrator prompt or run 'usbipd bind --busid ${bus_id}' in elevated PowerShell. ${output}"
     return 1
   fi
 }
@@ -72,12 +72,12 @@ saprog_usb_attach() {
   fi
   read -r SAPROG_USB_BUS_ID SAPROG_USB_HARDWARE_ID SAPROG_USB_STATE <<<"$matches"
   if [[ "$SAPROG_USB_STATE" != Shared && "$SAPROG_USB_STATE" != Attached ]]; then
-    if [[ "$label" != IMU ]] || ! saprog_usb_bind_imu "$usbipd" "$SAPROG_USB_BUS_ID"; then
+    if [[ "$label" != IMU && "$label" != CONTROLLER ]] || ! saprog_usb_bind_device "$label" "$usbipd" "$SAPROG_USB_BUS_ID"; then
       saprog_usb_fail "$label" "USB device ${SAPROG_USB_BUS_ID} (${SAPROG_USB_HARDWARE_ID}) is not shared with WSL (state: ${SAPROG_USB_STATE}). In elevated Windows PowerShell, run: usbipd bind --busid ${SAPROG_USB_BUS_ID}"
       return 1
     fi
     if ! listing="$("$usbipd" list 2>&1)"; then
-      saprog_usb_fail "$label" "Could not verify the IMU USB share after binding: ${listing}"
+      saprog_usb_fail "$label" "Could not verify the USB share after binding: ${listing}"
       return 1
     fi
     listing="${listing//$'\r'/}"
@@ -88,7 +88,7 @@ saprog_usb_attach() {
     fi
     count="$(awk 'NF { n++ } END { print n + 0 }' <<<"$matches")"
     if [[ "$count" -ne 1 ]]; then
-      saprog_usb_fail "$label" "Could not uniquely verify the IMU USB device after binding."
+      saprog_usb_fail "$label" "Could not uniquely verify the USB device after binding."
       return 1
     fi
     read -r SAPROG_USB_BUS_ID SAPROG_USB_HARDWARE_ID SAPROG_USB_STATE <<<"$matches"

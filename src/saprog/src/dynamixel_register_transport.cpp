@@ -76,7 +76,8 @@ bool DynamixelRegisterTransport::write(uint8_t id, uint16_t address, uint16_t va
       error = context + packet_handler_->getTxRxResult(result);
       return false;
     }
-    return verify(id, address, value, width, error);
+    error.clear();
+    return true;
   }
 
   uint8_t device_error = 0;

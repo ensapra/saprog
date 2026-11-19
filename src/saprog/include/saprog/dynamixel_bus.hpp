@@ -58,7 +58,7 @@ private:
 
   struct ServoSettings
   {
-    // -1 means the register value is unknown and must be written and verified.
+    // -1 means the register value is unknown and must be written.
     int torque_limit{-1};
     int speed{-1};
     int torque_enabled{-1};
@@ -67,8 +67,6 @@ private:
   bool set_setting(uint8_t id, uint16_t address, uint16_t value, uint16_t size, std::string &error);
   bool set_settings(const std::vector<uint8_t> &ids, const std::vector<uint16_t> &values,
                     uint16_t address, uint16_t size, std::string &error);
-  bool verify_register(uint8_t id, uint16_t address, uint16_t value, uint16_t size,
-                       std::string &error);
   int &cached_setting(uint8_t id, uint16_t address);
   void invalidate_setting(uint8_t id, uint16_t address);
   bool write_register(uint8_t id, uint16_t address, uint16_t value, uint16_t size,

@@ -311,38 +311,10 @@ bool DynamixelBus::set_settings(const std::vector<uint8_t> &ids,
     }
     return false;
   }
-  for (const auto id : changed_ids) {
-    invalidate_setting(id, address);
-  }
   for (size_t i = 0; i < changed_ids.size(); ++i) {
-    if (!verify_register(changed_ids[i], address, changed_values[i], size, error)) {
-      return false;
-    }
     cached_setting(changed_ids[i], address) = changed_values[i];
   }
   error.clear();
-  return true;
-}
-
-bool DynamixelBus::verify_register(uint8_t id, uint16_t address, uint16_t value, uint16_t size,
-                                   std::string &error)
-{
-  std::array<uint8_t, 2> data{};
-  const std::string context =
-      "servo_" + std::to_string(id) + " register " + std::to_string(address) + ": ";
-  if (!transport_.read(id, address, size, data.data(), error)) {
-    const auto device_error = error.find("device error: ");
-    error = context + (device_error == std::string::npos ? "readback failed: "
-                                                         : "readback device error: ") +
-            (device_error == std::string::npos ? error : error.substr(device_error + 14));
-    return false;
-  }
-  const uint16_t observed = static_cast<uint16_t>(data[0] | (data[1] << 8));
-  if (observed != value) {
-    error = context + "readback mismatch (expected " + std::to_string(value) + ", got " +
-            std::to_string(observed) + ").";
-    return false;
-  }
   return true;
 }
 

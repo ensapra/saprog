@@ -1,5 +1,52 @@
 # Validation suites
 
+## Fast development loop
+
+Keep one persistent build tree in the WSL home directory. Reusing it preserves
+the CMake cache and avoids placing generated files in the Windows-mounted
+checkout. Run these commands from Ubuntu/WSL at the workspace root:
+
+```sh
+cd /mnt/c/Users/pauso/Documents/GitHub/saprog
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-select saprog --symlink-install \
+  --build-base "$HOME/saprog-build/build" \
+  --install-base "$HOME/saprog-build/install" \
+  --log-base "$HOME/saprog-build/log" \
+  --cmake-args -DSAPROG_BUILD_ROBOT_VIEW=OFF
+source "$HOME/saprog-build/install/setup.bash"
+```
+
+Repeat the build command after C++ or interface changes. Colcon reuses the
+existing build tree and rebuilds affected targets; `--symlink-install` also
+exposes Python and resource edits without copying them into the install tree.
+Use the full default build in `launch_home.sh` when validating the embedded
+RViz view or preparing to run the full desktop.
+
+For Python-only changes, skip colcon build and run the narrow suite directly
+from `src/saprog/test`:
+
+```sh
+cd /mnt/c/Users/pauso/Documents/GitHub/saprog/src/saprog/test
+PYTHONPATH=../scripts python3 -m unittest test_monitor_models
+```
+
+Replace the test module with the affected module. To run the complete pure
+Python layer, use the command below. Once the core build is sourced, the CTest
+layers can be run independently as documented here.
+
+```sh
+PYTHONPATH=../scripts python3 -m unittest \
+  test_player_settings test_snapshot_units test_monitor_models \
+  test_playback_adapters test_project_data test_controller
+```
+
+The first build in a fresh `$HOME/saprog-build` tree is still a full compile.
+Keep that tree between sessions; remove it only when intentionally starting
+from a clean build. Add `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache` to the CMake
+arguments if `ccache` is installed and you want compiler-result caching across
+separate build trees.
+
 The Python tests are split by the dependencies and behavior they exercise.
 Run commands from `src/saprog/test` after activating the Python environment
 used by the ROS Jazzy workspace.

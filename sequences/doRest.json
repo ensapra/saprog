@@ -3,36 +3,36 @@
   "schema_version": 2,
   "steps": [
     {
-      "snapshot": "step1.json",
+      "snapshot": "stand.json",
       "motion": {
-        "speed": 496,
-        "torque": 814
+        "speed": 119,
+        "torque": 323
+      },
+      "overrides": {},
+      "control_mode": "Global Control",
+      "duration": {
+        "mode": "until_reached",
+        "seconds": 1.0
+      }
+    },
+    {
+      "snapshot": "newStand.json",
+      "motion": {
+        "speed": 178,
+        "torque": 601
       },
       "overrides": {},
       "control_mode": "Global Control",
       "duration": {
         "mode": "seconds",
-        "seconds": 0.3
+        "seconds": 0.5
       }
     },
     {
-      "snapshot": "step2.json",
+      "snapshot": "rest.json",
       "motion": {
-        "speed": 446,
-        "torque": 814
-      },
-      "overrides": {},
-      "control_mode": "Global Control",
-      "duration": {
-        "mode": "seconds",
-        "seconds": 0.3
-      }
-    },
-    {
-      "snapshot": "step3.json",
-      "motion": {
-        "speed": 487,
-        "torque": 819
+        "speed": 134,
+        "torque": 755
       },
       "overrides": {},
       "control_mode": "Global Control",
@@ -43,5 +43,5 @@
     }
   ],
   "on_end": "on",
-  "loop": true
+  "loop": false
 }

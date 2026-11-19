@@ -19,9 +19,10 @@ from saprog_desktop.desktop_style import (
     ROBOT_TEXT,
 )
 from saprog_desktop.imu_model import orientation_matrix
+from saprog_desktop.compass_view import draw_compass
 
 
-def draw_orientation(canvas, orientation, zeroed=False, magnetic_heading=False):
+def draw_orientation(canvas, orientation, zeroed=False, magnetic_heading=False, compass_heading=None):
     """Draw the projected IMU and fixed ground reference onto a Tk canvas."""
     canvas.delete("all")
     width = max(canvas.winfo_width(), 280)
@@ -45,10 +46,10 @@ def draw_orientation(canvas, orientation, zeroed=False, magnetic_heading=False):
     def camera_point(point):
         return transform(camera_pitch, transform(camera_heading, point))
 
-    # The physical IMU is mounted 90 degrees around the renderer's vertical Z axis.
-    # Apply that mounting rotation to the box, while keeping the sensor's
-    # reported roll/pitch values and the ground reference in their own frame.
-    mounting_rotation = orientation_matrix((0.0, 0.0, math.pi / 2))
+    # The default IMU pose is flipped 180 degrees around X.
+    # Apply this to the box only, while
+    # keeping reported sensor angles and the ground reference in their own frame.
+    mounting_rotation = orientation_matrix((math.pi, 0.0, 0.0))
     world_vertices = [
         transform(rotation, transform(mounting_rotation, point))
         for point in (
@@ -119,6 +120,16 @@ def draw_orientation(canvas, orientation, zeroed=False, magnetic_heading=False):
             outline=ROBOT_EDGE,
             width=2,
         )
+
+    # Share this perspective camera with the compass so the dial sits in the
+    # scene plane and moves with the same orbit projection as the IMU model.
+    draw_compass(
+        canvas,
+        camera_point,
+        project,
+        center=(2.0, -0.15, -1.62),
+        radius=0.52,
+    )
 
     canvas.create_text(
         14,
