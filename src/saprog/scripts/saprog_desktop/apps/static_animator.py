@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 """Open Creator, Player and Timeline together in one Tk window."""
 
-import argparse
 import os
-import signal
-import sys
 from dataclasses import dataclass
 
-from saprog_desktop.runtime import RootRosScheduler
-from saprog_desktop.snapshot_files import default_snapshot_directory
-from saprog_desktop.startup import load_desktop_dependencies
 from saprog_desktop.views import snapshot_player
 
 
@@ -139,62 +133,11 @@ def build_animator_views(
         raise
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Open the saprog Static Animator.")
-    parser.add_argument("--directory", default=default_snapshot_directory())
-    args, ros_args = parser.parse_known_args()
-    dependencies = load_desktop_dependencies(
-        sys.argv[1:], require_timeline=True, entrypoint=__file__
-    )
-    from saprog_desktop.desktop_style import apply_style
+def main(argv=None, entrypoint=None):
+    """Compatibility wrapper for the canonical Static Animator startup."""
+    from saprog_desktop.startup import static_animator_main
 
-    dependencies.rclpy.init(args=ros_args)
-    nodes = [
-        dependencies.Node("saprog_static_animator_creator"),
-        dependencies.Node("saprog_static_animator_player"),
-        dependencies.Node("saprog_static_animator_timeline"),
-    ]
-    root = dependencies.tk.Tk()
-    scheduler = RootRosScheduler(root, dependencies, nodes)
-    try:
-        apply_style(root)
-        root.title("Static Animator")
-        root.geometry("1200x900")
-        views = build_animator_views(
-            root,
-            root,
-            nodes[0],
-            nodes[1],
-            nodes[2],
-            args.directory,
-            dependencies=dependencies,
-            on_closed=scheduler.request_close,
-        )
-    except Exception:
-        scheduler.shutdown()
-        root.destroy()
-        raise
-
-    def close():
-        views.request_close()
-
-    root.protocol("WM_DELETE_WINDOW", close)
-
-    def signal_close(_signum, _frame):
-        # Give the timeline editor its normal cancellation/confirmation flow.
-        root.after(0, close)
-
-    signal.signal(signal.SIGTERM, signal_close)
-    signal.signal(signal.SIGINT, signal_close)
-    scheduler.start()
-    try:
-        root.mainloop()
-    finally:
-        scheduler.shutdown()
-        try:
-            root.destroy()
-        except Exception:
-            pass
+    return static_animator_main(argv=argv, entrypoint=entrypoint or __file__)
 
 
 if __name__ == "__main__":

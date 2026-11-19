@@ -5,6 +5,7 @@ from unittest import mock
 
 from home import Home
 from saprog_desktop import runtime
+from saprog_desktop import startup
 from static_animator import AnimatorViews
 
 
@@ -97,6 +98,31 @@ class CloseServiceProbe:
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_static_animator_main_uses_shared_ros_bootstrap(self):
+        with mock.patch.object(
+            startup,
+            "run_ros_desktop",
+            return_value=0,
+        ) as run_ros_desktop:
+            result = startup.static_animator_main(
+                argv=["--directory", "workspace/snapshots", "--ros-args", "-r", "x:=y"],
+                entrypoint="/workspace/static_animator",
+            )
+
+        self.assertEqual(result, 0)
+        call = run_ros_desktop.call_args
+        self.assertEqual(call.args[0], ["--directory", "workspace/snapshots", "--ros-args", "-r", "x:=y"])
+        self.assertEqual(call.args[1], "/workspace/static_animator")
+        self.assertEqual(
+            call.args[3],
+            [
+                "saprog_static_animator_creator",
+                "saprog_static_animator_player",
+                "saprog_static_animator_timeline",
+            ],
+        )
+        self.assertTrue(call.kwargs["require_timeline"])
+
     def test_creator_widgets_use_injected_tk_runtime(self):
         import snapshot_window
 
