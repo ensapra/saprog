@@ -125,6 +125,7 @@ class TimelineWindow:
                 self.status.set(f"Controller configuration unavailable: {error}")
             return
         self.joints, self.bounds = list(config.joints), config.bounds
+        self._update_buttons()
         if self.timeline_state == "idle":
             self.status.set(f"Configured {len(self.joints)} joints; {self._readiness_message()}")
 
@@ -270,7 +271,7 @@ class TimelineWindow:
             compact=True,
             tooltip="Test selected step",
         )
-        stop_button = self.button(
+        self.stop_button = self.button(
             playback, "■", self.stop, compact=True, tooltip="Stop timeline"
         )
         self.dependencies.ttk.Label(
@@ -709,6 +710,11 @@ class TimelineWindow:
             self._load_from_path(self.sequence_paths[selected])
 
     def _load_from_path(self, selected_path=None):
+        if self.run_steps is not None:
+            self.status.set(
+                "Wait for the running timeline to finish or stop it before loading another sequence."
+            )
+            return
         previous_steps, previous_dirty = copy.deepcopy(self.steps), self.dirty
 
         def restore_editor():
@@ -742,6 +748,7 @@ class TimelineWindow:
         self.on_end.set("Torque " + lifecycle["on_end"])
         self.loop.set(document.get("loop", False))
         self.redraw()
+        self._update_buttons()
         self.status.set(f"Loaded {path}")
 
     def play_timeline(self, selected=False):
@@ -1022,6 +1029,8 @@ class TimelineWindow:
             )
             configure_changed(widget, state=state)
         self.sequence.configure(state="disabled" if locked else "normal")
+        if hasattr(self, "stop_button"):
+            configure_changed(self.stop_button, state="normal" if locked else "disabled")
         for button in (self.play_button, self.test_button):
             configure_changed(
                 button,
