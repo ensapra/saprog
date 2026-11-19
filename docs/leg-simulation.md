@@ -65,9 +65,7 @@ bus owner and did not change torque, goals, or servo EEPROM. The raw readings,
 active zero/direction calibration and timestamp are recorded in
 [measured_servo_limits.json](../urdf/config/measured_servo_limits.json).
 
-The URDF's 12 driven joint limits now use the same calibrated radians as live
-telemetry: `direction * (raw - zero) * (300 degrees / 1023)`, with the two
-endpoints sorted. Each leg currently has these ranges:
+The calibrated limits calculated from that read are:
 
 | Joint | Lower (rad) | Upper (rad) |
 | --- | --- | --- |
@@ -76,12 +74,11 @@ endpoints sorted. Each leg currently has these ranges:
 | Third / crank | 0.266150 | 0.880342 |
 | Passive knee (`2.4 * crank`) | 0.638760 | 2.112821 |
 
-The four passive knee ranges are derived from their corresponding crank ranges
-and the existing zero-offset mimic relation, rather than hardware readings from
-additional motors. Stand and rest crank targets of `0.4` and `0.75` rad are within
-the measured range. These are a point-in-time copy; changing servo limits or
-calibration later requires resynchronizing the model. Rebuild the description
-package and restart existing viewers to load changed URDF values.
+These values remain a recorded hardware readback, not the active URDF bounds.
+The attempted URDF limit update was reverted after it coincided with a regression
+in the full Robot view. The servo-to-model angle convention needs to be verified
+before copying hardware limits into the description. Do not treat the report as
+a guarantee that current URDF limits match the servos.
 
 ## Approximation retained for now
 
