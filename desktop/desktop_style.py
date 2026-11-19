@@ -13,6 +13,22 @@ ACCENT = "#245c96"
 ACCENT_HOVER = "#3478bb"
 ACCENT_LIGHT = "#70b5f5"
 WHITE = "#ffffff"
+GRID = "#2b394d"
+
+# IMU scene colors, carried over from the previous desktop visualization.
+ROBOT_GROUND = "#26384a"
+ROBOT_GROUND_EDGE = "#64748b"
+ROBOT_GROUND_AXIS = "#71869c"
+ROBOT_GROUND_GRID = "#3b5065"
+ROBOT_SHADOW = "#172431"
+ROBOT_FACE_FRONT = "#315276"
+ROBOT_FACE_TOP = "#4b8ac2"
+ROBOT_FACE_LEFT = "#3a6996"
+ROBOT_FACE_RIGHT = "#27618d"
+ROBOT_FACE_BOTTOM = "#254b70"
+ROBOT_FACE_BACK = "#3f78a8"
+ROBOT_EDGE = "#a8d8ff"
+ROBOT_TEXT = "#d6e7f7"
 
 
 def apply_style(app):
@@ -49,6 +65,8 @@ def apply_style(app):
         QPushButton:focus {{ border-color: {ACCENT_LIGHT}; }}
         QPushButton:pressed {{ background: {ACCENT}; border-color: {ACCENT_LIGHT}; }}
         QPushButton:disabled {{ color: {DISABLED}; background: {BACKGROUND}; }}
+        QPushButton#compactAction {{ padding: 2px 6px; font-size: 9pt; border-width: 1px; }}
+        QLabel#compactStatus {{ color: {MUTED}; font-size: 9pt; }}
         QLineEdit, QTextEdit, QPlainTextEdit, QComboBox {{
             background: {PANEL}; color: {FOREGROUND}; border: 2px solid {BORDER};
             border-radius: 0; padding: 5px;

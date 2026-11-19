@@ -1,15 +1,33 @@
-"""Empty Home tab package."""
+"""Robot statistics tab and its data visualization widgets."""
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QHBoxLayout, QSplitter, QWidget
 
-TAB_TITLE = "Home"
+from widgets.imu_visualizer import IMUVisualizer
+from widgets.temperature_graph import TemperatureGraph
+
+TAB_TITLE = "Statistics"
 TAB_ORDER = 0
 
 
-class HomeTab(QWidget):
-    """Selectable Home tab, ready for its own UI content later."""
+class StatisticsTab(QWidget):
+    """Show robot statistics widgets."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(6)
+        splitter.addWidget(TemperatureGraph(splitter))
+        splitter.addWidget(IMUVisualizer(splitter))
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([660, 330])
+        layout.addWidget(splitter)
 
 
 def create_tab():
-    """Build the Home tab for the main window."""
-    return HomeTab()
+    """Build the Statistics tab for the main window."""
+    return StatisticsTab()
