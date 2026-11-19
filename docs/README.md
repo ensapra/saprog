@@ -7,6 +7,7 @@ ROS 2 Jazzy control and desktop tools for a 12-servo quadruped. Use this page fo
 - [Operation](operation.md): launch, USB, controls, ROS interfaces and file formats.
 - [IMU](imu.md): sensor contract, calibration and limitations.
 - [Robot view](robot-view.md): RViz process, display support and limitations.
+- [Leg simulation](leg-simulation.md): isolated front-right geometry inspection and calibration requirements.
 - [Desktop style](desktop-style.md): required for desktop UI changes.
 - [Testing](testing.md): test suites and environments; [validation history](validation.md).
 - [Reusable API map](reusability.md): existing shared owners. Update it when shared APIs change.
