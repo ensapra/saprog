@@ -20,3 +20,7 @@ float64 sensor_time_ms
 float64 sample_hz
 float64 peak_gyro_dps
 float64[3] gyro_bias_dps
+bool magnetometer_calibrating
+bool magnetometer_calibrated
+uint32 magnetometer_calibration_samples
+string magnetometer_calibration_message

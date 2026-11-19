@@ -228,3 +228,9 @@ and [description installation](../urdf/CMakeLists.txt) aligned with moves.
 does not establish that an entry point will work after installation.
 
 Creator [release_all()](../src/saprog/scripts/saprog_desktop/views/snapshot_window.py) and Player [stop_playback_and_disable_all_torque()](../src/saprog/scripts/saprog_desktop/views/snapshot_player.py) discard queued poses and issue torque-off requests without telemetry or playback-readiness gates. Static Animator calls the Player method through the Creator external-operation callback. Pending requests are retired through TorqueBatch.close() and replaced; late responses cannot mark a replaced operation successful. These UI-thread methods take no arguments and return no value; per-joint acknowledgements remain asynchronous. They supersede the previous wait-until-idle release behavior.
+
+## Magnetometer calibration
+
+| Source / API | Responsibility and input/output | Current usage / constraints |
+| --- | --- | --- |
+| [magnetometer_calibration.hpp](../src/saprog/include/saprog/magnetometer_calibration.hpp): `MagneticCorrection`, `MagnetometerCalibration` | Collect bounded raw microtesla vectors; estimate hard-iron offsets and diagonal dimensionless scale factors with coverage and magnitude checks. `estimate` returns a candidate without changing the active correction; `commit` installs it after successful persistence. | `ImuNode` owns collection deadlines, mutually exclusive gyro calibration, profile loading/atomic save and application before fusion and ROS field publication. `cancel` preserves the active correction. No ROS or GUI dependency; general cross-axis soft iron is not modeled. |

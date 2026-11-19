@@ -4,7 +4,8 @@
 parsing and ROS services. [imu_filter.hpp](../src/saprog/include/saprog/imu_filter.hpp)
 owns attitude, gyro bias and zero. The [monitor](../src/saprog/scripts/saprog_desktop/views/imu_monitor.py)
 only displays data/calls services; closing it preserves backend state. Reconnect
-or backend restart resets calibration and zero. Home starts/stops its own backend.
+or backend restart resets gyro calibration and zero; saved magnetometer calibration
+persists. Home starts/stops its own backend.
 
 ## Input and estimation
 
@@ -45,6 +46,41 @@ mounting. **Calibrate gyro + zero** needs four seconds
 and at least 20 stationary samples, rejects noise/motion/bad timing, averages gyro
 bias and saves zero. It does not calibrate magnetic distortion or sensor scales.
 Heading-mode changes reset the estimate/zero while retaining gyro bias.
+
+## Magnetometer calibration
+
+In the IMU monitor, click **Calibrate magnetometer**. Move the sensor slowly
+through all orientations for about 20–60 seconds: turn every face up, including
+upside down, and sweep each axis. Keep it away from magnetic objects and changing
+motor currents. Then click **Save calibration**. A figure eight on a flat surface
+alone does not provide the required three-dimensional coverage. The monitor
+shows sample count and rejection reasons. If coverage is incomplete, keep rotating
+and save again; **Cancel** keeps the previous correction.
+
+The backend requires at least ten seconds, 200 samples, coverage of all eight
+octants and six axis directions, plausible field ranges and a consistent corrected
+field magnitude. Collection is bounded to 12,000 samples and two minutes, cancels
+on disconnect, and cannot run alongside gyro calibration. These checks reject
+obvious poor data; they do not certify heading accuracy or fully model soft iron.
+Apply calibration with the sensor in its intended magnetic environment; changing
+mounting, nearby metal or the sensor itself can require recalibration.
+
+Successful calibration is saved atomically to
+`~/.ros/saprog/magnetometer_calibration.txt` in the Linux backend's home directory.
+The startup parameter `magnetometer_calibration_file` selects another file; use
+separate files for different sensors/installations. The profile records `mag_scale`
+and is rejected if that startup scale changes. Invalid profiles are reported and
+raw magnetic readings are used. Save failures, rejected data and cancellation
+preserve the previous correction. Calibration survives reconnects, backend restarts
+and closing the monitor. Saving restarts attitude estimation and clears zero while
+retaining gyro bias. Both attitude estimation and `/saprog/imu/mag` use the corrected
+field; the `serial` topic remains the original input.
+
+Trigger services under `/saprog/imu/` are `start_magnetometer_calibration`,
+`finish_magnetometer_calibration`, and `cancel_magnetometer_calibration`.
+`ImuStatus` includes magnetometer calibration activity, validity, sample count and
+a separate message. Rebuild the ROS package and restart backend and displays after
+updating this message interface.
 
 ## ROS interface
 

@@ -6,6 +6,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -17,6 +20,7 @@
 #include "saprog/imu_filter.hpp"
 #include "saprog/imu_message_adapter.hpp"
 #include "saprog/imu_transport.hpp"
+#include "saprog/magnetometer_calibration.hpp"
 #include "saprog/msg/imu_status.hpp"
 #include "saprog/srv/connect_imu.hpp"
 #include "sensor_msgs/msg/imu.hpp"
@@ -44,6 +48,9 @@ public:
     accel_scale_ = declare_parameter<double>("accel_scale", 1.0);
     gyro_scale_ = declare_parameter<double>("gyro_scale", 1.0);
     mag_scale_ = declare_parameter<double>("mag_scale", 1.0);
+    magnetic_calibration_file_ = declare_parameter<std::string>(
+        "magnetometer_calibration_file", env("HOME") + "/.ros/saprog/magnetometer_calibration.txt");
+    load_magnetic_calibration();
     if (baud_ <= 0 || !std::isfinite(accel_scale_) || accel_scale_ <= 0 ||
         !std::isfinite(gyro_scale_) || gyro_scale_ <= 0 || !std::isfinite(mag_scale_) ||
         mag_scale_ <= 0) {
@@ -101,7 +108,7 @@ public:
       return true;
     });
     add_trigger("zero", [this] {
-      if (!fresh() || filter_.calibrating) {
+      if (!fresh() || filter_.calibrating || magnetic_calibration_.collecting) {
         message_ = "Zero requires live orientation and no calibration in progress.";
         return false;
       }
@@ -119,13 +126,49 @@ public:
       return true;
     });
     add_trigger("calibrate", [this] {
-      if (!fresh() || filter_.calibrating) {
+      if (!fresh() || filter_.calibrating || magnetic_calibration_.collecting) {
         message_ = "Calibration requires live orientation and no calibration in progress.";
         return false;
       }
       filter_.start_calibration();
       calibration_at_ = Clock::now();
       message_ = "Calibration started; hold flat and still for four seconds.";
+      return true;
+    });
+    add_trigger("start_magnetometer_calibration", [this] {
+      if (!fresh() || filter_.calibrating || magnetic_calibration_.collecting) {
+        return fail("Magnetometer calibration requires live samples and no active calibration.");
+      }
+      magnetic_calibration_.start();
+      magnetic_calibration_at_ = Clock::now();
+      message_ = magnetic_calibration_.message;
+      return true;
+    });
+    add_trigger("finish_magnetometer_calibration", [this] {
+      if (!magnetic_calibration_.collecting || !fresh()) {
+        return fail("No active magnetometer collection with live samples.");
+      }
+      if (Clock::now() - magnetic_calibration_at_ < 10s) {
+        return fail("Collect for at least ten seconds while rotating through all orientations.");
+      }
+      saprog::imu::MagneticCorrection candidate;
+      std::string error;
+      if (!magnetic_calibration_.estimate(candidate, error)) {
+        magnetic_calibration_.message = error;
+        return fail(error);
+      }
+      if (!save_magnetic_calibration(candidate, error)) {
+        magnetic_calibration_.message = error;
+        return fail(error);
+      }
+      magnetic_calibration_.commit(candidate);
+      filter_.set_heading(filter_.magnetic_heading);
+      message_ = magnetic_calibration_.message + " Orientation restarts and zero is cleared.";
+      return true;
+    });
+    add_trigger("cancel_magnetometer_calibration", [this] {
+      magnetic_calibration_.cancel("Collection cancelled; previous magnetic correction retained.");
+      message_ = magnetic_calibration_.message;
       return true;
     });
     heading_service_ = create_service<std_srvs::srv::SetBool>(
@@ -168,6 +211,9 @@ private:
   saprog::imu::UsbHelperProcess helper_process_;
   saprog::imu::LineFramer framer_;
   saprog::imu::Filter filter_;
+  saprog::imu::MagnetometerCalibration magnetic_calibration_;
+  std::string magnetic_calibration_file_;
+  Clock::time_point magnetic_calibration_at_{};
   std::uint64_t sample_count_ = 0, invalid_lines_ = 0;
   double accel_scale_ = 1, gyro_scale_ = 1, mag_scale_ = 1;
   Clock::time_point opened_{}, last_sample_{}, calibration_at_{};
@@ -192,6 +238,60 @@ private:
   {
     return transport_.connected() && sample_count_ > 0 && filter_.valid &&
            Clock::now() - last_sample_ < 2s;
+  }
+  void load_magnetic_calibration()
+  {
+    std::ifstream input(magnetic_calibration_file_);
+    if (!input) {
+      std::error_code file_error;
+      if (std::filesystem::exists(magnetic_calibration_file_, file_error) || file_error) {
+        magnetic_calibration_.message = "Cannot read saved magnetometer calibration; using raw field.";
+      }
+      return;
+    }
+    std::string version;
+    double saved_scale = 0;
+    saprog::imu::MagneticCorrection candidate;
+    input >> version >> saved_scale;
+    for (auto &v : candidate.offset) { input >> v; }
+    for (auto &v : candidate.scale) { input >> v; }
+    const bool parsed = static_cast<bool>(input);
+    input >> std::ws;
+    if (!parsed || !input.eof() || version != "saprog_mag_v1" || saved_scale != mag_scale_ ||
+        !candidate.valid()) {
+      magnetic_calibration_.message = "Invalid/incompatible saved calibration; using raw field. Recalibrate.";
+      RCLCPP_WARN(get_logger(), "%s", magnetic_calibration_.message.c_str());
+      return;
+    }
+    magnetic_calibration_.commit(candidate);
+    magnetic_calibration_.message = "Saved magnetometer calibration loaded.";
+  }
+  bool save_magnetic_calibration(const saprog::imu::MagneticCorrection &candidate,
+                                 std::string &error)
+  {
+    const std::filesystem::path destination(magnetic_calibration_file_);
+    const auto temporary = destination.string() + ".tmp";
+    try {
+      if (!destination.parent_path().empty()) {
+        std::filesystem::create_directories(destination.parent_path());
+      }
+      std::ofstream output(temporary, std::ios::trunc);
+      output << std::setprecision(17) << "saprog_mag_v1 " << mag_scale_ << '\n';
+      for (const auto v : candidate.offset) { output << v << ' '; }
+      for (const auto v : candidate.scale) { output << v << ' '; }
+      output << '\n';
+      output.close();
+      if (!output) {
+        throw std::runtime_error("Could not write calibration file");
+      }
+      std::filesystem::rename(temporary, destination);
+      return true;
+    } catch (const std::exception &exception) {
+      std::error_code ignored;
+      std::filesystem::remove(temporary, ignored);
+      error = std::string("Calibration not saved; previous correction retained: ") + exception.what();
+      return false;
+    }
   }
   void discover()
   {
@@ -255,6 +355,9 @@ private:
   }
   void disconnect()
   {
+    if (magnetic_calibration_.collecting) {
+      magnetic_calibration_.cancel("Disconnected; collection cancelled. Previous correction retained.");
+    }
     transport_.close();
     framer_.clear();
     resume_pending_ = false;
@@ -376,6 +479,8 @@ private:
     if (sample_count_ == 1) {
       message_ = "Receiving IMU samples; C++ ROS filtering active.";
     }
+    magnetic_calibration_.observe(sample.mag);
+    sample.mag = magnetic_calibration_.correction.apply(sample.mag);
     filter_.update(sample);
     sensor_msgs::msg::Imu raw, data;
     sensor_msgs::msg::MagneticField mag;
@@ -412,6 +517,9 @@ private:
     if (filter_.calibrating && Clock::now() - calibration_at_ > 12s) {
       filter_.cancel_calibration("Calibration timed out: insufficient fresh samples.");
     }
+    if (magnetic_calibration_.collecting && Clock::now() - magnetic_calibration_at_ > 120s) {
+      magnetic_calibration_.cancel("Collection timed out after two minutes; previous correction retained.");
+    }
     saprog::msg::ImuStatus msg;
     msg.header.stamp = now();
     msg.header.frame_id = frame_;
@@ -435,6 +543,10 @@ private:
     msg.sample_hz = filter_.sample_hz;
     msg.peak_gyro_dps = filter_.peak_gyro_dps;
     msg.gyro_bias_dps = filter_.bias;
+    msg.magnetometer_calibrating = magnetic_calibration_.collecting;
+    msg.magnetometer_calibrated = magnetic_calibration_.calibrated;
+    msg.magnetometer_calibration_samples = magnetic_calibration_.sample_count();
+    msg.magnetometer_calibration_message = magnetic_calibration_.message;
     status_pub_->publish(msg);
   }
 };

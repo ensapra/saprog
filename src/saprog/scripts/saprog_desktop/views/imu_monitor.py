@@ -130,6 +130,27 @@ class ImuMonitor:
         ttk.Label(calibration_controls, textvariable=self.calibration_status, wraplength=450).pack(
             side="left", padx=8
         )
+        magnetic_controls = ttk.Frame(model_frame)
+        magnetic_controls.pack(fill="x", pady=(0, 6))
+        self.magnetic_start_button = ttk.Button(
+            magnetic_controls, text="Calibrate magnetometer",
+            command=lambda: self.request("start_magnetometer_calibration"), state="disabled",
+        )
+        self.magnetic_start_button.pack(side="left")
+        self.magnetic_save_button = ttk.Button(
+            magnetic_controls, text="Save calibration",
+            command=lambda: self.request("finish_magnetometer_calibration"), state="disabled",
+        )
+        self.magnetic_save_button.pack(side="left", padx=8)
+        self.magnetic_cancel_button = ttk.Button(
+            magnetic_controls, text="Cancel",
+            command=lambda: self.request("cancel_magnetometer_calibration"), state="disabled",
+        )
+        self.magnetic_cancel_button.pack(side="left")
+        self.magnetic_status = tk.StringVar(
+            value="Rotate every face up, including upside down, for 20–60 seconds, then Save."
+        )
+        ttk.Label(model_frame, textvariable=self.magnetic_status, wraplength=650).pack(anchor="w")
         self.model = tk.Canvas(model_frame, height=300, background=PANEL, highlightthickness=0)
         self.model.pack(fill="both", expand=True)
         self.model.bind("<Configure>", lambda _event: self.render_model())
@@ -152,6 +173,9 @@ class ImuMonitor:
             "zero",
             "clear_zero",
             "calibrate",
+            "start_magnetometer_calibration",
+            "finish_magnetometer_calibration",
+            "cancel_magnetometer_calibration",
         ):
             self.clients[name] = node.create_client(
                 dependencies.Trigger, "/saprog/imu/" + name
@@ -267,6 +291,16 @@ class ImuMonitor:
         self.use_magnetometer.set(msg.magnetic_heading)
         self.status.set(msg.message)
         self.calibration_status.set(msg.calibration_message)
+        magnetic_message = getattr(
+            msg, "magnetometer_calibration_message", "Update the IMU backend for magnetic calibration."
+        )
+        if getattr(msg, "magnetometer_calibrating", False):
+            magnetic_message = (
+                f"{msg.magnetometer_calibration_samples} samples · " + magnetic_message
+            )
+        elif getattr(msg, "magnetometer_calibrated", False):
+            magnetic_message = "Calibrated · " + magnetic_message
+        self.magnetic_status.set(magnetic_message)
         self.reference_status.set(
             "Zero saved in ROS; this display shows orientation relative to it."
             if msg.zeroed
@@ -316,13 +350,29 @@ class ImuMonitor:
         available = time.monotonic() - self.last_status_at < 2 and self.backend_status is not None
         valid = available and self.backend_status.orientation_valid
         idle = not self.requests
-        can_zero = valid and not self.backend_status.calibrating and idle
+        magnetic_collecting = available and getattr(
+            self.backend_status, "magnetometer_calibrating", False
+        )
+        can_zero = valid and not self.backend_status.calibrating and not magnetic_collecting and idle
         configure_changed(
             self.toggle_button,
             state="normal" if available and self.connected and idle else "disabled",
         )
         configure_changed(self.zero_button, state="normal" if can_zero else "disabled")
         configure_changed(self.calibrate_button, state="normal" if can_zero else "disabled")
+        magnetic_supported = available and hasattr(self.backend_status, "magnetometer_calibrating")
+        configure_changed(
+            self.magnetic_start_button,
+            state="normal" if magnetic_supported and can_zero else "disabled",
+        )
+        configure_changed(
+            self.magnetic_save_button,
+            state="normal" if magnetic_collecting and valid and idle else "disabled",
+        )
+        configure_changed(
+            self.magnetic_cancel_button,
+            state="normal" if magnetic_collecting and idle else "disabled",
+        )
         if not available:
             self.orientation = None
             self.status.set("Waiting for /saprog/imu/status from the C++ ROS backend…")
