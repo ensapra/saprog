@@ -2,8 +2,8 @@
 
 from PySide6.QtWidgets import QWidget
 
-TAB_TITLE = "Other panels"
-TAB_ORDER = 40
+TAB_TITLE = "Other"
+TAB_ORDER = 1000
 
 
 def create_tab():
