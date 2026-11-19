@@ -29,12 +29,17 @@ def draw_orientation(canvas, orientation, zeroed=False, magnetic_heading=False):
     center_x, center_y = width / 2, height / 2 - 12
     scale = min(width, height - 70) * 0.19
     rotation = orientation_matrix(orientation or (0.0, 0.0, 0.0))
-    pitch = math.asin(max(-1.0, min(1.0, -rotation[2][0])))
-    if abs(math.cos(pitch)) > 1e-6:
-        roll = math.atan2(rotation[2][1], rotation[2][2])
-        yaw = math.atan2(rotation[1][0], rotation[0][0])
+    # The IMU is mounted a quarter-turn from the display frame: sensor roll
+    # is the displayed pitch, and sensor pitch is the displayed roll.
+    sensor_pitch = math.asin(max(-1.0, min(1.0, -rotation[2][0])))
+    sensor_roll = 0.0
+    sensor_yaw = 0.0
+    if abs(math.cos(sensor_pitch)) > 1e-6:
+        sensor_roll = math.atan2(rotation[2][1], rotation[2][2])
+        sensor_yaw = math.atan2(rotation[1][0], rotation[0][0])
     else:
-        roll, yaw = 0.0, math.atan2(-rotation[0][1], rotation[1][1])
+        sensor_yaw = math.atan2(-rotation[0][1], rotation[1][1])
+    roll, pitch, yaw = sensor_pitch, sensor_roll, sensor_yaw
 
     camera_heading = orientation_matrix((0.0, 0.0, math.radians(-25)))
     camera_pitch = orientation_matrix((math.radians(-55), 0.0, 0.0))
