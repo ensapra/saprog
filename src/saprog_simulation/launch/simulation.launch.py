@@ -1,6 +1,5 @@
 """Load the installed URDF into a paused, hardware-independent physics world."""
 
-import math
 import os
 from pathlib import Path
 
@@ -37,7 +36,7 @@ def start_world(context):
         output="screen", arguments=[
             "-world", "saprog_simulation", "-name", "saprog",
             "-file", str(description / "urdf" / "URDF.urdf"),
-            "-z", "0.5", "-P", str(math.pi),
+            "-z", "0.5",
         ],
     )
 

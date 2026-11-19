@@ -24,12 +24,16 @@ def service(name, request_type, response_type, request):
                "--timeout", "5000", "--req", request)
 
 
-def pose():
+def model_pose():
     output = run("gz", "topic", "-e", "-n", "1", "--json-output",
                  "-t", "/world/saprog_simulation/pose/info")
     # The CLI can deliver several queued callbacks before honoring --num.
     message = json.loads(output.splitlines()[-1])
-    return next(p for p in message["pose"] if p["name"] == "saprog")["position"]
+    return next(p for p in message["pose"] if p["name"] == "saprog")
+
+
+def pose():
+    return model_pose()["position"]
 
 
 def step(count, target):
@@ -73,7 +77,11 @@ def main():
                 robot = ET.parse(description / "urdf" / "URDF.urdf").getroot()
                 for mesh in robot.findall("./link/visual/geometry/mesh"):
                     assert Path(mesh.attrib["filename"]).name in scene, mesh.attrib
-                before = pose()
+                initial = model_pose()
+                orientation = initial["orientation"]
+                assert all(abs(orientation.get(axis, 0)) < 1e-6 for axis in ("x", "y", "z")), orientation
+                assert abs(abs(orientation.get("w", 0)) - 1) < 1e-6, orientation
+                before = initial["position"]
                 assert abs(before.get("z", 0) - 0.5) < 0.01, before
                 step(100, 100)
                 falling = pose()
@@ -85,7 +93,8 @@ def main():
                 step(1000, 4100)
                 settled = pose()
                 assert abs(contact.get("z", 0) - settled.get("z", 0)) < 0.03, (contact, settled)
-                print(f"PASS: paused spawn={before}, gravity={falling}, ground contact={settled}")
+                print(f"PASS: upright orientation={orientation}, paused spawn={before}, "
+                      f"gravity={falling}, ground contact={settled}")
             except Exception:
                 log.flush()
                 log.seek(0)

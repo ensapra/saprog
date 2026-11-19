@@ -90,8 +90,8 @@ Gazebo's resource path pointing at the installed mesh package. There is no
 simulation-specific robot description or name rewriting. Source link names use
 a `_link` suffix so they differ from joint names, as required by SDF's frame
 graph. Multiple links can reference the same STL. Joint names and hardware
-mappings remain unchanged. The free base starts at 0.5 m with a
-180-degree pitch, matching the current Robot view's model orientation.
+mappings remain unchanged. The free base starts at 0.5 m in the URDF's native
+orientation, with zero roll, pitch, and yaw.
 
 The [world](../src/saprog_simulation/worlds/inspection.sdf) explicitly selects
 **Bullet Featherstone** (`gz-physics-bullet-featherstone-plugin`) because this
