@@ -18,6 +18,7 @@ from saprog_desktop.snapshot_config import SnapshotConfigurationClient
 from saprog_desktop.snapshot_units import LEG_JOINTS
 from saprog_desktop.timeline_storage import load_timeline
 from saprog_desktop.timeline_presenter import TimelineEditorPresenter
+from saprog_desktop.timeline_icons import create_timeline_icons
 from saprog_desktop.compat.timeline_model import (
     CONTROL_MODES,
     control_groups,
@@ -139,6 +140,7 @@ class TimelineWindow:
             self.root.title("Timeline")
             self.root.geometry("1200x760")
             self.root.minsize(900, 600)
+        self.icon_images = create_timeline_icons(self.root, self.dependencies.tk)
         outer = self.dependencies.ttk.Frame(self.container, padding=14)
         outer.pack(fill="both", expand=True)
         self.dependencies.ttk.Label(
@@ -163,7 +165,7 @@ class TimelineWindow:
             ("Load timeline", "📁", self.load),
             ("Save timeline", "💾", self.save),
         ):
-            self.button(toolbar, icon, callback, compact=True, tooltip=label)
+            self.button(toolbar, "", callback, compact=True, tooltip=label, icon=icon)
         snapshot_row = self.dependencies.ttk.Frame(outer)
         snapshot_row.pack(fill="x", pady=(0, 8))
         self.dependencies.ttk.Label(snapshot_row, text="Available sequence").pack(
@@ -262,17 +264,23 @@ class TimelineWindow:
         playback = self.dependencies.ttk.Frame(outer)
         playback.pack(fill="x", pady=(7, 2))
         self.play_button = self.button(
-            playback, "▶", self.play_timeline, compact=True, tooltip="Play timeline"
+            playback,
+            "",
+            self.play_timeline,
+            compact=True,
+            tooltip="Play timeline",
+            icon="play",
         )
         self.test_button = self.button(
             playback,
-            "▷",
+            "",
             lambda: self.play_timeline(True),
             compact=True,
             tooltip="Test selected step",
+            icon="test",
         )
         self.stop_button = self.button(
-            playback, "■", self.stop, compact=True, tooltip="Stop timeline"
+            playback, "", self.stop, compact=True, tooltip="Stop timeline", icon="stop"
         )
         self.dependencies.ttk.Label(
             outer,
@@ -282,10 +290,12 @@ class TimelineWindow:
         self.status_box = status_box(outer, self.status, height=2, tk_module=self.dependencies.tk)
         self.status_box.pack(fill="x")
 
-    def button(self, parent, label, callback, side="left", compact=False, tooltip=None):
+    def button(
+        self, parent, label, callback, side="left", compact=False, tooltip=None, icon=None
+    ):
         options = {"padding": (5, 3)} if compact else {}
         if compact:
-            options = {"style": "Icon.TButton", "width": 3}
+            options = {"style": "Icon.TButton", "image": self.icon_images[icon]}
         button = self.dependencies.ttk.Button(parent, text=label, command=callback, **options)
         button.pack(side=side, padx=2 if compact else 3, pady=2 if compact else 3)
         if tooltip:
