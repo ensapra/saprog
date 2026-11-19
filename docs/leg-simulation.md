@@ -9,6 +9,19 @@ rest animations are reference configurations for calibration.
 
 ## Launch the inspector
 
+In Home, open **Other panels → Leg Inspector**. Home discovers its
+[launcher](../tabs/launch_leg_inspector.sh) automatically, including while Home
+is already running. The launcher uses the workspace install when available,
+falling back to the dedicated `$HOME/saprog-leg-lab/install` build. Home's existing
+controller lifecycle still applies when opening tools from Home; the leg
+inspector itself starts no hardware backend.
+
+The same launcher works standalone without starting Home or its controller:
+
+```sh
+bash tabs/launch_leg_inspector.sh
+```
+
 Use Ubuntu 24.04 WSL with ROS 2 Jazzy sourced and an installed workspace containing
 `saprog_description` and `saprog_leg_lab`. The additional runtime dependency is
 `ros-jazzy-joint-state-publisher-gui`. Build artifacts belong under the WSL user's
