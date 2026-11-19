@@ -6,7 +6,7 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 
-from saprog_desktop.desktop_style import BACKGROUND
+from saprog_desktop.desktop_style import BACKGROUND, BORDER
 from saprog_desktop.robot_view_session import RendererSession
 
 
@@ -36,7 +36,7 @@ class RobotView:
         )
         self.viewport = tk.Frame(
             parent, background=BACKGROUND, highlightthickness=1,
-            highlightbackground="#34465d", takefocus=True,
+            highlightbackground=BORDER, takefocus=True,
         )
         self.viewport.pack(fill="both", expand=True)
         self.root.after(250, self.poll)

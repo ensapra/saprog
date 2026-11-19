@@ -2,6 +2,22 @@
 
 import math
 
+from saprog_desktop.desktop_style import (
+    MUTED,
+    ROBOT_EDGE,
+    ROBOT_FACE_BACK,
+    ROBOT_FACE_BOTTOM,
+    ROBOT_FACE_FRONT,
+    ROBOT_FACE_LEFT,
+    ROBOT_FACE_RIGHT,
+    ROBOT_FACE_TOP,
+    ROBOT_GROUND,
+    ROBOT_GROUND_AXIS,
+    ROBOT_GROUND_EDGE,
+    ROBOT_GROUND_GRID,
+    ROBOT_SHADOW,
+    ROBOT_TEXT,
+)
 from saprog_desktop.imu_model import orientation_matrix
 
 
@@ -50,10 +66,15 @@ def draw_orientation(canvas, orientation, zeroed=False, magnetic_heading=False):
         return project(camera_point((x, y, -1.65)))
 
     ground = [ground_point(x, y) for x, y in ((-2.5, -2.5), (2.5, -2.5), (2.5, 2.5), (-2.5, 2.5))]
-    canvas.create_polygon(*[c for point in ground for c in point], fill="#26384a", outline="#64748b", width=2)
+    canvas.create_polygon(
+        *[c for point in ground for c in point],
+        fill=ROBOT_GROUND,
+        outline=ROBOT_GROUND_EDGE,
+        width=2,
+    )
     for step in range(-5, 6):
         offset = step * 0.5
-        color = "#71869c" if step == 0 else "#3b5065"
+        color = ROBOT_GROUND_AXIS if step == 0 else ROBOT_GROUND_GRID
         canvas.create_line(*ground_point(offset, -2.5), *ground_point(offset, 2.5), fill=color)
         canvas.create_line(*ground_point(-2.5, offset), *ground_point(2.5, offset), fill=color)
 
@@ -71,23 +92,45 @@ def draw_orientation(canvas, orientation, zeroed=False, magnetic_heading=False):
         return hull
 
     shadow = hull_half(points)[:-1] + hull_half(reversed(points))[:-1]
-    canvas.create_polygon(*[c for x, y in shadow for c in ground_point(x, y)], fill="#172431", outline="")
-    canvas.create_text(14, 36, anchor="nw", fill="#a5b5ca", text="Ground reference · shadow shows tilt; height is illustrative", font=("TkDefaultFont", 9))
+    canvas.create_polygon(*[c for x, y in shadow for c in ground_point(x, y)], fill=ROBOT_SHADOW, outline="")
+    canvas.create_text(
+        14,
+        36,
+        anchor="nw",
+        fill=MUTED,
+        text="Ground reference · shadow shows tilt; height is illustrative",
+        font=("TkDefaultFont", 9),
+    )
     projected = [project(point) for point in vertices]
     faces = [
-        ((0, 1, 2, 3), "#315276"), ((4, 5, 6, 7), "#4b8ac2"),
-        ((0, 1, 5, 4), "#3a6996"), ((1, 2, 6, 5), "#27618d"),
-        ((2, 3, 7, 6), "#254b70"), ((3, 0, 4, 7), "#3f78a8"),
+        ((0, 1, 2, 3), ROBOT_FACE_FRONT), ((4, 5, 6, 7), ROBOT_FACE_TOP),
+        ((0, 1, 5, 4), ROBOT_FACE_LEFT), ((1, 2, 6, 5), ROBOT_FACE_RIGHT),
+        ((2, 3, 7, 6), ROBOT_FACE_BOTTOM), ((3, 0, 4, 7), ROBOT_FACE_BACK),
     ]
     faces.sort(key=lambda item: sum(vertices[i][2] for i in item[0]) / 4)
     for indices, color in faces:
-        canvas.create_polygon([c for i in indices for c in projected[i]], fill=color, outline="#a8d8ff", width=2)
+        canvas.create_polygon(
+            [c for i in indices for c in projected[i]],
+            fill=color,
+            outline=ROBOT_EDGE,
+            width=2,
+        )
 
-    canvas.create_text(14, 14, anchor="nw", fill="#d6e7f7", text=(
-        f"Roll {math.degrees(roll):6.1f}°   Pitch {math.degrees(pitch):6.1f}°   Yaw {math.degrees(yaw):6.1f}°"
-    ), font=("TkDefaultFont", 10, "bold"))
+    canvas.create_text(
+        14,
+        14,
+        anchor="nw",
+        fill=ROBOT_TEXT,
+        text=(
+            f"Roll {math.degrees(roll):6.1f}°   Pitch {math.degrees(pitch):6.1f}°   "
+            f"Yaw {math.degrees(yaw):6.1f}°"
+        ),
+        font=("TkDefaultFont", 10, "bold"),
+    )
     state = "Waiting for IMU samples" if orientation is None else (
         "Orientation relative to your zero pose" if zeroed else "Magnetic heading enabled"
         if magnetic_heading else "Accelerometer + gyroscope · relative heading (may drift)"
     )
-    canvas.create_text(14, height - 14, anchor="sw", fill="#a5b5ca", text=state, font=("TkDefaultFont", 9))
+    canvas.create_text(
+        14, height - 14, anchor="sw", fill=MUTED, text=state, font=("TkDefaultFont", 9)
+    )

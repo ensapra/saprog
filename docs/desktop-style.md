@@ -16,7 +16,10 @@ Segoe UI when installed and otherwise DejaVu Sans, and sets the default font to
 fallback is intentionally limited to those two families; do not assume a font
 exists on every host.
 
-The shared palette is:
+The shared palette and drawing colors are named constants in `desktop_style.py`.
+Views should import those tokens instead of embedding hex values. The robot
+orientation renderer has a small set of `ROBOT_*` face/ground colors there;
+temperature graph grid lines use `GRID`. The shared palette is:
 
 | Use | Current color |
 | --- | --- |
@@ -29,8 +32,8 @@ The shared palette is:
 | Border / scrollbar | `#34465d` |
 | Focus / selected accent | `#498bd1` |
 | Accent button | `#245c96` |
-| Fix / torque-on emphasis | `#ff9c96` |
-| Release / torque-off emphasis | `#86e3ad` |
+| Fix / torque-on emphasis | `#86e3ad` |
+| Release / torque-off emphasis | `#ff9c96` |
 
 Use the existing ttk styles: `Title.TLabel` is 20-point bold, `Muted.TLabel`
 uses muted text, label-frame captions are 11-point bold blue, standard buttons

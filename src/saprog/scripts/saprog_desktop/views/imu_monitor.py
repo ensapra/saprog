@@ -12,7 +12,7 @@ from collections import deque
 from datetime import datetime
 from tkinter import ttk
 
-from saprog_desktop.desktop_style import apply_style, configure_changed
+from saprog_desktop.desktop_style import PANEL, apply_style, configure_changed
 from saprog_desktop.imu_model import quaternion_to_euler
 
 
@@ -124,7 +124,7 @@ class ImuMonitor:
         ttk.Label(calibration_controls, textvariable=self.calibration_status, wraplength=450).pack(
             side="left", padx=8
         )
-        self.model = tk.Canvas(model_frame, height=300, background="#1d2939", highlightthickness=0)
+        self.model = tk.Canvas(model_frame, height=300, background=PANEL, highlightthickness=0)
         self.model.pack(fill="both", expand=True)
         self.model.bind("<Configure>", lambda _event: self.render_model())
 

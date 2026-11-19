@@ -2,7 +2,7 @@
 
 import math
 
-from saprog_desktop.desktop_style import FOREGROUND, configure_changed
+from saprog_desktop.desktop_style import FOREGROUND, GRID, configure_changed
 from saprog_desktop.temperature_model import STALE_SECONDS
 
 
@@ -26,7 +26,7 @@ def draw_temperature(canvas, history, colors, labels, now):
     high = max(low + 10, math.ceil((max(values) + 5) / 5) * 5) if values else 50
     for index in range(6):
         y = bottom - index * (bottom - top) / 5
-        canvas.create_line(left, y, right, y, fill="#2b394d")
+        canvas.create_line(left, y, right, y, fill=GRID)
         canvas.create_text(
             left - 10,
             y,

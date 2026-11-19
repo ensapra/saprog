@@ -1,7 +1,43 @@
 """Shared presentation helpers for the desktop tools."""
 
+# Shared desktop palette. Keep view-specific drawing colors here as well so
+# the UI has one source of truth for color choices.
 BACKGROUND = "#141b26"
 FOREGROUND = "#e5edf7"
+MUTED = "#a5b5ca"
+DISABLED = "#778394"
+DISABLED_BORDER = "#303c4d"
+PANEL = "#1d2939"
+BUTTON = "#26364b"
+BUTTON_HOVER = "#354c68"
+BUTTON_BORDER = "#435873"
+BORDER = "#34465d"
+FOCUS = "#498bd1"
+ACCENT = "#245c96"
+ACCENT_HOVER = "#3478bb"
+ACCENT_LIGHT = "#70b5f5"
+ACCENT_DARK = "#19436e"
+CAPTION = "#91c4ff"
+WHITE = "#ffffff"
+FIX = "#86e3ad"
+FIX_DISABLED = "#718f7d"
+RELEASE = "#ff9c96"
+RELEASE_DISABLED = "#a47d7b"
+TAB = "#202a39"
+GRID = "#2b394d"
+ROBOT_GROUND = "#26384a"
+ROBOT_GROUND_EDGE = "#64748b"
+ROBOT_GROUND_AXIS = "#71869c"
+ROBOT_GROUND_GRID = "#3b5065"
+ROBOT_SHADOW = "#172431"
+ROBOT_FACE_FRONT = "#315276"
+ROBOT_FACE_TOP = "#4b8ac2"
+ROBOT_FACE_LEFT = "#3a6996"
+ROBOT_FACE_RIGHT = "#27618d"
+ROBOT_FACE_BOTTOM = "#254b70"
+ROBOT_FACE_BACK = "#3f78a8"
+ROBOT_EDGE = "#a8d8ff"
+ROBOT_TEXT = "#d6e7f7"
 
 
 def apply_style(root):
@@ -17,102 +53,102 @@ def apply_style(root):
     style.configure("TFrame", background=BACKGROUND)
     style.configure("TLabel", background=BACKGROUND)
     style.configure("Title.TLabel", font=(family, 20, "bold"))
-    style.configure("Muted.TLabel", foreground="#a5b5ca")
+    style.configure("Muted.TLabel", foreground=MUTED)
     style.configure("TLabelframe", borderwidth=1, relief="solid")
-    style.configure("TLabelframe.Label", font=(family, 11, "bold"), foreground="#91c4ff")
+    style.configure("TLabelframe.Label", font=(family, 11, "bold"), foreground=CAPTION)
     style.configure(
         "TNotebook",
         background=BACKGROUND,
-        bordercolor="#34465d",
+        bordercolor=BORDER,
         lightcolor=BACKGROUND,
-        darkcolor="#34465d",
+        darkcolor=BORDER,
     )
     style.configure(
         "TNotebook.Tab",
-        background="#202a39",
-        foreground="#a5b5ca",
-        bordercolor="#34465d",
-        lightcolor="#34465d",
-        darkcolor="#34465d",
+        background=TAB,
+        foreground=MUTED,
+        bordercolor=BORDER,
+        lightcolor=BORDER,
+        darkcolor=BORDER,
     )
     style.map(
         "TNotebook.Tab",
-        background=[("disabled", "#202a39"), ("selected", "#26364b"), ("active", "#354c68")],
-        foreground=[("disabled", "#778394"), ("selected", FOREGROUND), ("active", FOREGROUND)],
-        bordercolor=[("selected", "#498bd1"), ("active", "#498bd1")],
-        lightcolor=[("selected", "#26364b"), ("active", "#354c68")],
-        darkcolor=[("selected", "#26364b"), ("active", "#354c68")],
+        background=[("disabled", TAB), ("selected", BUTTON), ("active", BUTTON_HOVER)],
+        foreground=[("disabled", DISABLED), ("selected", FOREGROUND), ("active", FOREGROUND)],
+        bordercolor=[("selected", FOCUS), ("active", FOCUS)],
+        lightcolor=[("selected", BUTTON), ("active", BUTTON_HOVER)],
+        darkcolor=[("selected", BUTTON), ("active", BUTTON_HOVER)],
     )
     style.configure(
         "TButton",
         padding=(10, 7),
-        background="#26364b",
+        background=BUTTON,
         foreground=FOREGROUND,
         borderwidth=1,
-        bordercolor="#435873",
-        lightcolor="#34465d",
-        darkcolor="#1d2939",
-        focuscolor="#498bd1",
+        bordercolor=BUTTON_BORDER,
+        lightcolor=BORDER,
+        darkcolor=PANEL,
+        focuscolor=FOCUS,
     )
     style.map(
         "TButton",
-        background=[("disabled", "#202a39"), ("pressed", "#1d2939"), ("active", "#354c68")],
-        foreground=[("disabled", "#778394"), ("!disabled", FOREGROUND)],
-        bordercolor=[("disabled", "#303c4d"), ("pressed", "#498bd1"), ("active", "#498bd1")],
-        lightcolor=[("disabled", "#202a39"), ("pressed", "#1d2939"), ("active", "#354c68")],
-        darkcolor=[("disabled", "#202a39"), ("pressed", "#1d2939"), ("active", "#354c68")],
+        background=[("disabled", TAB), ("pressed", PANEL), ("active", BUTTON_HOVER)],
+        foreground=[("disabled", DISABLED), ("!disabled", FOREGROUND)],
+        bordercolor=[("disabled", DISABLED_BORDER), ("pressed", FOCUS), ("active", FOCUS)],
+        lightcolor=[("disabled", TAB), ("pressed", PANEL), ("active", BUTTON_HOVER)],
+        darkcolor=[("disabled", TAB), ("pressed", PANEL), ("active", BUTTON_HOVER)],
     )
     style.configure(
         "Accent.TButton",
-        background="#245c96",
-        foreground="#ffffff",
-        bordercolor="#3478bb",
-        lightcolor="#3478bb",
-        darkcolor="#19436e",
+        background=ACCENT,
+        foreground=WHITE,
+        bordercolor=ACCENT_HOVER,
+        lightcolor=ACCENT_HOVER,
+        darkcolor=ACCENT_DARK,
     )
     style.map(
         "Accent.TButton",
-        background=[("disabled", "#202a39"), ("pressed", "#19436e"), ("active", "#3478bb")],
-        foreground=[("disabled", "#778394"), ("!disabled", "#ffffff")],
-        bordercolor=[("disabled", "#303c4d"), ("pressed", "#3478bb"), ("active", "#70b5f5")],
-        lightcolor=[("disabled", "#202a39"), ("pressed", "#19436e"), ("active", "#3478bb")],
-        darkcolor=[("disabled", "#202a39"), ("pressed", "#19436e"), ("active", "#245c96")],
+        background=[("disabled", TAB), ("pressed", ACCENT_DARK), ("active", ACCENT_HOVER)],
+        foreground=[("disabled", DISABLED), ("!disabled", WHITE)],
+        bordercolor=[("disabled", DISABLED_BORDER), ("pressed", ACCENT_HOVER), ("active", ACCENT_LIGHT)],
+        lightcolor=[("disabled", TAB), ("pressed", ACCENT_DARK), ("active", ACCENT_HOVER)],
+        darkcolor=[("disabled", TAB), ("pressed", ACCENT_DARK), ("active", ACCENT)],
     )
-    style.configure("Fix.TButton", foreground="#ff9c96")
-    style.map("Fix.TButton", foreground=[("disabled", "#a47d7b"), ("!disabled", "#ff9c96")])
-    style.configure("Release.TButton", foreground="#86e3ad")
-    style.map("Release.TButton", foreground=[("disabled", "#718f7d"), ("!disabled", "#86e3ad")])
-    style.configure("TEntry", padding=5, fieldbackground="#1d2939", insertcolor=FOREGROUND)
-    style.configure("TCombobox", padding=5, fieldbackground="#1d2939", arrowcolor=FOREGROUND)
+    style.configure("Fix.TButton", foreground=FIX)
+    style.map("Fix.TButton", foreground=[("disabled", FIX_DISABLED), ("!disabled", FIX)])
+    style.configure("Release.TButton", foreground=RELEASE)
+    style.map("Release.TButton", foreground=[("disabled", RELEASE_DISABLED), ("!disabled", RELEASE)])
+    style.configure("TEntry", padding=5, fieldbackground=PANEL, insertcolor=FOREGROUND)
+    style.configure("TCombobox", padding=5, fieldbackground=PANEL, arrowcolor=FOREGROUND)
     style.map(
         "TCombobox",
-        fieldbackground=[("readonly", "#1d2939"), ("disabled", "#202a39")],
-        foreground=[("disabled", "#778394"), ("readonly", FOREGROUND)],
-        bordercolor=[("disabled", "#303c4d"), ("focus", "#498bd1")],
+        fieldbackground=[("readonly", PANEL), ("disabled", TAB)],
+        foreground=[("disabled", DISABLED), ("readonly", FOREGROUND)],
+        bordercolor=[("disabled", DISABLED_BORDER), ("focus", FOCUS)],
     )
     style.configure("TCheckbutton", padding=(0, 5))
     style.map(
         "TCheckbutton",
         background=[("active", BACKGROUND)],
-        foreground=[("disabled", "#778394")],
+        foreground=[("disabled", DISABLED)],
         indicatorbackground=[
-            ("disabled", "#202a39"),
-            ("selected", "#498bd1"),
-            ("!selected", "#34465d"),
+            ("disabled", TAB),
+            ("selected", FOCUS),
+            ("!selected", BORDER),
         ],
-        indicatorforeground=[("disabled", "#778394"), ("selected", "#ffffff")],
+        indicatorforeground=[("disabled", DISABLED), ("selected", WHITE)],
     )
-    style.configure("Horizontal.TScale", background="#498bd1", troughcolor="#26364b")
+    style.configure("Horizontal.TScale", background=FOCUS, troughcolor=BUTTON)
     style.configure(
-        "Vertical.TScrollbar", background="#34465d", troughcolor=BACKGROUND, arrowcolor=FOREGROUND
+        "Vertical.TScrollbar", background=BORDER, troughcolor=BACKGROUND, arrowcolor=FOREGROUND
     )
-    root.option_add("*TCombobox*Listbox.background", "#1d2939")
+    root.option_add("*TCombobox*Listbox.background", PANEL)
     root.option_add("*TCombobox*Listbox.foreground", FOREGROUND)
-    root.option_add("*TCombobox*Listbox.selectBackground", "#245c96")
-    root.option_add("*Text.background", "#1d2939")
+    root.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+    root.option_add("*Text.background", PANEL)
     root.option_add("*Text.foreground", FOREGROUND)
-    root.option_add("*Text.selectBackground", "#245c96")
-    root.option_add("*Text.selectForeground", "#ffffff")
+    root.option_add("*Text.selectBackground", ACCENT)
+    root.option_add("*Text.selectForeground", WHITE)
     root.option_add("*Text.relief", "flat")
     root.option_add("*Text.padX", 10)
     root.option_add("*Text.padY", 8)
