@@ -3,7 +3,16 @@
 import copy
 from pathlib import Path
 
-from saprog_desktop.desktop_style import apply_style, configure_changed, status_box
+from saprog_desktop.desktop_style import (
+    ACCENT,
+    BORDER,
+    FOREGROUND,
+    MUTED,
+    PANEL,
+    apply_style,
+    configure_changed,
+    status_box,
+)
 from saprog_desktop.motion_controls import add_slider
 from saprog_desktop.snapshot_config import SnapshotConfigurationClient
 from saprog_desktop.snapshot_units import LEG_JOINTS
@@ -79,6 +88,7 @@ class TimelineWindow:
         self.view_closed = False
         self.configuration_after_id = root.after(100, self._configuration_tick)
         self._build()
+        self.redraw()
         self.refresh()
         self.refresh_after_id = root.after(2000, self._periodic_refresh)
         if container is None:
@@ -125,16 +135,22 @@ class TimelineWindow:
         if self.container is self.root:
             apply_style(self.root)
             self.root.title("Timeline")
-            self.root.geometry("1200x900")
+            self.root.geometry("1200x760")
+            self.root.minsize(900, 600)
         outer = self.dependencies.ttk.Frame(self.container, padding=14)
         outer.pack(fill="both", expand=True)
-        self.dependencies.ttk.Label(outer, text="Timeline", style="Title.TLabel").pack(anchor="w")
         self.dependencies.ttk.Label(
             outer,
-            text="Transition → Snapshot → Transition → Snapshot. Click a transition to edit it.\nChoose Global, Leg, or Custom Control for speed and torque strength.",
+            text="Timeline",
+            style="Title.TLabel",
         ).pack(anchor="w")
+        self.dependencies.ttk.Label(
+            outer,
+            text="Build a sequence of poses and waits. Select a transition to edit its motion.",
+            style="Muted.TLabel",
+        ).pack(anchor="w", pady=(0, 3))
         row = self.dependencies.ttk.Frame(outer)
-        row.pack(fill="x", pady=8)
+        row.pack(fill="x", pady=(5, 4))
         for label, callback in (
             ("New", self.new),
             ("Load timeline", self.load),
@@ -144,19 +160,52 @@ class TimelineWindow:
             ("Refresh", self.refresh),
         ):
             self.button(row, label, callback)
-        self.available = self.dependencies.ttk.Combobox(outer, state="readonly")
-        self.available.pack(fill="x")
+        snapshot_row = self.dependencies.ttk.Frame(outer)
+        snapshot_row.pack(fill="x", pady=(0, 8))
+        self.dependencies.ttk.Label(snapshot_row, text="Available snapshot").pack(
+            side="left", padx=(0, 8)
+        )
+        self.available = self.dependencies.ttk.Combobox(
+            snapshot_row, state="readonly", width=32
+        )
+        self.available.pack(side="left", padx=(0, 6))
         self.edit_widgets.append(self.available)
-        self.button(outer, "Add available snapshot", self.add_available, side="top")
+        self.button(snapshot_row, "Add to timeline", self.add_available)
         body = self.dependencies.ttk.Frame(outer)
         body.pack(fill="both", expand=True)
         sequence_panel = self.dependencies.ttk.Frame(body)
         sequence_panel.pack(side="left", fill="both", expand=True, padx=(0, 10))
-        self.sequence = self.dependencies.tk.Listbox(
-            sequence_panel, height=9, exportselection=False
+        sequence_heading = self.dependencies.ttk.Frame(sequence_panel)
+        sequence_heading.pack(fill="x")
+        self.dependencies.ttk.Label(sequence_heading, text="Steps", style="TLabelframe.Label").pack(
+            side="left", anchor="w", pady=(0, 3)
         )
-        self.sequence.pack(fill="both", expand=True, pady=8)
+        self.dependencies.ttk.Label(
+            sequence_heading, text="Transitions move into the following pose", style="Muted.TLabel"
+        ).pack(side="right", anchor="e")
+        self.sequence = self.dependencies.tk.Listbox(
+            sequence_panel,
+            height=8,
+            exportselection=False,
+            background=PANEL,
+            foreground=FOREGROUND,
+            selectbackground=ACCENT,
+            selectforeground=FOREGROUND,
+            borderwidth=1,
+            highlightthickness=1,
+            highlightbackground=BORDER,
+            highlightcolor=ACCENT,
+            relief="solid",
+        )
+        self.sequence.pack(fill="both", expand=True, pady=(2, 6))
         self.sequence.bind("<<ListboxSelect>>", self.select)
+        self.empty_steps = self.dependencies.ttk.Label(
+            sequence_panel,
+            text="No steps yet\nAdd a snapshot or wait to start building your timeline.",
+            justify="center",
+            style="Muted.TLabel",
+        )
+        self.empty_steps.place(in_=self.sequence, relx=0.5, rely=0.48, anchor="center")
         row = self.dependencies.ttk.Frame(sequence_panel)
         row.pack(fill="x")
         for label, callback in (
@@ -166,8 +215,10 @@ class TimelineWindow:
             ("Remove", self.remove),
         ):
             self.button(row, label, callback)
-        self.editor = self.dependencies.ttk.LabelFrame(body, text="Select a transition", padding=8)
-        self.editor.pack(side="right", fill="both", expand=True, pady=8)
+        self.editor = self.dependencies.ttk.LabelFrame(body, text="Step settings", padding=8)
+        self.editor.pack(side="right", fill="y", expand=False, pady=(18, 0))
+        self.editor.configure(width=390)
+        self.editor.pack_propagate(False)
         self.transition_controls = self.dependencies.ttk.Frame(self.editor)
         self.transition_controls.pack(fill="x")
         self.transition_widgets = []
@@ -196,18 +247,22 @@ class TimelineWindow:
         )
         loop_toggle.pack(side="left", padx=8)
         self.edit_widgets.append(loop_toggle)
-        row = self.dependencies.ttk.Frame(outer)
-        row.pack(fill="x")
-        self.play_button = self.button(row, "Play timeline", self.play_timeline)
-        self.test_button = self.button(row, "Test selected step", lambda: self.play_timeline(True))
-        self.dependencies.ttk.Button(row, text="Stop sequence", command=self.stop).pack(
-            side="left", padx=4
+        playback = self.dependencies.ttk.Frame(outer)
+        playback.pack(fill="x", pady=(7, 2))
+        self.play_button = self.button(playback, "Play timeline", self.play_timeline)
+        self.test_button = self.button(
+            playback, "Test selected step", lambda: self.play_timeline(True)
         )
+        stop_button = self.dependencies.ttk.Button(
+            playback, text="Stop", command=self.stop
+        )
+        stop_button.pack(side="left", padx=3, pady=3)
         self.dependencies.ttk.Label(
             outer,
-            text="Stop prevents further commands; already sent motion or torque changes may finish.",
-        ).pack(anchor="w", pady=5)
-        self.status_box = status_box(outer, self.status, height=4, tk_module=self.dependencies.tk)
+            text="Stop halts later steps; motion or torque changes already sent may finish.",
+            style="Muted.TLabel",
+        ).pack(anchor="w", pady=(1, 3))
+        self.status_box = status_box(outer, self.status, height=2, tk_module=self.dependencies.tk)
         self.status_box.pack(fill="x")
 
     def button(self, parent, label, callback, side="left"):
@@ -232,6 +287,10 @@ class TimelineWindow:
     def redraw(self, index=None):
         self.sequence.delete(0, "end")
         self.rows = timeline_rows(self.steps)
+        if self.steps:
+            self.empty_steps.place_forget()
+        else:
+            self.empty_steps.place(in_=self.sequence, relx=0.5, rely=0.48, anchor="center")
         for i, kind in self.rows:
             step = self.steps[i]
             if kind == "wait":
@@ -257,6 +316,14 @@ class TimelineWindow:
             child.destroy()
         self.transition_widgets = []
         self.servo_vars = {}
+        if not self.steps:
+            self.editor.configure(text="Step settings")
+            self.dependencies.ttk.Label(
+                self.transition_controls,
+                text="Select a transition or wait to see its settings here.",
+                style="Muted.TLabel",
+                wraplength=340,
+            ).pack(anchor="w", pady=4)
 
     def _motion_controls(self, parent, motion):
         variables = {
@@ -325,13 +392,13 @@ class TimelineWindow:
         self.dependencies.ttk.Label(
             self.transition_controls,
             text="Switching to finer controls copies current values.\nCombining different values uses their rounded average.",
-            wraplength=380,
+            wraplength=340,
         ).pack(anchor="w")
         panel = self.dependencies.ttk.Frame(self.transition_controls)
         panel.pack(fill="both", expand=True)
         custom = self.edit_mode == "Custom Control"
         canvas = self.dependencies.tk.Canvas(
-            panel, height=430 if custom else 300, highlightthickness=0, width=740 if custom else 380
+            panel, height=430 if custom else 300, highlightthickness=0, width=350
         )
         scrollbar = self.dependencies.ttk.Scrollbar(panel, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
