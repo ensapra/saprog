@@ -45,10 +45,10 @@ def draw_orientation(canvas, orientation, zeroed=False, magnetic_heading=False):
     def camera_point(point):
         return transform(camera_pitch, transform(camera_heading, point))
 
-    # The physical IMU is mounted 90 degrees around its vertical Y axis.
+    # The physical IMU is mounted 90 degrees around the renderer's vertical Z axis.
     # Apply that mounting rotation to the box, while keeping the sensor's
     # reported roll/pitch values and the ground reference in their own frame.
-    mounting_rotation = orientation_matrix((0.0, math.pi / 2, 0.0))
+    mounting_rotation = orientation_matrix((0.0, 0.0, math.pi / 2))
     world_vertices = [
         transform(rotation, transform(mounting_rotation, point))
         for point in (
