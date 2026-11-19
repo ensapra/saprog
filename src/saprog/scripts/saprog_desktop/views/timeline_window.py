@@ -158,9 +158,9 @@ class TimelineWindow:
         toolbar = self.dependencies.ttk.Frame(row)
         toolbar.pack(side="right")
         for label, icon, callback in (
-            ("New timeline", "+", self.new),
-            ("Load timeline", "↓", self.load),
-            ("Save timeline", "↑", self.save),
+            ("New timeline", "＋", self.new),
+            ("Load timeline", "📁", self.load),
+            ("Save timeline", "💾", self.save),
         ):
             self.button(toolbar, icon, callback, compact=True, tooltip=label)
         snapshot_row = self.dependencies.ttk.Frame(outer)
