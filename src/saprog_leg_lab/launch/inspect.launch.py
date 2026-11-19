@@ -1,4 +1,4 @@
-"""Inspect one leg's pivots without a guessed knee coupling or hardware nodes."""
+"""Inspect one leg with the source model's approximate knee coupling."""
 
 from copy import deepcopy
 from pathlib import Path
@@ -41,9 +41,6 @@ def single_leg_description(path):
         if parent.get("link") not in names:
             raise ValueError(f"Leg joint {joint.get('name')} has an unexpected parent")
         copied = deepcopy(joint)
-        # The passive hinge is deliberately independent until closure is measured.
-        for mimic in copied.findall("mimic"):
-            copied.remove(mimic)
         robot.append(copied)
         children.add(child.get("link"))
     if children != names - {"base"}:
@@ -69,8 +66,8 @@ def launch_inspector(context):
     )
     return [
         LogInfo(msg=(
-            "LEG GEOMETRY INSPECTOR: four independent model joints; knee closure is "
-            "unsolved. Angles are URDF radians, not calibrated servo targets. "
+            "LEG GEOMETRY INSPECTOR: three driven joints with the source model's "
+            "approximate knee coupling. Joint limits use calibrated servo radians. "
             "No gravity, ground contact, or hardware commands."
         )),
         Node(

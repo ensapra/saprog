@@ -5,7 +5,7 @@ Visualization Manager:
   Class: ""
   Displays:
     - Class: rviz_default_plugins/RobotModel
-      Name: Leg geometry (independent joints, closure unsolved)
+      Name: Leg geometry (approximate knee coupling)
       Enabled: true
       Description Source: Topic
       Description Topic:

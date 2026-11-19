@@ -29,10 +29,11 @@ ros2 launch saprog_leg_lab inspect.launch.py
 ```
 
 RViz shows the base and front-right leg, with joint-frame axes. A separate
-standard ROS joint slider window controls the three driven model joints and the
-passive lower-leg hinge independently. Closing either window stops the launch.
-The inspector removes the guessed mimic coupling only from its in-memory copy;
-the [source model](../urdf/urdf/URDF.urdf) remains unchanged. All joint states,
+standard ROS joint slider window controls the three driven model joints. The
+passive lower-leg hinge follows the source model's `2.4` mimic multiplier,
+retained as the working approximation. Closing either window stops the launch.
+The inspector preserves coupling from the [source model](../urdf/urdf/URDF.urdf).
+All joint states,
 description and TF topics are isolated under `/saprog/leg_lab`. No servo or IMU
 backend is started, and nothing publishes to `/saprog/position_command`.
 
@@ -40,21 +41,42 @@ Use `description:=/absolute/path/to/model.urdf` to inspect revised geometry with
 the same front-right link names. Its mesh package must be installed. Joint
 origins, axes, geometry and limits come from the selected model.
 
-## Current discrepancies
+## Measured servo limits
+
+All 12 servos were reread through the running controller using
+`/saprog/refresh_limits`; it reported success. The read used the existing serial
+bus owner and did not change torque, goals, or servo EEPROM. The raw readings,
+active zero/direction calibration and timestamp are recorded in
+[measured_servo_limits.json](../urdf/config/measured_servo_limits.json).
+
+The URDF's 12 driven joint limits now use the same calibrated radians as live
+telemetry: `direction * (raw - zero) * (300 degrees / 1023)`, with the two
+endpoints sorted. Each leg currently has these ranges:
+
+| Joint | Lower (rad) | Upper (rad) |
+| --- | --- | --- |
+| First / sideways | -0.450408 | 1.085073 |
+| Second / fore-aft | -0.962234 | 1.085073 |
+| Third / crank | 0.266150 | 0.880342 |
+| Passive knee (`2.4 * crank`) | 0.638760 | 2.112821 |
+
+The four passive knee ranges are derived from their corresponding crank ranges
+and the existing zero-offset mimic relation, rather than hardware readings from
+additional motors. Stand and rest crank targets of `0.4` and `0.75` rad are within
+the measured range. These are a point-in-time copy; changing servo limits or
+calibration later requires resynchronizing the model. Rebuild the description
+package and restart existing viewers to load changed URDF values.
+
+## Approximation retained for now
 
 - The source lower-leg hinge uses a `2.4` mimic multiplier from the crank. A
   fixed angular ratio does not establish closure of the physical linkage.
-- The front-right crank model range is `[-0.57, 0]` rad, whereas current working
-  [stand](../snapshots/stand.json) and [rest](../snapshots/rest.json) servo targets
-  for `servo_13` are `0.4` and `0.75` rad. These use different, currently
-  unverified angle conventions. Do not widen limits or infer a sign correction
-  merely to make those numbers fit.
 - The existing STEP notes describe approximate bearing locations; the STEP
   component-center CSV is not a set of pivot axes or assembled motion mates.
 
-The four sliders are **model angles in radians**, not calibrated hardware
-commands. Independent slider motion can separate mating parts because the
-closure constraint has deliberately not been guessed.
+The three sliders use calibrated servo radians, but send only isolated display
+joint states. The knee follows the approximate angular ratio; geometric closure
+and agreement with the physical joint axes remain unvalidated.
 
 ## Geometry needed for the next milestone
 
@@ -79,8 +101,8 @@ an STL silhouette or component bounding-box center alone is insufficient.
 
 1. Confirm the first joint moves the leg sideways around the correct shaft.
 2. Confirm the second joint moves the leg fore/aft around the correct shaft.
-3. Confirm the crank rotates about its actual shaft; independently align the
-   passive hinge at the reference pose and check all connection pins coincide.
+3. Confirm the crank rotates about its actual shaft; check the approximated
+   knee motion against the physical reference pose and connection-pin locations.
 4. Implement the actual geometric closure from the measured topology, rejecting
    unreachable poses and preventing jumps between assembly branches.
 5. Compare stand and rest, plus at least one intermediate configuration, against
