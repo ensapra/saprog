@@ -34,12 +34,21 @@ zero-angle meshes reach -0.18281 metres below the base. The orbit camera looks
 at z=0.08 metres. Height is a fixed visual reference; changing joint angles or
 IMU orientation does not solve ground contact or closed-loop linkage geometry.
 
-Validation for issue #30: all eight robot-view tests passed under WSL/Jazzy;
-an isolated bridge plus the real `robot_state_publisher` produced `world`
-transforms for all 17 mesh links without hardware. Ruff passed for changed
-Python files. Pixel rendering and physical mounting still require the X11 and
-hardware checks below. The supplied replacement URDF/meshes are pre-existing
-workspace changes and are not included in the bridge fix commit.
+The installed bridge entry point must retain its Python shebang and LF line
+endings: ROS launches it directly, not through an explicit Python interpreter.
+Without that header, the bridge cannot start and the renderer has no base or
+joint transforms even though it can load the URDF. Import-only tests do not
+cover this failure. The executable regression test launches the script directly
+and waits for its complete joint-state message, then verifies clean SIGINT
+shutdown. The bridge tolerates ROS having already shut down its context.
+
+Validation for issue #30: nine robot-view tests passed under WSL/Jazzy, including
+the executable entry point. Both ROS packages built successfully. The installed
+`ros2 launch` path was exercised with a mapped Tk viewport and its screenshot
+confirmed assembled, shaded gray meshes and red cranks. All 17 mesh links also
+passed TF checks. Physical mounting and linkage accuracy remain unvalidated.
+The supplied replacement URDF/meshes are pre-existing workspace changes and
+are not included in the bridge fix commits.
 
 The bridge publishes the IMU orientation as `world -> base` without a measured
 sensor-to-base mounting transform. The quaternion is sensor-relative: zero uses
@@ -67,5 +76,6 @@ window on an X11 display:
    during startup; confirm the UI reports the failure and removes its readiness
    marker.
 
-This smoke check requires a Linux/WSL X11 session and an installed ROS 2 Jazzy
-workspace. It was not run in the Windows editing environment.
+These checks require a Linux/WSL X11 session and an installed ROS 2 Jazzy
+workspace. The hardware-free installed-launch rendering check above ran on WSLg;
+it does not establish live servo or IMU alignment.

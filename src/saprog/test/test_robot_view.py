@@ -1,5 +1,8 @@
 import os
+import signal
+import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -44,6 +47,41 @@ class RobotViewBridgeTest(unittest.TestCase):
         self.assertEqual(pose.header.stamp, base.header.stamp)
         self.assertAlmostEqual(base.transform.translation.z, 0.183)
         self.assertEqual(base.transform.rotation.w, 1.0)
+
+    @unittest.skipUnless(os.name == "posix", "ROS executable entry point requires POSIX")
+    def test_bridge_entry_point_executes_without_explicit_python(self):
+        # Match install(PROGRAMS): preserve bytes and add executable permission.
+        # Import-only tests miss absent shebangs and CRLF interpreter failures.
+        with tempfile.TemporaryDirectory() as directory:
+            entrypoint = Path(directory) / "robot_view_bridge"
+            entrypoint.write_bytes((ROOT / "src/saprog/scripts/robot_view_bridge.py").read_bytes())
+            entrypoint.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PYTHONPATH"] = os.pathsep.join((
+                str(ROOT / "src/saprog/scripts"), environment.get("PYTHONPATH", ""),
+            ))
+            topic = f"/test_robot_view_{os.getpid()}/joint_states"
+            received = []
+            subscription = self.node.create_subscription(JointState, topic, received.append, 10)
+            process = subprocess.Popen(
+                [str(entrypoint), "--ros-args", "-r", f"/joint_states:={topic}"],
+                env=environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            try:
+                deadline = time.monotonic() + 10
+                while not received and process.poll() is None and time.monotonic() < deadline:
+                    rclpy.spin_once(self.node, timeout_sec=0.1)
+            finally:
+                process.send_signal(signal.SIGINT)
+                try:
+                    stdout, stderr = process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    stdout, stderr = process.communicate(timeout=5)
+                self.node.destroy_subscription(subscription)
+            self.assertTrue(received, stdout + stderr)
+            self.assertEqual(received[0].name, list(SERVO_JOINT_NAMES.values()))
+            self.assertEqual(process.returncode, 0, stdout + stderr)
 
     def test_partial_readback_preserves_other_joints_and_rejects_nonfinite(self):
         self.node.on_joints(JointState(name=["servo_13"], position=[-0.2]))

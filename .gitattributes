@@ -1,0 +1,2 @@
+# ROS executes this installed entry point directly, including from WSL.
+src/saprog/scripts/robot_view_bridge.py text eol=lf
