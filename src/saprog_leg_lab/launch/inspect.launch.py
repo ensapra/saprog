@@ -62,7 +62,16 @@ def launch_inspector(context):
     sliders = Node(
         package="joint_state_publisher_gui", executable="joint_state_publisher_gui",
         name="joint_sliders", namespace=namespace,
-        parameters=[{"robot_description": description, "rate": 30}], output="screen",
+        parameters=[{
+            "robot_description": description,
+            "rate": 30,
+            # Start at the known working stand pose so the isolated model is
+            # comparable with the full Robot view's live servo feedback.
+            "zeros.front_right_11": 0.0,
+            "zeros.front_right_12": 0.5,
+            "zeros.front_right_joint_13": 0.4,
+        }],
+        output="screen",
     )
     return [
         LogInfo(msg=(

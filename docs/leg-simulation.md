@@ -44,7 +44,10 @@ ros2 launch saprog_leg_lab inspect.launch.py
 RViz shows the base and front-right leg, with joint-frame axes. A separate
 standard ROS joint slider window controls the three driven model joints. The
 passive lower-leg hinge follows the source model's `2.4` mimic multiplier,
-retained as the working approximation. Closing either window stops the launch.
+retained as the working approximation. Sliders start at the known working
+`stand` values (`0`, `0.5`, and `0.4` radians), so compare against the full Robot
+view while the real robot is in that same pose. The slider tool is independent;
+it does not follow live hardware after startup. Closing either window stops the launch.
 The inspector preserves coupling from the [source model](../urdf/urdf/URDF.urdf).
 All joint states,
 description and TF topics are isolated under `/saprog/leg_lab`. No servo or IMU
@@ -89,7 +92,11 @@ package and restart existing viewers to load changed URDF values.
 
 The three sliders use calibrated servo radians, but send only isolated display
 joint states. The knee follows the approximate angular ratio; geometric closure
-and agreement with the physical joint axes remain unvalidated.
+and agreement with the physical joint axes remain unvalidated. A joint offset
+should be considered only if the isolated model remains wrong when compared at
+the same three angles as the full Robot view. A `90` degree command offset would
+be `1.5708` radians, larger than the measured third-servo range, so it should
+not be added to the servo angle without identifying a model-frame correction.
 
 ## Geometry needed for the next milestone
 
