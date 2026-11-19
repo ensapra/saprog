@@ -16,7 +16,6 @@ from saprog_desktop.robot_view_model import (
     SERVO_JOINT_NAMES,
     OrientationReference,
     apply_imu_mounting_rotation,
-    servo_to_model_angle,
 )
 
 
@@ -57,9 +56,9 @@ class RobotViewBridge(Node):
                 continue
             position = message.position[index]
             if math.isfinite(position):
-                # Directions/zeros are already applied by readback. Map the
-                # calibrated crank upper stop to model zero on every leg.
-                self.positions[urdf_name] = servo_to_model_angle(servo_id, position)
+                # Readback applies hardware calibration; the URDF owns all
+                # model axes, reference-pose offsets and joint limits.
+                self.positions[urdf_name] = position
 
     def on_orientation(self, message):
         if message.orientation_covariance[0] < 0:

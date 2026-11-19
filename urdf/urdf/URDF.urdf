@@ -103,11 +103,12 @@
     </collision>
   </link>
   <joint name="front_right_joint_13" type="revolute">
-    <origin xyz="-0.0678 -8.3898639056e-05 -0.0035641491397" rpy="3.1415853072 0 0" />
+    <!-- Logical servo radians: upper stop is the CAD zero pose; no external mapping. -->
+    <origin xyz="-0.0678 -8.3898639056e-05 -0.0035641491397" rpy="4.0219273345989 0 0" />
     <parent link="front_right_12_link" />
     <child link="front_right_joint_13_link" />
-    <axis xyz="1 0 0" />
-    <limit lower="-0" upper="0.614" effort="2" velocity="3" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0.2661499152601324" upper="0.8803420273988994" effort="2" velocity="3" />
   </joint>
   <link name="front_right_leg_link">
     <inertial>
@@ -135,9 +136,9 @@
     <origin xyz="-0.0183000000001 0.0911 0.0362500000002" rpy="3.14159265359 -1.57079632679 0" />
     <parent link="front_right_12_link" />
     <child link="front_right_leg_link" />
-    <limit lower="-1.5" upper="1.5" effort="2" velocity="3" />
+    <limit lower="-1.474061069133041" upper="0" effort="2" velocity="3" />
     <axis xyz="0 0 1" />
-    <mimic joint="front_right_joint_13" multiplier="-2.4" offset="0" />
+    <mimic joint="front_right_joint_13" multiplier="2.4" offset="-2.112820865757358" />
   </joint>
   <link name="back_right_21_link">
     <inertial>
@@ -220,11 +221,12 @@
     </collision>
   </link>
   <joint name="back_right_joint_23" type="revolute">
-    <origin xyz="-0.0678 -0.00032148884887 -0.0044118149277" rpy="0 0 0" />
+    <!-- Logical servo radians: upper stop is the CAD zero pose; no external mapping. -->
+    <origin xyz="-0.0678 -0.00032148884887 -0.0044118149277" rpy="0.8803420273988994 0 0" />
     <parent link="back_right_22_link" />
     <child link="back_right_joint_23_link" />
-    <axis xyz="1 0 0" />
-    <limit lower="-0" upper="0.614" effort="2" velocity="3" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0.2661499152601324" upper="0.8803420273988994" effort="2" velocity="3" />
   </joint>
   <link name="back_right_leg_link">
     <inertial>
@@ -252,9 +254,9 @@
     <origin xyz="-0.0182999999992 0.0911 0.0362500000002" rpy="-3.14159265359 -1.57079632679 0" />
     <parent link="back_right_22_link" />
     <child link="back_right_leg_link" />
-    <limit lower="-1.5" upper="1.5" effort="2" velocity="3" />
+    <limit lower="-1.474061069133041" upper="0" effort="2" velocity="3" />
     <axis xyz="0 0 1" />
-    <mimic joint="back_right_joint_23" multiplier="-2.4" offset="0" />
+    <mimic joint="back_right_joint_23" multiplier="2.4" offset="-2.112820865757358" />
   </joint>
   <link name="back_left_41_link">
     <inertial>
@@ -337,11 +339,12 @@
     </collision>
   </link>
   <joint name="back_left_joint_43" type="revolute">
-    <origin xyz="0.029200002313 -0.00031486034503 -0.0037725666174" rpy="0 0 -3.1415853072" />
+    <!-- Logical servo radians: upper stop is the CAD zero pose; no external mapping. -->
+    <origin xyz="0.029200002313 -0.00031486034503 -0.0037725666174" rpy="0.8803420273988994 0 -3.1415853072" />
     <parent link="back_left_42_link" />
     <child link="back_left_joint_43_link" />
-    <axis xyz="1 0 0" />
-    <limit lower="-0" upper="0.614" effort="2" velocity="3" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0.2661499152601324" upper="0.8803420273988994" effort="2" velocity="3" />
   </joint>
   <link name="back_left_leg_link">
     <inertial>
@@ -369,9 +372,9 @@
     <origin xyz="-0.0152999999992 -0.0911 0.0362500000008" rpy="-3.5527136788e-15 -1.57079632679 0" />
     <parent link="back_left_42_link" />
     <child link="back_left_leg_link" />
-    <limit lower="-1.5" upper="1.5" effort="2" velocity="3" />
+    <limit lower="-1.474061069133041" upper="0" effort="2" velocity="3" />
     <axis xyz="0 0 1" />
-    <mimic joint="back_left_joint_43" multiplier="-2.4" offset="0" />
+    <mimic joint="back_left_joint_43" multiplier="2.4" offset="-2.112820865757358" />
   </joint>
   <link name="front_left_31_link">
     <inertial>
@@ -454,11 +457,12 @@
     </collision>
   </link>
   <joint name="front_left_joint_33" type="revolute">
-    <origin xyz="0.029200002384 0.0003245738905 0.0041803527303" rpy="3.1415853072 0 3.1415853072" />
+    <!-- Logical servo radians: upper stop is the CAD zero pose; no external mapping. -->
+    <origin xyz="0.029200002384 0.0003245738905 0.0041803527303" rpy="4.0219273345989 0 3.1415853072" />
     <parent link="front_left_32_link" />
     <child link="front_left_joint_33_link" />
-    <axis xyz="1 0 0" />
-    <limit lower="-0" upper="0.614" effort="2" velocity="3" />
+    <axis xyz="-1 0 0" />
+    <limit lower="0.2661499152601324" upper="0.8803420273988994" effort="2" velocity="3" />
   </joint>
   <link name="front_left_leg_link">
     <inertial>
@@ -486,8 +490,8 @@
     <origin xyz="-0.0153000013656 0.0921409859052 -0.033515834682" rpy="-1.57079633425 1.54095625123 1.57079633425" />
     <parent link="front_left_32_link" />
     <child link="front_left_leg_link" />
-    <limit lower="-1.5" upper="1.5" effort="2" velocity="3" />
+    <limit lower="-1.474061069133041" upper="0" effort="2" velocity="3" />
     <axis xyz="0 0 1" />
-    <mimic joint="front_left_joint_33" multiplier="-2.4" offset="0" />
+    <mimic joint="front_left_joint_33" multiplier="2.4" offset="-2.112820865757358" />
   </joint>
 </robot>

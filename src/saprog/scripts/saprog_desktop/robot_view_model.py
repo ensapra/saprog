@@ -19,23 +19,6 @@ SERVO_JOINT_NAMES = {
     43: "back_left_joint_43",
 }
 
-# All four cranks share the recorded calibrated upper limit (2026-11-19).
-# Hardware direction/zero conversion has already happened before this mapping.
-CRANK_SERVO_IDS = frozenset({13, 23, 33, 43})
-CRANK_UPPER_RADIANS = 0.8803420273988994
-
-
-def servo_to_model_angle(servo_id, position):
-    """Map calibrated servo radians to URDF radians; crank upper stop is zero.
-
-    No clamping: retain telemetry outside the nominal travel for diagnosis.
-    This is a model-coordinate conversion, never a hardware command conversion.
-    """
-    if servo_id in CRANK_SERVO_IDS:
-        return CRANK_UPPER_RADIANS - position
-    return position
-
-
 IDENTITY_QUATERNION = (0.0, 0.0, 0.0, 1.0)
 # Apply +90 degrees about Z after the existing 180-degree X mounting correction.
 IMU_MOUNTING_QUATERNION = (math.sqrt(0.5), math.sqrt(0.5), 0.0, 0.0)

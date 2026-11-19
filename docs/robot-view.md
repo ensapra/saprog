@@ -25,19 +25,24 @@ Tests compare every mapped name to the URDF. The replacement description uses
 The bridge publishes a complete display joint state at 20 Hz, initially zero.
 Partial telemetry replaces only the supplied finite positions; other joints keep
 their previous display value. The readback node applies each servo's configured
-zero and direction. Other joints retain their logical angles; crank joints
-13, 23, 33 and 43 use `model_angle = 0.8803420273988994 - logical_servo_angle`.
-The shared [mapping](../src/saprog/scripts/saprog_desktop/robot_view_model.py)
-uses the identical calibrated upper stop recorded for all four cranks in
-[measured limits](../urdf/config/measured_servo_limits.json). Thus the upper
-stop displays at zero, and the lower stop at approximately 0.614192 radians.
-The URDF bounds remain the requested rounded range 0..0.614 radians. Values
-are not clamped; invalid samples are ignored as before. The mapping neither
-reapplies configured servo directions nor changes hardware commands or poses.
-The four knee mimic joints follow the converted crank coordinates. This
-endpoint alignment does not validate their approximate linkage ratio.
-The mapping uses recorded calibration, not runtime controller limit discovery;
-update it if that calibration changes. See [leg simulation](leg-simulation.md).
+zero and direction. The bridge forwards all calibrated logical angles unchanged.
+The URDF owns joint axes, fixed reference rotations, travel limits and knee
+mimic offsets, so consumers do not need an application-side conversion.
+
+For cranks 13, 23, 33 and 43, the URDF uses the recorded servo bounds
+0.2661499152601324..0.8803420273988994 radians (a 0.614192112138767-radian
+span, previously rounded to 0.614). Each crank origin includes a local X
+rotation of +0.8803420273988994 radians and its axis is -X. At the servo upper
+stop the crank therefore reaches the former CAD zero pose. Its knee uses
+`2.4 * crank - 2.1128208657573584`, preserving the prior approximate motion.
+The corresponding knee bounds are -1.474061069133041..0 radians.
+
+These calibrated coordinates apply to RViz, the Leg Inspector and any other
+consumer of the same URDF, including simulation. No clamping or second direction
+conversion is applied by the bridge. Hardware commands, zeros and stored poses
+keep their existing convention. The calibration is recorded rather than discovered
+at runtime; changing it requires updating the model. Other joint bounds remain
+model bounds; see [leg simulation](leg-simulation.md).
 These are preview values, not measured feedback
 or commands. This keeps all TF branches (including URDF mimic joints) available
 without hardware. Missing TF makes RViz use its white, unlit error material and

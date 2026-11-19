@@ -1,4 +1,5 @@
 import os
+import json
 import math
 import signal
 import subprocess
@@ -87,13 +88,7 @@ class RobotViewBridgeTest(unittest.TestCase):
             values = dict(zip(pose.name, pose.position))
             for servo_id, joint in SERVO_JOINT_NAMES.items():
                 with self.subTest(servo_id=servo_id, angle=angle):
-                    expected = (
-                        0.8803420273988994 - angle
-                        if servo_id in {13, 23, 33, 43} else angle
-                    )
-                    self.assertAlmostEqual(values[joint], expected)
-                    if servo_id in {13, 23, 33, 43} and angle == 0.2661499152601324:
-                        self.assertAlmostEqual(values[joint], 0.614192112138767)
+                    self.assertEqual(values[joint], angle)
 
     @unittest.skipUnless(os.name == "posix", "ROS executable entry point requires POSIX")
     def test_bridge_entry_point_executes_without_explicit_python(self):
@@ -144,16 +139,16 @@ class RobotViewBridgeTest(unittest.TestCase):
         pose = self.node.joint_publisher.publish.call_args.args[0]
         values = dict(zip(pose.name, pose.position))
         self.assertEqual(len(values), 12)
-        self.assertAlmostEqual(values["front_right_joint_13"], 1.0803420273988994)
+        self.assertEqual(values["front_right_joint_13"], -0.2)
         self.assertEqual(values["front_right_11"], 0.3)
         self.assertEqual(values["front_right_12"], 0.2)
         self.assertEqual(values["back_right_21"], 0.6)
         self.assertEqual(values["back_right_22"], 0.4)
-        self.assertAlmostEqual(values["back_right_joint_23"], 1.5803420273988994)
+        self.assertEqual(values["back_right_joint_23"], -0.7)
         self.assertEqual(values["front_left_31"], 0.8)
         self.assertEqual(values["back_left_42"], 0.4)
-        self.assertAlmostEqual(values["front_left_joint_33"], 0.3803420273988994)
-        self.assertAlmostEqual(values["back_left_joint_43"], 1.7803420273988994)
+        self.assertEqual(values["front_left_joint_33"], 0.5)
+        self.assertEqual(values["back_left_joint_43"], -0.9)
 
 
 class FakeProcess:
@@ -182,7 +177,7 @@ class RobotViewSessionTest(unittest.TestCase):
     def test_urdf_owns_servo_directions_and_knee_coupling(self):
         urdf = ElementTree.parse(ROOT / "urdf/urdf/URDF.urdf").getroot()
         joints = {item.attrib["name"]: item for item in urdf.findall("joint")}
-        reversed_ids = {11, 12, 13, 22, 23, 31, 33, 43}
+        reversed_ids = {11, 12, 22, 31}
         for servo_id, name in SERVO_JOINT_NAMES.items():
             with self.subTest(servo_id=servo_id):
                 axis = tuple(map(float, joints[name].find("axis").attrib["xyz"].split()))
@@ -190,8 +185,55 @@ class RobotViewSessionTest(unittest.TestCase):
         for joint in joints.values():
             mimic = joint.find("mimic")
             if mimic is not None:
-                # Reversed crank coordinates must still drive the same knee motion.
-                self.assertLess(float(mimic.attrib["multiplier"]), 0.0)
+                self.assertAlmostEqual(float(mimic.attrib["multiplier"]), 2.4)
+                self.assertAlmostEqual(float(mimic.attrib["offset"]), -2.1128208657573584)
+
+    def test_urdf_alone_preserves_crank_and_knee_poses_in_servo_coordinates(self):
+        urdf = ElementTree.parse(ROOT / "urdf/urdf/URDF.urdf").getroot()
+        joints = {joint.get("name"): joint for joint in urdf.findall("joint")}
+        report = json.loads((ROOT / "urdf/config/measured_servo_limits.json").read_text())
+        # CAD joint frames before the application-side conversion was removed.
+        cad_frames = {
+            "front_right_joint_13": (3.1415853072, 0.0, 0.0),
+            "back_right_joint_23": (0.0, 0.0, 0.0),
+            "front_left_joint_33": (3.1415853072, 0.0, 3.1415853072),
+            "back_left_joint_43": (0.0, 0.0, -3.1415853072),
+        }
+
+        def rotate(vector, rpy):
+            x, y, z = vector
+            roll, pitch, yaw = rpy
+            y, z = math.cos(roll) * y - math.sin(roll) * z, math.sin(roll) * y + math.cos(roll) * z
+            x, z = math.cos(pitch) * x + math.sin(pitch) * z, -math.sin(pitch) * x + math.cos(pitch) * z
+            return (math.cos(yaw) * x - math.sin(yaw) * y,
+                    math.sin(yaw) * x + math.cos(yaw) * y, z)
+
+        for servo in report["servos"]:
+            name = servo["urdf_joint"]
+            if name not in cad_frames:
+                continue
+            joint = joints[name]
+            lower, upper = servo["lower_radians"], servo["upper_radians"]
+            bounds = joint.find("limit")
+            self.assertAlmostEqual(float(bounds.get("lower")), lower)
+            self.assertAlmostEqual(float(bounds.get("upper")), upper)
+            origin = tuple(map(float, joint.find("origin").get("rpy").split()))
+            axis = tuple(map(float, joint.find("axis").get("xyz").split()))
+            knee = next(j for j in joints.values() if j.find("mimic") is not None
+                        and j.find("mimic").get("joint") == name)
+            mimic = knee.find("mimic")
+            for angle in (lower, (lower + upper) / 2, upper, 0.0):
+                with self.subTest(joint=name, angle=angle):
+                    # Compare actual orientations, not just signs or RPY values.
+                    for basis in ((1, 0, 0), (0, 1, 0), (0, 0, 1)):
+                        expected = rotate(rotate(basis, (upper - angle, 0, 0)), cad_frames[name])
+                        actual = rotate(rotate(basis, tuple(v * angle for v in axis)), origin)
+                        for a, b in zip(actual, expected):
+                            self.assertAlmostEqual(a, b, places=12)
+                    knee_angle = float(mimic.get("multiplier")) * angle + float(mimic.get("offset"))
+                    self.assertAlmostEqual(knee_angle, -2.4 * (upper - angle))
+            self.assertAlmostEqual(float(knee.find("limit").get("lower")), -2.4 * (upper - lower))
+            self.assertEqual(float(knee.find("limit").get("upper")), 0.0)
 
     def test_orientation_holds_last_pose_after_stale_timeout_and_rejects_invalid(self):
         now = [1.0]
