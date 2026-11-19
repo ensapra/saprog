@@ -49,7 +49,10 @@ class RobotViewBridgeTest(unittest.TestCase):
         self.assertEqual(list(pose.position), [0.0] * 12)
         self.assertEqual(pose.header.stamp, base.header.stamp)
         self.assertAlmostEqual(base.transform.translation.z, 0.183)
-        self.assertEqual(base.transform.rotation.w, 1.0)
+        self.assertAlmostEqual(base.transform.rotation.x, math.sqrt(0.5))
+        self.assertAlmostEqual(base.transform.rotation.y, math.sqrt(0.5))
+        self.assertEqual(base.transform.rotation.z, 0.0)
+        self.assertEqual(base.transform.rotation.w, 0.0)
 
     def test_absolute_magnetic_yaw_rotates_world_to_base(self):
         message = Imu()
@@ -73,8 +76,8 @@ class RobotViewBridgeTest(unittest.TestCase):
         self.assertEqual(next(marker for marker in markers if marker.id == 2).action,
                          Marker.DELETE)
 
-    def test_logical_angles_pass_through_for_every_servo(self):
-        for angle in (0.35, -0.35, 0.0):
+    def test_crank_endpoints_and_other_joint_angles(self):
+        for angle in (0.8803420273988994, 0.2661499152601324, 0.5):
             self.node.on_joints(JointState(
                 name=[f"servo_{servo_id}" for servo_id in SERVO_JOINT_NAMES],
                 position=[angle] * 12,
@@ -84,7 +87,13 @@ class RobotViewBridgeTest(unittest.TestCase):
             values = dict(zip(pose.name, pose.position))
             for servo_id, joint in SERVO_JOINT_NAMES.items():
                 with self.subTest(servo_id=servo_id, angle=angle):
-                    self.assertEqual(values[joint], angle)
+                    expected = (
+                        0.8803420273988994 - angle
+                        if servo_id in {13, 23, 33, 43} else angle
+                    )
+                    self.assertAlmostEqual(values[joint], expected)
+                    if servo_id in {13, 23, 33, 43} and angle == 0.2661499152601324:
+                        self.assertAlmostEqual(values[joint], 0.614192112138767)
 
     @unittest.skipUnless(os.name == "posix", "ROS executable entry point requires POSIX")
     def test_bridge_entry_point_executes_without_explicit_python(self):
@@ -135,16 +144,16 @@ class RobotViewBridgeTest(unittest.TestCase):
         pose = self.node.joint_publisher.publish.call_args.args[0]
         values = dict(zip(pose.name, pose.position))
         self.assertEqual(len(values), 12)
-        self.assertEqual(values["front_right_joint_13"], -0.2)
+        self.assertAlmostEqual(values["front_right_joint_13"], 1.0803420273988994)
         self.assertEqual(values["front_right_11"], 0.3)
         self.assertEqual(values["front_right_12"], 0.2)
         self.assertEqual(values["back_right_21"], 0.6)
         self.assertEqual(values["back_right_22"], 0.4)
-        self.assertEqual(values["back_right_joint_23"], -0.7)
+        self.assertAlmostEqual(values["back_right_joint_23"], 1.5803420273988994)
         self.assertEqual(values["front_left_31"], 0.8)
         self.assertEqual(values["back_left_42"], 0.4)
-        self.assertEqual(values["front_left_joint_33"], 0.5)
-        self.assertEqual(values["back_left_joint_43"], -0.9)
+        self.assertAlmostEqual(values["front_left_joint_33"], 0.3803420273988994)
+        self.assertAlmostEqual(values["back_left_joint_43"], 1.7803420273988994)
 
 
 class FakeProcess:

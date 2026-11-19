@@ -25,12 +25,19 @@ Tests compare every mapped name to the URDF. The replacement description uses
 The bridge publishes a complete display joint state at 20 Hz, initially zero.
 Partial telemetry replaces only the supplied finite positions; other joints keep
 their previous display value. The readback node applies each servo's configured
-zero and direction. The URDF axes use logical servo radians directly, so the bridge forwards
-angles unchanged. Axes for 11, 31, 12, 22, 13, 23, 33 and 43 were reversed
-from the CAD convention, with their bounds mirrored and the four knee mimic
-multipliers negated to preserve the corrected motion. This does not change
-hardware calibration, commands or stored poses. URDF bounds are model travel
-bounds, not verified measured servo limits (see [leg simulation](leg-simulation.md)).
+zero and direction. Other joints retain their logical angles; crank joints
+13, 23, 33 and 43 use `model_angle = 0.8803420273988994 - logical_servo_angle`.
+The shared [mapping](../src/saprog/scripts/saprog_desktop/robot_view_model.py)
+uses the identical calibrated upper stop recorded for all four cranks in
+[measured limits](../urdf/config/measured_servo_limits.json). Thus the upper
+stop displays at zero, and the lower stop at approximately 0.614192 radians.
+The URDF bounds remain the requested rounded range 0..0.614 radians. Values
+are not clamped; invalid samples are ignored as before. The mapping neither
+reapplies configured servo directions nor changes hardware commands or poses.
+The four knee mimic joints follow the converted crank coordinates. This
+endpoint alignment does not validate their approximate linkage ratio.
+The mapping uses recorded calibration, not runtime controller limit discovery;
+update it if that calibration changes. See [leg simulation](leg-simulation.md).
 These are preview values, not measured feedback
 or commands. This keeps all TF branches (including URDF mimic joints) available
 without hardware. Missing TF makes RViz use its white, unlit error material and
