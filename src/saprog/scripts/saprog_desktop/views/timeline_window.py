@@ -54,6 +54,7 @@ class TimelineWindow:
         if dependencies is None:
             raise ValueError("TimelineWindow requires injected desktop runtime dependencies")
         self.root, self.node, self.directory = root, node, directory
+        self.sequence_directory = str(Path(directory).resolve().parent / "sequences")
         self.dependencies = dependencies
         self.container = container or root
         self.joints, self.bounds = [], {}
@@ -164,8 +165,17 @@ class TimelineWindow:
             self.button(toolbar, icon, callback, compact=True, tooltip=label)
         snapshot_row = self.dependencies.ttk.Frame(outer)
         snapshot_row.pack(fill="x", pady=(0, 8))
-        self.dependencies.ttk.Label(snapshot_row, text="Available snapshot").pack(
+        self.dependencies.ttk.Label(snapshot_row, text="Available sequence").pack(
             side="left", padx=(0, 8)
+        )
+        self.available_sequences = self.dependencies.ttk.Combobox(
+            snapshot_row, state="readonly", width=24
+        )
+        self.available_sequences.pack(side="left", padx=(0, 4))
+        self.edit_widgets.append(self.available_sequences)
+        self.button(snapshot_row, "Load sequence", self.load_available_sequence)
+        self.dependencies.ttk.Label(snapshot_row, text="Available snapshot").pack(
+            side="left", padx=(8, 8)
         )
         self.available = self.dependencies.ttk.Combobox(
             snapshot_row, state="readonly", width=32
@@ -339,6 +349,10 @@ class TimelineWindow:
         self.available.configure(values=[p.name for p in self.paths])
         if self.paths and not self.available.get():
             self.available.current(0)
+        self.sequence_paths = sorted(Path(self.sequence_directory).glob("*.json"))
+        self.available_sequences.configure(values=[p.name for p in self.sequence_paths])
+        if self.sequence_paths and not self.available_sequences.get():
+            self.available_sequences.current(0)
 
     def _periodic_refresh(self):
         if self.timeline_close_state != "closed":
@@ -687,6 +701,14 @@ class TimelineWindow:
                 self.status.set(f"Save failed: {exc}")
 
     def load(self):
+        self._load_from_path()
+
+    def load_available_sequence(self):
+        selected = self.available_sequences.current()
+        if selected >= 0:
+            self._load_from_path(self.sequence_paths[selected])
+
+    def _load_from_path(self, selected_path=None):
         previous_steps, previous_dirty = copy.deepcopy(self.steps), self.dirty
 
         def restore_editor():
@@ -696,8 +718,10 @@ class TimelineWindow:
         if not self.discard():
             restore_editor()
             return
-        path = self.dependencies.filedialog.askopenfilename(
-            parent=self.root, filetypes=[("Timeline JSON", "*.json")]
+        path = selected_path or self.dependencies.filedialog.askopenfilename(
+            parent=self.root,
+            initialdir=self.sequence_directory,
+            filetypes=[("Timeline JSON", "*.json")],
         )
         if not path:
             restore_editor()
