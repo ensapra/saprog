@@ -24,7 +24,10 @@ Tests compare every mapped name to the URDF. The replacement description uses
 
 The bridge publishes a complete display joint state at 20 Hz, initially zero.
 Partial telemetry replaces only the supplied finite positions; other joints keep
-their previous display value. These are preview values, not measured feedback
+their previous display value. The bridge reverses display rotation for servos 11, 31, 12, 22, 13, 23, 33
+and 43 to match the supplied URDF axes. Servos 21, 32, 41 and 42 retain their
+logical angles. This affects visualization only; hardware calibration, commands
+and stored poses are unchanged. These are preview values, not measured feedback
 or commands. This keeps all TF branches (including URDF mimic joints) available
 without hardware. Missing TF makes RViz use its white, unlit error material and
 leaves meshes without their correct placement.

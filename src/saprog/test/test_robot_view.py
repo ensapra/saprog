@@ -48,6 +48,21 @@ class RobotViewBridgeTest(unittest.TestCase):
         self.assertAlmostEqual(base.transform.translation.z, 0.183)
         self.assertEqual(base.transform.rotation.w, 1.0)
 
+    def test_display_direction_for_every_servo_with_both_angle_signs(self):
+        reversed_ids = {11, 12, 13, 22, 23, 31, 33, 43}
+        for angle in (0.35, -0.35, 0.0):
+            self.node.on_joints(JointState(
+                name=[f"servo_{servo_id}" for servo_id in SERVO_JOINT_NAMES],
+                position=[angle] * 12,
+            ))
+            self.node.publish_base_transform()
+            pose = self.node.joint_publisher.publish.call_args.args[0]
+            values = dict(zip(pose.name, pose.position))
+            for servo_id, joint in SERVO_JOINT_NAMES.items():
+                with self.subTest(servo_id=servo_id, angle=angle):
+                    expected = -angle if servo_id in reversed_ids else angle
+                    self.assertEqual(values[joint], expected)
+
     @unittest.skipUnless(os.name == "posix", "ROS executable entry point requires POSIX")
     def test_bridge_entry_point_executes_without_explicit_python(self):
         # Match install(PROGRAMS): preserve bytes and add executable permission.
@@ -93,8 +108,8 @@ class RobotViewBridgeTest(unittest.TestCase):
         pose = self.node.joint_publisher.publish.call_args.args[0]
         values = dict(zip(pose.name, pose.position))
         self.assertEqual(len(values), 12)
-        self.assertEqual(values["front_right_joint_13"], -0.2)
-        self.assertEqual(values["front_right_11"], 0.3)
+        self.assertEqual(values["front_right_joint_13"], 0.2)
+        self.assertEqual(values["front_right_11"], -0.3)
         self.assertEqual(values["front_right_12"], 0.0)
         self.assertEqual(values["back_right_21"], 0.0)
 
