@@ -50,8 +50,10 @@ backend processes only after that safe close path completes. Closing the IMU
 display does not call reset or clear-zero; calibration and zero are backend-owned
 while that backend remains running.
 
-Under WSL the USB device must first be shared with usbipd-win. If needed, run
-`usbipd bind --busid 1-2` in elevated Windows PowerShell, using its current BUSID.
+Under WSL USB devices are shared with usbipd-win. The IMU helper requests the
+one-time share through Windows UAC when needed; approve the administrator prompt.
+If that prompt is unavailable or denied, run `usbipd bind --busid 1-2` in
+elevated Windows PowerShell, using its current BUSID.
 Servo launchers attach hardware ID `0403:6014` by default; override with
 `SAPROG_USB_BUSID` or `SAPROG_USB_HARDWARE_ID`. The configured `device_name` must
 appear as a character device before ROS starts. Closing the app does not detach USB.

@@ -12,6 +12,24 @@ saprog_usb_is_wsl() {
   }
 }
 
+# usbipd bind is a one-time Windows administrator operation. For the IMU only,
+# request it through the standard UAC prompt when the device is not shared.
+saprog_usb_bind_imu() {
+  local usbipd_path="$1" bus_id="$2" windows_path output
+  command -v powershell.exe >/dev/null 2>&1 || {
+    saprog_usb_fail IMU "IMU USB device is not shared and PowerShell interop is unavailable; run 'usbipd bind --busid ${bus_id}' in elevated Windows PowerShell."
+    return 1
+  }
+  windows_path="$(wslpath -w "$usbipd_path")" || {
+    saprog_usb_fail IMU "Could not resolve usbipd.exe's Windows path for administrator binding."
+    return 1
+  }
+  if ! output="$(powershell.exe -NoProfile -Command "\$process = Start-Process -FilePath '${windows_path}' -ArgumentList 'bind --busid ${bus_id}' -Verb RunAs -Wait -PassThru; exit \$process.ExitCode" 2>&1)"; then
+    saprog_usb_fail IMU "Could not share USB device ${bus_id}; approve the Windows administrator prompt or run 'usbipd bind --busid ${bus_id}' in elevated PowerShell. ${output}"
+    return 1
+  fi
+}
+
 # Arguments: profile label, bus override, bus variable name, hardware variable name, target ID.
 # Sets SAPROG_USB_BUS_ID / SAPROG_USB_HARDWARE_ID / SAPROG_USB_STATE.
 saprog_usb_attach() {
@@ -54,8 +72,30 @@ saprog_usb_attach() {
   fi
   read -r SAPROG_USB_BUS_ID SAPROG_USB_HARDWARE_ID SAPROG_USB_STATE <<<"$matches"
   if [[ "$SAPROG_USB_STATE" != Shared && "$SAPROG_USB_STATE" != Attached ]]; then
-    saprog_usb_fail "$label" "USB device ${SAPROG_USB_BUS_ID} (${SAPROG_USB_HARDWARE_ID}) is not shared with WSL (state: ${SAPROG_USB_STATE}). In elevated Windows PowerShell, run: usbipd bind --busid ${SAPROG_USB_BUS_ID}"
-    return 1
+    if [[ "$label" != IMU ]] || ! saprog_usb_bind_imu "$usbipd" "$SAPROG_USB_BUS_ID"; then
+      saprog_usb_fail "$label" "USB device ${SAPROG_USB_BUS_ID} (${SAPROG_USB_HARDWARE_ID}) is not shared with WSL (state: ${SAPROG_USB_STATE}). In elevated Windows PowerShell, run: usbipd bind --busid ${SAPROG_USB_BUS_ID}"
+      return 1
+    fi
+    if ! listing="$("$usbipd" list 2>&1)"; then
+      saprog_usb_fail "$label" "Could not verify the IMU USB share after binding: ${listing}"
+      return 1
+    fi
+    listing="${listing//$'\r'/}"
+    if [[ "$attach_option" == --busid ]]; then
+      matches="$(awk -v id="$target" '$1 == id && $1 ~ /^[0-9]+-[0-9]+$/ { print $1 " " $2 " " $NF }' <<<"$listing")"
+    else
+      matches="$(awk -v id="$target" 'toupper($2) == id && $1 ~ /^[0-9]+-[0-9]+$/ { print $1 " " $2 " " $NF }' <<<"$listing")"
+    fi
+    count="$(awk 'NF { n++ } END { print n + 0 }' <<<"$matches")"
+    if [[ "$count" -ne 1 ]]; then
+      saprog_usb_fail "$label" "Could not uniquely verify the IMU USB device after binding."
+      return 1
+    fi
+    read -r SAPROG_USB_BUS_ID SAPROG_USB_HARDWARE_ID SAPROG_USB_STATE <<<"$matches"
+    if [[ "$SAPROG_USB_STATE" != Shared && "$SAPROG_USB_STATE" != Attached ]]; then
+      saprog_usb_fail "$label" "Administrator binding completed, but usbipd still reports state '${SAPROG_USB_STATE}'."
+      return 1
+    fi
   fi
   if [[ "$SAPROG_USB_STATE" == Shared ]]; then
     if ! attach_output="$("$usbipd" attach --wsl "$WSL_DISTRO_NAME" "$attach_option" "$target" 2>&1)"; then

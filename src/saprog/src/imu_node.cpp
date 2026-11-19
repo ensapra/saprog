@@ -304,10 +304,10 @@ private:
       }
     } else if (result.state == saprog::imu::HelperState::failed) {
       message_ = "USB setup failed; retrying: " + result.diagnostics;
-      retry_at_ = Clock::now() + 3s;
+      retry_at_ = Clock::now() + 30s;
     } else if (result.state == saprog::imu::HelperState::timed_out) {
       message_ = "USB attachment timed out; retrying.";
-      retry_at_ = Clock::now() + 3s;
+      retry_at_ = Clock::now() + 30s;
     }
   }
   void poll_serial()

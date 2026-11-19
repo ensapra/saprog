@@ -212,8 +212,11 @@ Call only from a WSL caller that checked `WSL_DISTRO_NAME`; the helper does not
 select a serial tty or own backend lifetime. It is sourced by
 [ensure_usb.bash](../scripts/ensure_usb.bash) and
 [ensure_imu_usb.bash](../scripts/ensure_imu_usb.bash). It owns usbipd-win
-discovery, override validation, uniqueness checks and attach mechanics. Callers
-retain device policies: servo preflight validates the configured `device_name`
+discovery, override validation, uniqueness checks and attach mechanics. For an
+unshared IMU only, it requests the one-time Windows administrator bind
+through UAC and verifies the resulting usbipd state before attaching; servo
+preflight continues to require a pre-shared device. Callers retain device
+policies: servo preflight validates the configured `device_name`
 as a character device (also on native Linux); IMU preflight selects a tty by USB
 VID/PID only under WSL and prints only that path to stdout. Diagnostics go to
 stderr. The IMU helper is installed beside the shared sourced helper.

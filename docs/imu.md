@@ -23,7 +23,11 @@ no valid samples; on WSL it also retries USB attachment. A manual `disconnect`
 service disables this recovery until a new connection is requested. If valid
 samples do not arrive, the backend sends one Space resume toggle per connection.
 WSL attachment uses [ensure_imu_usb.bash](../scripts/ensure_imu_usb.bash), default
-hardware ID `1B4F:9D0F`; override with `SAPROG_IMU_USB_BUSID` or
+hardware ID `1B4F:9D0F`; if usbipd reports the IMU is not shared, it requests
+the one-time `usbipd bind` through Windows UAC before attaching. Approve the
+administrator prompt; if it is unavailable or denied, bind the device manually
+in elevated PowerShell. Recovery retries after 30 seconds to avoid repeating
+the prompt continuously. Override selection with `SAPROG_IMU_USB_BUSID` or
 `SAPROG_IMU_USB_HARDWARE_ID`. Explicit device selection uses `SAPROG_IMU_DEVICE`
 or the launch argument. Servo ports are never selected automatically.
 
