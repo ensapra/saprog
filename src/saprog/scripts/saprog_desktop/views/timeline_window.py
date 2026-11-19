@@ -151,15 +151,17 @@ class TimelineWindow:
         ).pack(anchor="w", pady=(0, 3))
         row = self.dependencies.ttk.Frame(outer)
         row.pack(fill="x", pady=(5, 4))
-        for label, callback in (
-            ("New", self.new),
-            ("Load timeline", self.load),
-            ("Save timeline", self.save),
-            ("Add snapshot…", self.add),
-            ("Add wait", self.add_wait),
-            ("Refresh", self.refresh),
+        self.button(row, "Add snapshot…", self.add)
+        self.button(row, "Add wait", self.add_wait)
+        self.button(row, "Refresh", self.refresh)
+        toolbar = self.dependencies.ttk.Frame(row)
+        toolbar.pack(side="right")
+        for label, icon, callback in (
+            ("New timeline", "+", self.new),
+            ("Load timeline", "↓", self.load),
+            ("Save timeline", "↑", self.save),
         ):
-            self.button(row, label, callback)
+            self.button(toolbar, icon, callback, compact=True, tooltip=label)
         snapshot_row = self.dependencies.ttk.Frame(outer)
         snapshot_row.pack(fill="x", pady=(0, 8))
         self.dependencies.ttk.Label(snapshot_row, text="Available snapshot").pack(
@@ -171,10 +173,10 @@ class TimelineWindow:
         self.available.pack(side="left", padx=(0, 6))
         self.edit_widgets.append(self.available)
         self.button(snapshot_row, "Add to timeline", self.add_available)
-        body = self.dependencies.ttk.Frame(outer)
+        body = self.dependencies.ttk.Panedwindow(outer, orient="horizontal")
         body.pack(fill="both", expand=True)
         sequence_panel = self.dependencies.ttk.Frame(body)
-        sequence_panel.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        body.add(sequence_panel, weight=4)
         sequence_heading = self.dependencies.ttk.Frame(sequence_panel)
         sequence_heading.pack(fill="x")
         self.dependencies.ttk.Label(sequence_heading, text="Steps", style="TLabelframe.Label").pack(
@@ -216,9 +218,8 @@ class TimelineWindow:
         ):
             self.button(row, label, callback)
         self.editor = self.dependencies.ttk.LabelFrame(body, text="Step settings", padding=8)
-        self.editor.pack(side="right", fill="y", expand=False, pady=(18, 0))
+        body.add(self.editor, weight=2)
         self.editor.configure(width=390)
-        self.editor.pack_propagate(False)
         self.transition_controls = self.dependencies.ttk.Frame(self.editor)
         self.transition_controls.pack(fill="x")
         self.transition_widgets = []
@@ -249,14 +250,19 @@ class TimelineWindow:
         self.edit_widgets.append(loop_toggle)
         playback = self.dependencies.ttk.Frame(outer)
         playback.pack(fill="x", pady=(7, 2))
-        self.play_button = self.button(playback, "Play timeline", self.play_timeline)
+        self.play_button = self.button(
+            playback, "▶", self.play_timeline, compact=True, tooltip="Play timeline"
+        )
         self.test_button = self.button(
-            playback, "Test selected step", lambda: self.play_timeline(True)
+            playback,
+            "▷",
+            lambda: self.play_timeline(True),
+            compact=True,
+            tooltip="Test selected step",
         )
-        stop_button = self.dependencies.ttk.Button(
-            playback, text="Stop", command=self.stop
+        stop_button = self.button(
+            playback, "■", self.stop, compact=True, tooltip="Stop timeline"
         )
-        stop_button.pack(side="left", padx=3, pady=3)
         self.dependencies.ttk.Label(
             outer,
             text="Stop halts later steps; motion or torque changes already sent may finish.",
@@ -265,11 +271,66 @@ class TimelineWindow:
         self.status_box = status_box(outer, self.status, height=2, tk_module=self.dependencies.tk)
         self.status_box.pack(fill="x")
 
-    def button(self, parent, label, callback, side="left"):
-        button = self.dependencies.ttk.Button(parent, text=label, command=callback)
-        button.pack(side=side, padx=3, pady=3)
+    def button(self, parent, label, callback, side="left", compact=False, tooltip=None):
+        options = {"padding": (5, 3)} if compact else {}
+        if compact:
+            options = {"style": "Icon.TButton", "width": 3}
+        button = self.dependencies.ttk.Button(parent, text=label, command=callback, **options)
+        button.pack(side=side, padx=2 if compact else 3, pady=2 if compact else 3)
+        if tooltip:
+            self._attach_tooltip(button, tooltip)
         self.edit_widgets.append(button)
         return button
+
+    def _attach_tooltip(self, widget, text):
+        tip = {"window": None}
+
+        def show(_event=None):
+            if tip["window"] is not None or not widget.winfo_exists():
+                return
+            popup = self.dependencies.tk.Toplevel(widget)
+            popup.wm_overrideredirect(True)
+            popup.wm_geometry(
+                f"+{widget.winfo_rootx()}+{widget.winfo_rooty() + widget.winfo_height() + 4}"
+            )
+            self.dependencies.ttk.Label(
+                popup, text=text, padding=(6, 3), style="Tooltip.TLabel"
+            ).pack()
+            tip["window"] = popup
+
+        def hide(_event=None):
+            if tip["window"] is not None:
+                tip["window"].destroy()
+                tip["window"] = None
+
+        widget.bind("<Enter>", show, add="+")
+        widget.bind("<Leave>", hide, add="+")
+        widget.bind("<ButtonPress>", hide, add="+")
+
+    def _highlight_running_step(self):
+        running_states = (
+            "active",
+            "goal_pending",
+            "cancel_pending",
+            "cancel_acknowledged",
+            "cancel_unknown",
+        )
+        if self.run_steps is None or self.timeline_state not in running_states:
+            return
+        active_row = next(
+            (
+                row
+                for row, (step_index, kind) in enumerate(self.rows)
+                if step_index == self.run_index and kind in ("transition", "wait")
+            ),
+            None,
+        )
+        if active_row is not None:
+            self.sequence.selection_clear(0, "end")
+            self.sequence.selection_set(active_row)
+            self.sequence.activate(active_row)
+            self.sequence.see(active_row)
+            self.sequence.itemconfigure(active_row, background=ACCENT, foreground=FOREGROUND)
 
     def refresh(self, force=True):
         if self.run_steps is not None:
@@ -310,6 +371,7 @@ class TimelineWindow:
                 next(row for row, (entry, _) in enumerate(self.rows) if entry == index)
             )
             self.select()
+        self._highlight_running_step()
 
     def _clear_editor(self):
         for child in self.transition_controls.winfo_children():
@@ -732,6 +794,7 @@ class TimelineWindow:
             return
         feedback = feedback_message.feedback
         self.run_index = max(0, min(len(self.run_steps) - 1, feedback.current_step - 1))
+        self._highlight_running_step()
         detail = f"Timeline step {feedback.current_step}/{feedback.step_count}: {feedback.status}"
         if feedback.seconds_remaining > 0:
             detail += f" ({feedback.seconds_remaining:.2f} seconds remaining)"

@@ -90,6 +90,8 @@ def apply_style(root):
         darkcolor=PANEL,
         focuscolor=FOCUS,
     )
+    style.configure("Icon.TButton", padding=(3, 3), anchor="center", width=3, font=(family, 12))
+    style.configure("Tooltip.TLabel", background=BUTTON, foreground=FOREGROUND, relief="solid", borderwidth=1)
     style.map(
         "TButton",
         background=[("disabled", TAB), ("pressed", PANEL), ("active", BUTTON_HOVER)],
