@@ -4,6 +4,16 @@ ROS 2 Jazzy desktop tools for a 12-servo quadruped: pose editing/playback, timel
 
 ## Launching the system
 
+The ROS-independent Qt for Python desktop shell can be started without WSL or
+a ROS workspace. Install its dependency, then start the empty Home window:
+
+```bash
+python -m pip install -r desktop/requirements.txt
+python desktop
+```
+
+Run this from the repository root.
+
 Open Ubuntu/WSL and start the full desktop from the repository root:
 
 ```bash
