@@ -3,12 +3,11 @@
 import math
 import time
 
-
-# Servo IDs map to movable URDF joints. The historic export typo is intentional.
+# Servo IDs map to movable joints in the current robot description.
 SERVO_JOINT_NAMES = {
     11: "front_right_11",
     12: "front_right_12",
-    13: "froint_right_joint_13",
+    13: "front_right_joint_13",
     21: "back_right_21",
     22: "back_right_22",
     23: "back_right_joint_23",

@@ -19,9 +19,27 @@ entry points for this ament/ROS 2 workspace.
 
 Servo IDs are mapped to existing URDF joint names in
 [robot_view_model.py](../src/saprog/scripts/saprog_desktop/robot_view_model.py).
-Tests compare every mapped name to the URDF. Preserve the export spelling
-`froint_right_joint_13` until the URDF and any consumers can be migrated
-together.
+Tests compare every mapped name to the URDF. The replacement description uses
+`front_right_joint_13`, replacing the old export typo `froint_right_joint_13`.
+
+The bridge publishes a complete display joint state at 20 Hz, initially zero.
+Partial telemetry replaces only the supplied finite positions; other joints keep
+their previous display value. These are preview values, not measured feedback
+or commands. This keeps all TF branches (including URDF mimic joints) available
+without hardware. Missing TF makes RViz use its white, unlit error material and
+leaves meshes without their correct placement.
+
+The startup `base_height` bridge parameter defaults to 0.183 metres: the supplied
+zero-angle meshes reach -0.18281 metres below the base. The orbit camera looks
+at z=0.08 metres. Height is a fixed visual reference; changing joint angles or
+IMU orientation does not solve ground contact or closed-loop linkage geometry.
+
+Validation for issue #30: all eight robot-view tests passed under WSL/Jazzy;
+an isolated bridge plus the real `robot_state_publisher` produced `world`
+transforms for all 17 mesh links without hardware. Ruff passed for changed
+Python files. Pixel rendering and physical mounting still require the X11 and
+hardware checks below. The supplied replacement URDF/meshes are pre-existing
+workspace changes and are not included in the bridge fix commit.
 
 The bridge publishes the IMU orientation as `world -> base` without a measured
 sensor-to-base mounting transform. The quaternion is sensor-relative: zero uses

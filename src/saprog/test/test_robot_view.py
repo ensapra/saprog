@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from xml.etree import ElementTree
 
 from saprog_desktop.robot_view_model import (
@@ -13,6 +13,52 @@ from saprog_desktop.robot_view_model import (
 from saprog_desktop.robot_view_session import RendererSession  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
+
+try:
+    import rclpy
+except ImportError:
+    rclpy = None
+else:
+    from saprog_desktop.ros.robot_view_bridge import RobotViewBridge
+    from sensor_msgs.msg import JointState
+
+
+@unittest.skipIf(rclpy is None, "bridge integration requires ROS")
+class RobotViewBridgeTest(unittest.TestCase):
+    def setUp(self):
+        rclpy.init()
+        self.node = RobotViewBridge()
+        self.node.joint_publisher = Mock()
+        self.node.tf_broadcaster = Mock()
+
+    def tearDown(self):
+        self.node.destroy_node()
+        rclpy.shutdown()
+
+    def test_startup_publishes_complete_pose_and_matching_base_stamp(self):
+        self.node.publish_base_transform()
+        pose = self.node.joint_publisher.publish.call_args.args[0]
+        base = self.node.tf_broadcaster.sendTransform.call_args.args[0]
+        self.assertEqual(pose.name, list(SERVO_JOINT_NAMES.values()))
+        self.assertEqual(list(pose.position), [0.0] * 12)
+        self.assertEqual(pose.header.stamp, base.header.stamp)
+        self.assertAlmostEqual(base.transform.translation.z, 0.183)
+        self.assertEqual(base.transform.rotation.w, 1.0)
+
+    def test_partial_readback_preserves_other_joints_and_rejects_nonfinite(self):
+        self.node.on_joints(JointState(name=["servo_13"], position=[-0.2]))
+        self.node.on_joints(JointState(
+            name=["servo_11", "servo_13", "servo_12", "servo_99", "servo_bad", "servo_21"],
+            position=[0.3, float("nan"), float("inf"), 1.0, 1.0],
+        ))
+        self.node.publish_base_transform()
+        pose = self.node.joint_publisher.publish.call_args.args[0]
+        values = dict(zip(pose.name, pose.position))
+        self.assertEqual(len(values), 12)
+        self.assertEqual(values["front_right_joint_13"], -0.2)
+        self.assertEqual(values["front_right_11"], 0.3)
+        self.assertEqual(values["front_right_12"], 0.0)
+        self.assertEqual(values["back_right_21"], 0.0)
 
 
 class FakeProcess:
@@ -36,7 +82,7 @@ class RobotViewSessionTest(unittest.TestCase):
         joints = {item.attrib["name"] for item in urdf.findall("joint")}
         self.assertEqual(len(SERVO_JOINT_NAMES), len(set(SERVO_JOINT_NAMES.values())))
         self.assertTrue(set(SERVO_JOINT_NAMES.values()) <= joints)
-        self.assertEqual(SERVO_JOINT_NAMES[13], "froint_right_joint_13")
+        self.assertEqual(SERVO_JOINT_NAMES[13], "front_right_joint_13")
 
     def test_orientation_resets_to_identity_after_stale_timeout_and_rejects_invalid(self):
         now = [1.0]

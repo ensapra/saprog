@@ -18,7 +18,8 @@ class RobotView:
         ttk.Label(parent, text="Robot visualization", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             parent,
-            text="RViz2 renders the URDF meshes with OpenGL and follows live servo and IMU data.",
+            text=("URDF preview: joints start at zero and retain their last received position. "
+                  "IMU orientation follows live data; floor height is a visual reference."),
             style="Muted.TLabel",
             wraplength=850,
         ).pack(anchor="w", pady=(4, 10))
