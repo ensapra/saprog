@@ -19,10 +19,6 @@ SERVO_JOINT_NAMES = {
     43: "back_left_joint_43",
 }
 
-# Logical servo angles whose rotation is opposite to the supplied URDF axes.
-# Display correction only; backend calibration and commands retain their signs.
-REVERSED_DISPLAY_SERVOS = frozenset({11, 12, 13, 22, 23, 31, 33, 43})
-
 IDENTITY_QUATERNION = (0.0, 0.0, 0.0, 1.0)
 ORIENTATION_MAX_AGE_SECONDS = 0.5
 

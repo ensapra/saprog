@@ -43,8 +43,9 @@ ros2 launch saprog_leg_lab inspect.launch.py
 
 RViz shows the base and front-right leg, with joint-frame axes. A separate
 standard ROS joint slider window controls the three driven model joints. The
-passive lower-leg hinge follows the source model's `2.4` mimic multiplier,
-retained as the working approximation. Sliders start at the known working
+passive lower-leg hinge follows the source model's `-2.4` mimic multiplier,
+retained as the working approximation. The negative sign preserves knee motion
+with the crank axis now using logical servo radians directly. Sliders start at the known working
 `stand` values (`0`, `0.5`, and `0.4` radians), so compare against the full Robot
 view while the real robot is in that same pose. The slider tool is independent;
 it does not follow live hardware after startup. Closing either window stops the launch.
@@ -72,17 +73,18 @@ The calibrated limits calculated from that read are:
 | First / sideways | -0.450408 | 1.085073 |
 | Second / fore-aft | -0.962234 | 1.085073 |
 | Third / crank | 0.266150 | 0.880342 |
-| Passive knee (`2.4 * crank`) | 0.638760 | 2.112821 |
+| Passive knee (historical report: `2.4 * crank`) | 0.638760 | 2.112821 |
 
 These values remain a recorded hardware readback, not the active URDF bounds.
 The attempted URDF limit update was reverted after it coincided with a regression
-in the full Robot view. The servo-to-model angle convention needs to be verified
-before copying hardware limits into the description. Do not treat the report as
+in the full Robot view. The URDF now uses logical servo radians directly, but its mirrored model bounds
+remain unverified against hardware limits; this change does not install the report
+as active bounds. Do not treat the report as
 a guarantee that current URDF limits match the servos.
 
 ## Approximation retained for now
 
-- The source lower-leg hinge uses a `2.4` mimic multiplier from the crank. A
+- The source lower-leg hinge uses a `-2.4` mimic multiplier from the crank. A
   fixed angular ratio does not establish closure of the physical linkage.
 - The existing STEP notes describe approximate bearing locations; the STEP
   component-center CSV is not a set of pivot axes or assembled motion mates.

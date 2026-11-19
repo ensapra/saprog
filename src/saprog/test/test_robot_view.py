@@ -48,8 +48,7 @@ class RobotViewBridgeTest(unittest.TestCase):
         self.assertAlmostEqual(base.transform.translation.z, 0.183)
         self.assertEqual(base.transform.rotation.w, 1.0)
 
-    def test_display_direction_for_every_servo_with_both_angle_signs(self):
-        reversed_ids = {11, 12, 13, 22, 23, 31, 33, 43}
+    def test_logical_angles_pass_through_for_every_servo(self):
         for angle in (0.35, -0.35, 0.0):
             self.node.on_joints(JointState(
                 name=[f"servo_{servo_id}" for servo_id in SERVO_JOINT_NAMES],
@@ -60,8 +59,7 @@ class RobotViewBridgeTest(unittest.TestCase):
             values = dict(zip(pose.name, pose.position))
             for servo_id, joint in SERVO_JOINT_NAMES.items():
                 with self.subTest(servo_id=servo_id, angle=angle):
-                    expected = -angle if servo_id in reversed_ids else angle
-                    self.assertEqual(values[joint], expected)
+                    self.assertEqual(values[joint], angle)
 
     @unittest.skipUnless(os.name == "posix", "ROS executable entry point requires POSIX")
     def test_bridge_entry_point_executes_without_explicit_python(self):
@@ -108,8 +106,8 @@ class RobotViewBridgeTest(unittest.TestCase):
         pose = self.node.joint_publisher.publish.call_args.args[0]
         values = dict(zip(pose.name, pose.position))
         self.assertEqual(len(values), 12)
-        self.assertEqual(values["front_right_joint_13"], 0.2)
-        self.assertEqual(values["front_right_11"], -0.3)
+        self.assertEqual(values["front_right_joint_13"], -0.2)
+        self.assertEqual(values["front_right_11"], 0.3)
         self.assertEqual(values["front_right_12"], 0.0)
         self.assertEqual(values["back_right_21"], 0.0)
 
@@ -136,6 +134,20 @@ class RobotViewSessionTest(unittest.TestCase):
         self.assertEqual(len(SERVO_JOINT_NAMES), len(set(SERVO_JOINT_NAMES.values())))
         self.assertTrue(set(SERVO_JOINT_NAMES.values()) <= joints)
         self.assertEqual(SERVO_JOINT_NAMES[13], "front_right_joint_13")
+
+    def test_urdf_owns_servo_directions_and_knee_coupling(self):
+        urdf = ElementTree.parse(ROOT / "urdf/urdf/URDF.urdf").getroot()
+        joints = {item.attrib["name"]: item for item in urdf.findall("joint")}
+        reversed_ids = {11, 12, 13, 22, 23, 31, 33, 43}
+        for servo_id, name in SERVO_JOINT_NAMES.items():
+            with self.subTest(servo_id=servo_id):
+                axis = tuple(map(float, joints[name].find("axis").attrib["xyz"].split()))
+                self.assertEqual(axis, (1.0 if servo_id in reversed_ids else -1.0, 0.0, 0.0))
+        for joint in joints.values():
+            mimic = joint.find("mimic")
+            if mimic is not None:
+                # Reversed crank coordinates must still drive the same knee motion.
+                self.assertLess(float(mimic.attrib["multiplier"]), 0.0)
 
     def test_orientation_resets_to_identity_after_stale_timeout_and_rejects_invalid(self):
         now = [1.0]

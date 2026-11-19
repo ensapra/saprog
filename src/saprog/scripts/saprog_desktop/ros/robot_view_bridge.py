@@ -12,7 +12,6 @@ from sensor_msgs.msg import JointState
 from tf2_ros import TransformBroadcaster
 
 from saprog_desktop.robot_view_model import (
-    REVERSED_DISPLAY_SERVOS,
     SERVO_JOINT_NAMES,
     OrientationReference,
 )
@@ -52,11 +51,8 @@ class RobotViewBridge(Node):
                 continue
             position = message.position[index]
             if math.isfinite(position):
-                # Match logical servo angles to the supplied URDF rotation sense.
-                # This correction affects display state only.
-                self.positions[urdf_name] = (
-                    -position if servo_id in REVERSED_DISPLAY_SERVOS else position
-                )
+                # Logical servo radians use the same convention as the URDF.
+                self.positions[urdf_name] = position
 
     def on_orientation(self, message):
         q = message.quaternion
