@@ -1,12 +1,42 @@
 # Whole-robot Gazebo simulation
 
 Tracking: [issue #34](https://github.com/ensapra/saprog/issues/34).
+Playback: [issue #35](https://github.com/ensapra/saprog/issues/35).
 
 Open Home's **Simulation** tab and choose **Start Gazebo**. The robot appears
 in a separate Gazebo Harmonic window, initially paused, above a ground plane.
 Use Gazebo's **Play** button to apply gravity and contacts. **Stop simulation**
 and start again to reset. Closing the panel's owning desktop stops its Gazebo
 process group. Home can detach this tab like its other panels.
+
+## Snapshots and sequences
+
+After **Start Gazebo** reports ready, choose a snapshot or sequence under
+**Play in Gazebo** and press its play button. Then press **Play** in the Gazebo
+window. A pose can be queued while the world is paused. The selectors initially
+list the workspace snapshots and sequences; **Browse** selects another JSON
+file, and **Snapshot folder** changes where sequence references are resolved.
+**Refresh** lists newly saved files.
+
+Playback reads the existing files and validates every sequence reference and
+target before sending motion. Radian snapshot schemas 1 and 2 are supported;
+normalized snapshots need measured hardware calibration and must be saved in
+radians first. Targets are checked against the installed URDF limits, including
+the source knee mimic relationship. Files outside those limits are rejected
+with a message in the panel.
+
+Sequence fixed durations, waits, loops and arrival steps use simulation time.
+Pausing Gazebo freezes the sequence. Arrival requires every simulated joint to
+remain within 0.04 rad of its target for 0.2 simulated seconds, with a timeout
+of 20 simulated seconds. This is simulation feedback, not physical arrival.
+Motion speed and torque settings, including per-joint overrides, control the
+simulated actuators. End `on` holds the final target; end `off` releases the
+simulated joints. Loops continue until stopped.
+
+**Stop playback / hold** cancels the sequence and holds the current measured
+simulated pose. **Release simulated joints** cancels and removes actuator
+forces. Both work while Gazebo is paused and take effect on its next physics
+step. **Stop simulation** closes the world and its playback worker.
 
 **Other panels → Simulation** opens standalone controls. To use simulation
 without starting Home or its hardware backends:
@@ -64,11 +94,20 @@ mappings remain unchanged. The free base starts at 0.5 m with a
 
 The [world](../src/saprog_simulation/worlds/inspection.sdf) uses a 1 ms physics
 step, Earth gravity, and a static frictional ground plane. No external world
-assets are needed. This is passive physics inspection: there are no motor
-controllers to hold a standing pose. The robot can fold or fall when unpaused.
+assets are needed. The robot is passive until playback begins and can fold or
+fall when unpaused. Desktop sessions attach the
+[actuator plugin](../src/saprog_simulation/src/actuators.cpp) to the existing
+Gazebo model at runtime. No alternate URDF is generated. Its position controller
+applies bounded joint forces with a speed-limited reference; it does not
+teleport the joints or pin the base. Raw AX speed settings use 0.111 rpm per
+unit and are capped by URDF velocity limits. Torque settings scale the URDF
+effort limit by `value / 1023`. These are approximate actuators with simulation
+PD gains, not calibrated motor dynamics.
 The existing knee mimic ratio is an approximate linkage. The installed default
-physics engine reports that it cannot enforce mimic constraints, so knee hinges
-move independently; this is not a validated mechanical linkage model.
+physics engine reports that it cannot enforce mimic constraints. During
+playback, the actuator plugin drives knee targets derived from the source
+multiplier and offset; this approximates the target pose, not the physical
+closed linkage. With forces released, the knees move independently.
 Collision meshes, friction, exported inertias and joint calibration still need
 physical validation. See [single-leg calibration](leg-simulation.md) before
 using this model for locomotion or hardware motion planning.
@@ -81,6 +120,7 @@ From the workspace, with the ROS and dedicated install sourced:
 PYTHONPATH=src/saprog/scripts python3 -m unittest discover \
   -s src/saprog/test -p test_simulation.py
 python3 src/saprog_simulation/test/check_physics.py
+python3 src/saprog_simulation/test/check_playback.py
 ```
 
 The first command checks process ownership, forced cleanup, spawn readiness,
@@ -88,3 +128,7 @@ timeouts, and the Tk panel when a display is available. The second starts an
 isolated headless world, verifies the mesh-bearing robot exists while paused,
 steps physics to measure falling under gravity, and checks it settles above the
 floor. It always stops its launch group. It does not validate physical accuracy.
+The playback check starts the same session used by the desktop, attaches the
+actuators, queues a pose while paused, verifies actual joint arrival, executes
+timed sequence steps and waits, checks release on completion, and cancels while
+paused. It also stops its owned processes.

@@ -7,9 +7,11 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from xml.etree import ElementTree as ET
 
+from saprog_desktop.simulation_playback import SimulationPlayback, SimulationRobot
 from saprog_desktop.simulation_session import SimulationSession
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -72,6 +74,102 @@ class SimulationSessionTest(unittest.TestCase):
             retire.assert_called_once_with(process)
         session._clear_directory()
 
+    def test_commands_require_ready_session_and_use_private_directory(self):
+        session = SimulationSession(ROOT)
+        with self.assertRaises(ValueError):
+            session.command("release")
+        with tempfile.TemporaryDirectory() as directory:
+            session._directory = SimpleNamespace(name=directory)
+            session.state, session.playback = "running", {"ready": True}
+            request = session.command("release")
+            import json
+            document = json.loads((Path(directory) / "command.json").read_text())
+            self.assertEqual(document, {"id": request, "action": "release"})
+
+
+class SimulationPlaybackTest(unittest.TestCase):
+    def setUp(self):
+        self.send = Mock()
+        self.player = SimulationPlayback(SimpleNamespace(joints={"a": (-1, 1, 3, 2)}), self.send)
+        self.player.observe(0, {"a": 0})
+
+    def plan(self, *, mode="until_reached", seconds=1, loop=False, on_end="on"):
+        return {"name": "test", "steps": [{"targets": {"a": (0.5, 1, 2)}, "mode": mode, "seconds": seconds}],
+                "loop": loop, "on_end": on_end}
+
+    def test_paused_feedback_cannot_advance_fixed_duration(self):
+        self.player.start(self.plan(mode="seconds"))
+        for _ in range(10):
+            self.player.observe(0, {"a": 0.5})
+        self.assertEqual(self.player.state, "playing")
+        self.player.observe(1, {"a": 0.5})
+        self.assertEqual(self.player.state, "complete")
+
+    def test_arrival_requires_stable_measured_position(self):
+        self.player.start(self.plan())
+        self.player.observe(1, {"a": 0.5})
+        self.player.observe(1.1, {"a": 0})
+        self.player.observe(2, {"a": 0.5})
+        self.player.observe(2.3, {"a": 0.5})
+        self.assertEqual(self.player.state, "complete")
+
+    def test_end_release_and_loop_stop_hold_current_pose(self):
+        self.player.start(self.plan(mode="seconds", on_end="off"))
+        self.player.observe(1, {"a": 0.5})
+        self.send.assert_called_with(None)
+        self.player.start(self.plan(mode="seconds", loop=True))
+        self.player.observe(2, {"a": 0.2})
+        self.assertEqual(self.player.state, "playing")
+        self.player.stop()
+        self.send.assert_called_with({"a": (0.2, 3, 2)})
+        self.assertIsNone(self.player.plan)
+
+    def test_clock_reset_and_arrival_timeout_release(self):
+        self.player.start(self.plan())
+        self.player.observe(21, {"a": 0})
+        self.assertEqual(self.player.state, "error")
+        self.send.assert_called_with(None)
+        self.player.start(self.plan())
+        self.player.observe(0, {"a": 0})
+        self.assertEqual(self.player.state, "error")
+        self.send.assert_called_with(None)
+
+    def test_wait_step_retains_pose_and_waits_for_simulated_duration(self):
+        plan = self.plan(mode="seconds", seconds=0.2)
+        plan["steps"].append({"targets": None, "mode": "seconds", "seconds": 1})
+        self.player.start(plan)
+        self.player.observe(0.2, {"a": 0.5})
+        self.send.assert_called_once()
+        self.player.observe(1, {"a": 0.5})
+        self.assertEqual(self.player.state, "playing")
+        self.player.observe(1.3, {"a": 0.5})
+        self.assertEqual(self.player.state, "complete")
+
+    def test_bad_late_sequence_step_is_rejected_before_sending(self):
+        import json
+        robot = SimulationRobot(ROOT / "urdf/urdf/URDF.urdf")
+        with tempfile.TemporaryDirectory() as directory:
+            snapshot = {"schema_version": 1, "name": "test", "positions": {
+                name: (low + high) / 2 for name, (low, high) in robot.bounds.items()
+            }}
+            Path(directory, "pose.json").write_text(json.dumps(snapshot))
+            step = {"snapshot": "pose.json", "motion": {"speed": 300, "torque": 500}}
+            document = {"kind": "saprog_timeline", "schema_version": 2, "steps": [step, {**step, "snapshot": "missing.json"}]}
+            path = Path(directory, "sequence.json")
+            path.write_text(json.dumps(document))
+            with self.assertRaises(OSError):
+                self.player.start(robot.load(path, "sequence", directory))
+            self.send.assert_not_called()
+
+    def test_source_mimic_and_motion_settings_are_applied(self):
+        robot = SimulationRobot(ROOT / "urdf/urdf/URDF.urdf")
+        positions = {name: (low + high) / 2 for name, (low, high) in robot.bounds.items()}
+        settings = {name: {"speed": 100, "torque": 512} for name in robot.mapping}
+        targets = robot.targets(positions, settings)
+        leader, ratio, offset = robot.mimics["front_right_leg"]
+        self.assertAlmostEqual(targets["front_right_leg"][0], ratio * targets[leader][0] + offset)
+        self.assertAlmostEqual(targets[leader][2], robot.joints[leader][3] * 512 / 1023)
+
     @unittest.skipUnless(hasattr(os, "killpg"), "requires POSIX process groups")
     def test_close_reaps_term_resistant_descendants(self):
         session = SimulationSession(ROOT)
@@ -109,6 +207,15 @@ class SimulationViewTest(unittest.TestCase):
             view.poll()
             self.assertEqual(str(view.start_button["state"]), "normal")
             self.assertEqual(str(view.stop_button["state"]), "disabled")
+            view.session.state = "running"
+            view.session.playback = {"ready": True, "state": "idle", "message": "ready"}
+            view.poll()
+            self.assertEqual(str(view.play_buttons[0]["state"]), "normal")
+            selected = view.selection["snapshot"].get()
+            with patch.object(view.session, "command", return_value="request") as command:
+                view.play("snapshot")
+                self.assertEqual(command.call_args.kwargs["path"].name, selected)
+                self.assertEqual(command.call_args.kwargs["kind"], "snapshot")
             view.close()
             self.assertTrue(view.session.closing)
         finally:

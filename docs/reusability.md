@@ -161,6 +161,7 @@ each resize contract before creating one.
 | [timeline_deadline.hpp](../src/saprog/include/saprog/timeline_deadline.hpp): `checked_deadline(seconds, start, deadline)` | Finite nonnegative seconds and a steady-clock start to a representable deadline; returns false on invalid or overflowing input. | Timeline goal validation and execution use the same checked conversion before deadline arithmetic. The caller injects the clock reading; this helper does not wait or access ROS. |
 | [dynamixel_registers.hpp](../src/saprog/include/saprog/dynamixel_registers.hpp) | Named AX register addresses and widths for limits, torque, goal/present position, speed and torque limit. | `DynamixelBus` uses the constants for register transactions/cache keys; one bus still owns the serial transaction lock. |
 | [dynamixel_bus.hpp](../src/saprog/include/saprog/dynamixel_bus.hpp), [implementation](../src/saprog/src/dynamixel_bus.cpp) | `DynamixelBus`: single serial transaction lock/priority arbitration, settings cache, and single/batch servo operations including before-deadline variants. Before-deadline calls accept an optional `bool()` cancellation predicate checked after lock acquisition and before writes. | Readback creates the bus and controller shares it. Cache mutations and transactions stay under bus ownership. Verification of goal registers does not prove physical arrival. The predicate runs under the bus lock and must be nonblocking. |
+| [dynamixel_bus.hpp](../src/saprog/include/saprog/dynamixel_bus.hpp): `read_state(id, data, enabled, error)` | One AX register read (24..43) returns the eight telemetry bytes (36..43) and observed torque enable, updating the settings cache under the bus lock. | Readback uses it once per timer callback and yields between servos; `poll_rate` is complete sweeps per second. Failed reads invalidate cached settings and are omitted from the current sweep. |
 | [dynamixel_register_transport.hpp](../src/saprog/include/saprog/dynamixel_register_transport.hpp), [implementation](../src/saprog/src/dynamixel_register_transport.cpp) | `DynamixelRegisterTransport`: owns the one SDK port and performs checked register reads/writes and synchronized register batches. | Owned by `DynamixelBus`; do not construct a second transport for the same physical bus. Status-return-level behavior, timeout verification without duplicate writes, and SDK error translation live here. `DynamixelBus` owns cache and scheduling policy. |
 | [imu_filter.hpp](../src/saprog/include/saprog/imu_filter.hpp) | `saprog::imu::Sample`, `parse_sample(line, sample)`, vector/quaternion helpers and `Filter` update/calibration/zero/heading operations. | Strict calculated ten-column CSV, firmware g/degrees/s/microtesla. Quat is wxyz sensor-to-world; ROS uses xyzw. #21 splits protocol/math/filter without replacing numeric behavior. |
 | [imu_node.cpp](../src/saprog/src/imu_node.cpp) | Serial/helper lifetime, sample scaling and ROS SI publication/services. | Sensor state remains backend-owned. #20 extracts exclusive transport and helper owners; #21 owns message/unit boundary. |
@@ -184,17 +185,35 @@ Current backend extraction additions:
 
 [SimulationSession](../src/saprog/scripts/saprog_desktop/simulation_session.py)
 owns one hardware-independent Gazebo launch process group and a temporary spawn
-marker. `start()` launches the simulation with its own Gazebo partition;
+marker. `start(gui=True)` launches the simulation with its own Gazebo partition;
 `poll()` returns `starting`, `running`, `stopping`, `stopped`, or `error` and
 updates `message`. Call these on the UI thread. `stop()` sends TERM and schedules
 KILL after three seconds; `close()` prevents restart and removes the marker.
 Cleanup timers keep the interpreter alive until owned descendants are stopped.
 [SimulationView](../src/saprog/scripts/saprog_desktop/views/simulation.py), used
 by Home and the standalone simulation app, owns this session and its Tk refresh.
-It does not depend on ROS nodes or hardware; only its launcher sources ROS.
+`command(action, path=None, kind=None, snapshots=None)` atomically sends a
+play/stop/release request to the owned worker; `playback` exposes the last
+status, request ID, simulated seconds, and measured joint radians. Requests
+require a running session with complete feedback. The view itself does not
+depend on ROS nodes or hardware; only its launcher sources ROS/Gazebo.
 [launch_simulation.sh](../tabs/launch_simulation.sh) opens standalone controls;
 its internal `--launch` mode loads the installed `saprog_simulation` package
 without controller setup. This API does not replace the embedded RViz owner.
+
+[simulation_playback.py](../src/saprog/scripts/saprog_desktop/simulation_playback.py)
+owns `SimulationRobot(description)` for source URDF joint bounds, actuator
+limits and mimic target relationships. `load(path, kind, snapshots)` returns a
+fully validated simulation plan using the existing snapshot/timeline owners;
+it never queries hardware. `SimulationPlayback(robot, send)` consumes
+`observe(sim_seconds, joint_radians)` and implements fixed durations, arrival,
+waits, loops, hold and release. The Gazebo-only
+[worker](../src/saprog/scripts/saprog_desktop/simulation_worker.py) is its caller
+and owns transport subscriptions, runtime actuator attachment and private
+session command/status files. Its force controller is
+[actuators.cpp](../src/saprog_simulation/src/actuators.cpp); private Gazebo topics
+carry target position, maximum speed and effort limit in SI units, plus
+simulated joint feedback. No ROS command adapters are shared with hardware.
 
 [_launcher_setup.bash](../tabs/_launcher_setup.bash) owns ROS/workspace setup
 and installed-package verification for [_launch_window.bash](../tabs/_launch_window.bash).

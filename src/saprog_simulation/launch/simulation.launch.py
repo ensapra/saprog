@@ -4,7 +4,7 @@ import math
 import os
 from pathlib import Path
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -45,6 +45,17 @@ def start_world(context):
         if event.returncode:
             return [EmitEvent(event=Shutdown(reason="Robot spawn failed; check Gazebo output"))]
         marker = LaunchConfiguration("ready_file").perform(context)
+        control_dir = LaunchConfiguration("control_dir").perform(context)
+        if control_dir:
+            worker = ExecuteProcess(cmd=[
+                "python3", "-m", "saprog_desktop.simulation_worker", control_dir,
+                str(description / "urdf" / "URDF.urdf"),
+                str(Path(get_package_prefix("saprog_simulation")) / "lib" / "libsaprog_sim_actuators.so"),
+                "--ready-file", marker,
+            ], output="screen")
+            return [RegisterEventHandler(OnProcessExit(target_action=worker, on_exit=[
+                EmitEvent(event=Shutdown(reason="Simulation playback worker stopped")),
+            ])), worker]
         if marker:
             Path(marker).touch()
         return []
@@ -63,5 +74,6 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("gui", default_value="true", choices=["true", "false"]),
         DeclareLaunchArgument("ready_file", default_value=""),
+        DeclareLaunchArgument("control_dir", default_value=""),
         OpaqueFunction(function=start_world),
     ])

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 workspace_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+export PYTHONPATH="${workspace_dir}/src/saprog/scripts${PYTHONPATH:+:${PYTHONPATH}}"
 if [[ "${1:-}" != --launch ]]; then
-  export PYTHONPATH="${workspace_dir}/src/saprog/scripts${PYTHONPATH:+:${PYTHONPATH}}"
   exec python3 -m saprog_desktop.apps.simulation "$@"
 fi
 shift
