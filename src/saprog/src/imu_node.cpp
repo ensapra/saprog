@@ -34,6 +34,7 @@ public:
   ImuNode() : Node("saprog_imu")
   {
     device_ = declare_parameter<std::string>("device", env("SAPROG_IMU_DEVICE"));
+    explicit_device_ = !device_.empty();
     baud_ = declare_parameter<int>("baud_rate", 115200);
     auto_connect_ = declare_parameter<bool>("auto_connect", true);
     frame_ = declare_parameter<std::string>("frame_id", "imu_link");
@@ -76,7 +77,8 @@ public:
             baud_ = req->baud_rate;
           }
           device_ = req->device;
-          auto_connect_ = false;
+          explicit_device_ = !device_.empty();
+          auto_connect_ = true;
           res->success = connect_device();
           res->message = message_;
         });
@@ -157,6 +159,7 @@ public:
 private:
   int baud_ = 115200;
   bool auto_connect_ = false, resume_pending_ = false;
+  bool explicit_device_ = false;
   std::string device_, frame_, helper_;
   std::string message_ = "Waiting for connection.";
   std::vector<std::string> ports_;
@@ -168,6 +171,7 @@ private:
   std::uint64_t sample_count_ = 0, invalid_lines_ = 0;
   double accel_scale_ = 1, gyro_scale_ = 1, mag_scale_ = 1;
   Clock::time_point opened_{}, last_sample_{}, calibration_at_{};
+  Clock::time_point retry_at_{};
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr raw_pub_, data_pub_;
   rclcpp::Publisher<sensor_msgs::msg::MagneticField>::SharedPtr mag_pub_;
   rclcpp::Publisher<geometry_msgs::msg::QuaternionStamped>::SharedPtr relative_pub_;
@@ -212,16 +216,23 @@ private:
   bool connect_device(bool allow_helper = true)
   {
     discover();
-    const auto selected = device_.empty() ? preferred_ : device_;
+    const auto selected = explicit_device_ ? device_ : preferred_;
     if (selected.empty()) {
       if (allow_helper && !helper_.empty() && !env("WSL_DISTRO_NAME").empty()) {
-        return start_helper();
+        if (start_helper()) {
+          retry_at_ = Clock::now() + 4s;
+          return true;
+        }
+        retry_at_ = Clock::now() + 3s;
+        return false;
       }
+      retry_at_ = Clock::now() + 3s;
       return fail("IMU not identified; check the USB connection and restart the IMU backend. Servo "
-                  "ports are never selected automatically.");
+                  "ports are never selected automatically; retrying automatically.");
     }
     std::string error;
     if (!transport_.open(selected, baud_, error)) {
+      retry_at_ = Clock::now() + 3s;
       return fail(error);
     }
     device_ = selected;
@@ -233,6 +244,7 @@ private:
     invalid_lines_ = 0;
     resume_pending_ = true;
     opened_ = Clock::now();
+    retry_at_ = opened_ + 3s;
     message_ = "Connected to " + device_ + "; waiting for ten-column calculated samples.";
     return true;
   }
@@ -273,12 +285,29 @@ private:
     }
     const auto result = helper_process_.poll(Clock::now());
     if (result.state == saprog::imu::HelperState::succeeded) {
-      device_ = result.device;
-      connect_device(false);
+      std::string error;
+      if (transport_.open(result.device, baud_, error)) {
+        device_ = result.device;
+        framer_ = saprog::imu::LineFramer{};
+        const bool heading = filter_.magnetic_heading;
+        filter_ = saprog::imu::Filter{};
+        filter_.magnetic_heading = heading;
+        sample_count_ = 0;
+        invalid_lines_ = 0;
+        resume_pending_ = true;
+        opened_ = Clock::now();
+        retry_at_ = opened_ + 3s;
+        message_ = "Connected to " + device_ + "; waiting for ten-column calculated samples.";
+      } else {
+        message_ = error;
+        retry_at_ = Clock::now() + 3s;
+      }
     } else if (result.state == saprog::imu::HelperState::failed) {
-      message_ = "USB setup failed: " + result.diagnostics;
+      message_ = "USB setup failed; retrying: " + result.diagnostics;
+      retry_at_ = Clock::now() + 3s;
     } else if (result.state == saprog::imu::HelperState::timed_out) {
-      message_ = "USB attachment timed out.";
+      message_ = "USB attachment timed out; retrying.";
+      retry_at_ = Clock::now() + 3s;
     }
   }
   void poll_serial()
@@ -288,7 +317,8 @@ private:
     }
     if (transport_.failed()) {
       disconnect();
-      message_ = "IMU disconnected or serial read failed.";
+      message_ = "IMU disconnected or serial read failed; reconnecting automatically.";
+      retry_at_ = Clock::now() + 1s;
       return;
     }
     char buffer[4096];
@@ -298,7 +328,8 @@ private:
       if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
         const std::string error = std::strerror(errno);
         disconnect();
-        message_ = "Serial read failed: " + error;
+        message_ = "Serial read failed: " + error + "; reconnecting automatically.";
+        retry_at_ = Clock::now() + 1s;
         return;
       }
       if (n <= 0) {
@@ -358,11 +389,20 @@ private:
   }
   void tick()
   {
-    if (auto_connect_) {
-      auto_connect_ = false;
+    if (auto_connect_ && !transport_.connected() && !helper_process_.running() &&
+        Clock::now() >= retry_at_) {
       connect_device();
     }
     poll_helper();
+    if (transport_.connected() && sample_count_ > 0 && Clock::now() - last_sample_ > 2s) {
+      disconnect();
+      message_ = "IMU samples stopped; reconnecting automatically.";
+      retry_at_ = Clock::now() + 1s;
+    } else if (transport_.connected() && sample_count_ == 0 && Clock::now() - opened_ > 8s) {
+      disconnect();
+      message_ = "No valid IMU samples; reopening the sensor automatically.";
+      retry_at_ = Clock::now() + 1s;
+    }
     if (resume_pending_ && transport_.connected() && Clock::now() - opened_ > 1500ms) {
       resume_pending_ = false;
       if (write_space()) {

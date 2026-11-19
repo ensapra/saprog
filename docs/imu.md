@@ -17,7 +17,11 @@ time_ms, ax, ay, az, gx, gy, gz, mx, my, mz
 Firmware units are g, degrees/s and microtesla. Startup `accel_scale`, `gyro_scale`
 and `mag_scale` multiply incoming values to those units. Raw-count scales depend
 on firmware settings; do not guess them. Extra/missing columns are rejected.
-If valid samples do not arrive, the backend sends one Space resume toggle.
+The backend keeps retrying discovery and connection while auto-connect is enabled.
+It reconnects after serial errors, a stopped stream, or a connection that produces
+no valid samples; on WSL it also retries USB attachment. A manual `disconnect`
+service disables this recovery until a new connection is requested. If valid
+samples do not arrive, the backend sends one Space resume toggle per connection.
 WSL attachment uses [ensure_imu_usb.bash](../scripts/ensure_imu_usb.bash), default
 hardware ID `1B4F:9D0F`; override with `SAPROG_IMU_USB_BUSID` or
 `SAPROG_IMU_USB_HARDWARE_ID`. Explicit device selection uses `SAPROG_IMU_DEVICE`
