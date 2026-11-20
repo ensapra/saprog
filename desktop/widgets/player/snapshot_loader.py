@@ -1,14 +1,9 @@
 """Read radian snapshots using the shared, ROS-independent validation rules."""
 
 import json
-import sys
 from pathlib import Path
 
-_SCRIPTS = str(Path(__file__).resolve().parents[3] / "src" / "saprog" / "scripts")
-if _SCRIPTS not in sys.path:
-    sys.path.insert(0, _SCRIPTS)
-
-from saprog_desktop.snapshot_units import validate_snapshot  # noqa: E402
+from documents.snapshot_units import validate_snapshot
 
 
 def load_keyframe(path, servos, bounds=None):

@@ -47,6 +47,9 @@ class FakeManager(QObject):
     def release_all_torque(self):
         return self._send("release_all")
 
+    def refresh_servo_limits(self):
+        return self._send("limits")
+
     def cancel_commands(self, command_ids):
         self.cancelled.extend(command_ids)
 
@@ -94,6 +97,70 @@ class PlayerTest(unittest.TestCase):
                 count = len(self.manager.commands)
                 self.acknowledge()
                 self.assertEqual(len(self.manager.commands), count)
+
+    def limits_response(self):
+        return json.dumps({"servos": [
+            {"servo_id": int(name[6:]), "zero_position": 512, "direction": -1,
+             "raw_lower": 400, "raw_upper": 600}
+            for name in self.view.target_inputs
+        ]})
+
+    def test_entering_animator_reads_limits_updates_labels_and_persists(self):
+        from widgets.player.servo_limits import TICK_RADIANS
+
+        self.widget.show()
+        self.app.processEvents()
+        self.assertEqual(self.manager.commands[-1][1], "limits")
+        self.widget.refresh_servo_limits()
+        self.assertEqual(len(self.manager.commands), 1)
+        with patch("widgets.player.save_report") as save:
+            self.manager.command_result.emit(
+                self.manager.commands[-1][0], True, self.limits_response(),
+            )
+        save.assert_called_once()
+        lower, upper = self.view.servo_limits["servo_11"]
+        self.assertAlmostEqual(lower, -88 * TICK_RADIANS)
+        self.assertAlmostEqual(upper, 112 * TICK_RADIANS)
+        self.assertEqual(self.view.limit_labels["servo_11"][0].text(), "-0.45")
+        self.view.target_inputs["servo_11"].setText("0.9")
+        self.view.go_to_buttons["servo_11"].click()
+        self.assertEqual(len(self.manager.commands), 1)
+        self.widget.hide()
+        self.widget.show()
+        self.assertEqual(len(self.manager.commands), 2)
+        self.assertEqual(self.manager.commands[-1][1], "limits")
+
+    def test_failed_or_incomplete_limit_read_preserves_cached_bounds(self):
+        previous = dict(self.view.servo_limits)
+        for success, message in ((False, "servo_11 disconnected"), (True, '{"servos":[]}')):
+            self.widget.refresh_servo_limits()
+            with patch("widgets.player.save_report") as save:
+                self.manager.command_result.emit(self.manager.commands[-1][0], success, message)
+            save.assert_not_called()
+            self.assertEqual(self.view.servo_limits, previous)
+            self.assertIn("using stored values", self.widget.keyframes_view.status_label.text())
+
+    def test_limit_timeout_ignores_late_read_and_can_retry(self):
+        previous = dict(self.view.servo_limits)
+        self.widget.refresh_servo_limits()
+        command_id = self.manager.commands[-1][0]
+        self.widget._limits_timed_out()
+        self.assertIn(command_id, self.manager.cancelled)
+        with patch("widgets.player.save_report") as save:
+            self.manager.command_result.emit(command_id, True, self.limits_response())
+        save.assert_not_called()
+        self.assertEqual(self.view.servo_limits, previous)
+        self.widget.refresh_servo_limits()
+        self.assertIsNotNone(self.widget._limits_command)
+
+    def test_save_failure_still_uses_fresh_limits_in_memory(self):
+        self.widget.refresh_servo_limits()
+        with patch("widgets.player.save_report", side_effect=OSError("read only")):
+            self.manager.command_result.emit(
+                self.manager.commands[-1][0], True, self.limits_response(),
+            )
+        self.assertIn("could not save", self.widget.keyframes_view.status_label.text())
+        self.assertLess(self.view.servo_limits["servo_11"][1], 0.6)
 
     def test_entering_puppet_cancels_queued_motion_and_ignores_late_results(self):
         self.view.go_to_buttons["servo_11"].click()

@@ -146,6 +146,28 @@ bool ServoBus::read(uint8_t id, ServoReading &reading, std::string &error)
   return true;
 }
 
+bool ServoBus::read_limits(uint8_t id, uint16_t &lower, uint16_t &upper, std::string &error)
+{
+  std::vector<uint8_t> data(4);
+  uint8_t device_error = 0;
+  const int result = packet_->readTxRx(port_, id, 6, 4, data.data(), &device_error);
+  if (result != COMM_SUCCESS || device_error != 0) {
+    error = result != COMM_SUCCESS ? packet_->getTxRxResult(result)
+                                   : packet_->getRxPacketError(device_error);
+    return false;
+  }
+  const auto low = word_at(data, 0);
+  const auto high = word_at(data, 2);
+  if (low >= high || high > 1023) {
+    error = "Invalid angle limits (wheel mode, locked range, or out of range)";
+    return false;
+  }
+  lower = low;
+  upper = high;
+  error.clear();
+  return true;
+}
+
 bool ServoBus::set_positions(const std::vector<uint8_t> &ids,
                              const std::vector<uint16_t> &positions,
                              const std::vector<uint16_t> &speeds,

@@ -26,4 +26,14 @@ install(TARGETS imu_publisher_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(imu_orientation_estimator_test
+    test/imu_orientation_estimator_test.cpp
+    src/imu_orientation_estimator.cpp
+  )
+  target_include_directories(imu_orientation_estimator_test PRIVATE include)
+  target_compile_features(imu_orientation_estimator_test PUBLIC cxx_std_17)
+endif()
+
 ament_package()

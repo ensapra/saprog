@@ -1,165 +1,66 @@
 # Saprog
 
-ROS 2 Jazzy desktop tools for a 12-servo quadruped: pose editing/playback, timelines, temperature monitoring, IMU and RViz2. Runs on Linux/WSL with ROS and configured USB devices.
+Qt for Python desktop tools and ROS 2 Jazzy backends for a 12-servo quadruped.
 
-## Launching the system
+## Launch the desktop
 
-The ROS-independent Qt for Python desktop shell can be started without WSL or
-a ROS workspace. Install its dependency, then start the empty Home window:
+Install the desktop dependencies and run from the repository root:
 
-```bash
+```sh
 python -m pip install -r desktop/requirements.txt
 python desktop
 ```
 
-Run this from the repository root.
+The desktop starts without ROS. Hardware widgets use the shared ROS manager to
+build and start the required packages from `ros2/`. On Windows this runs through
+WSL, using `Ubuntu-24.04` by default; override it with `SAPROG_WSL_DISTRO`.
+ROS 2 Jazzy and the packages' build dependencies must be installed there.
 
-Open Ubuntu/WSL and start the full desktop from the repository root:
+See the [desktop guide](desktop/README.md) for tabs, controller mappings and IMU
+setup, and the [DYNAMIXEL guide](ros2/saprog_dynamixel/README.md) for servo topics,
+commands and configuration.
 
-```bash
-cd /mnt/c/Users/pauso/Documents/GitHub/saprog
-bash ./launch_home.sh
-```
+## Repository layout
 
-`launch_home.sh` builds the workspace, starts the shared robot controller,
-and opens Home. It can take a USB device into exclusive WSL use. Close Home
-to stop its owned backend processes.
+| Folder | Contents |
+| --- | --- |
+| [desktop/](desktop/) | Current Qt application, shared document models and tests |
+| [ros2/](ros2/) | Current DYNAMIXEL and IMU ROS packages |
+| [scripts/](scripts/) | USB attachment helpers used by the ROS manager |
+| [snapshots/](snapshots/) | Saved poses |
+| [sequences/](sequences/) | Saved timelines |
+| [urdf/](urdf/) | Robot geometry and measured servo limits |
+| [docs/](docs/README.md) | Project documentation and historical design notes |
 
-Run individual tools from the repository root:
+The legacy ROS/Tk source tree and shell launchers have been retired. Build,
+install and log folders are generated when the current ROS workspace is built.
 
-```bash
-bash ./tabs/launch_snapshot_creator.sh
-bash ./tabs/launch_snapshot_player.sh
-bash ./tabs/launch_timeline.sh
-bash ./tabs/launch_static_animator.sh
-bash ./tabs/launch_imu_monitor.sh
-```
+## USB setup
 
-The standalone tools start or reuse the ROS controllers required by their
-views. Without a hardware device, use them only for editing or inspection
-where noted in the operation guide.
+On native Linux, connect the serial adapters and grant the user access to their
+device paths. Servo configuration is in
+[saprog.yaml](ros2/saprog_dynamixel/config/saprog.yaml).
+Set `SAPROG_IMU_DEVICE` to select an explicit IMU serial port.
 
-## Native Linux
-
-Native Linux requires the configured serial devices to already exist and be
-accessible:
-
-```bash
-ls -l /dev/ttyUSB* /dev/ttyACM*
-```
-
-The servo/U2D2 device is configured by `device_name` in
-`src/saprog/config/saprog.yaml`, currently `/dev/ttyUSB0`. The IMU can be
-selected with `SAPROG_IMU_DEVICE=/dev/ttyACM0` or a launch argument.
-
-## Windows/WSL USB setup
-
-Saprog uses `usbipd-win` to expose Windows USB devices inside WSL. Install
-the required Linux package if needed:
-
-```bash
-sudo apt update
-sudo apt install -y python3-pygame usbutils
-```
-
-Run `usbipd` commands in **Administrator PowerShell**, not inside WSL.
-USB bus IDs can change after unplugging or rebooting:
+On Windows, install `usbipd-win` to expose serial devices to WSL. Run the initial
+bind from Administrator PowerShell, using the bus ID shown by `usbipd list`:
 
 ```powershell
 usbipd list
-```
-
-The normal setup for each component is:
-
-```powershell
 usbipd bind --busid <BUSID>
 usbipd attach --wsl Ubuntu-24.04 --busid <BUSID>
 ```
 
-Return a device to Windows with:
+The ROS manager uses the USB helpers for the servo adapter (`0403:6014`) and IMU
+(`1B4F:9D0F`). Override selection with `SAPROG_USB_BUSID` or
+`SAPROG_USB_HARDWARE_ID` for servos, and `SAPROG_IMU_USB_BUSID` or
+`SAPROG_IMU_USB_HARDWARE_ID` for the IMU. Gamepads are detected by the desktop
+through native pygame.
 
-```powershell
-usbipd detach --busid <BUSID>
+## Desktop tests
+
+With the desktop dependencies installed, run from the repository root:
+
+```sh
+python -m unittest discover -s desktop/tests
 ```
-
-### U2D2 / servo bus
-
-The default hardware ID is `0403:6014`. It normally appears as
-`/dev/ttyUSB0` in WSL. Launching Saprog can bind and attach it automatically
-when `usbipd.exe` is available.
-
-```powershell
-usbipd list
-usbipd bind --busid <U2D2-BUSID>
-usbipd attach --wsl Ubuntu-24.04 --busid <U2D2-BUSID>
-```
-
-Override automatic selection in WSL with:
-
-```bash
-export SAPROG_USB_BUSID="<BUSID>"
-# or
-export SAPROG_USB_HARDWARE_ID="0403:6014"
-```
-
-Keep `device_name` in `src/saprog/config/saprog.yaml` pointed at the character
-device created for the adapter.
-
-### IMU
-
-The default IMU hardware ID is `1B4F:9D0F`. It normally appears as
-`/dev/ttyACM*` or `/dev/ttyUSB*`.
-
-```powershell
-usbipd list
-usbipd bind --busid <IMU-BUSID>
-usbipd attach --wsl Ubuntu-24.04 --busid <IMU-BUSID>
-```
-
-Override selection in WSL with:
-
-```bash
-export SAPROG_IMU_USB_BUSID="<BUSID>"
-# or
-export SAPROG_IMU_USB_HARDWARE_ID="1B4F:9D0F"
-export SAPROG_IMU_DEVICE="/dev/ttyACM0"
-```
-
-### Game controller
-
-The default controller hardware ID is `2E24:1125`. Close Steam, Xbox
-Accessories, controller remapping software, games, and emulator frontends
-before attaching it to WSL:
-
-```powershell
-usbipd list
-usbipd bind --busid <CONTROLLER-BUSID> --force
-usbipd attach --wsl Ubuntu-24.04 --busid <CONTROLLER-BUSID>
-```
-
-Verify native Windows Pygame from Windows PowerShell:
-
-```powershell
-& ".\.venv\Scripts\python.exe" -c "import pygame; pygame.joystick.init(); print(pygame.joystick.get_count())"
-```
-
-Pygame must report at least `1`. The Saprog Controller tab uses this native
-Windows Pygame process when it runs under WSL, so no WSL `xpad` or
-`/dev/input/js*` device is required.
-
-The old WSL-only verification was:
-
-```bash
-ls -l /dev/input/js*
-python3 -c "import pygame; pygame.joystick.init(); print(pygame.joystick.get_count())"
-```
-
-Override automatic controller selection in WSL with:
-
-```bash
-export SAPROG_CONTROLLER_USB_BUSID="<BUSID>"
-# or
-export SAPROG_CONTROLLER_USB_HARDWARE_ID="2E24:1125"
-```
-
-See [docs/](docs/README.md) for project context, [operation](docs/operation.md) for setup and controls, and [IMU](docs/imu.md) for sensor behavior and limits.

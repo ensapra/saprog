@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <set>
 #include <stdexcept>
+#include <sstream>
 
 #include "rcl/service.h"
 
@@ -74,6 +75,12 @@ DynamixelReadbackNode::DynamixelReadbackNode(const rclcpp::NodeOptions &options)
       [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
              std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
         release_all_torque(request, response);
+      });
+  limits_service_ = create_service<std_srvs::srv::Trigger>(
+      "/saprog/read_servo_limits",
+      [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+             std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+        read_servo_limits(response);
       });
   sweep_.reserve(servo_ids_.size());
   const auto interval = std::chrono::duration<double>(
@@ -256,6 +263,36 @@ void DynamixelReadbackNode::release_all_torque(
   } else {
     RCLCPP_INFO(get_logger(), "Released torque for all %zu configured servos", ids.size());
   }
+}
+
+void DynamixelReadbackNode::read_servo_limits(
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+{
+  std::string error;
+  if (!ensure_connected(error)) {
+    response->message = error;
+    return;
+  }
+  // This callback shares the polling callback group: only the port owner reads
+  // the EEPROM, and no register writes or torque changes are needed.
+  std::ostringstream report;
+  report << "{\"servos\":[";
+  for (std::size_t index = 0; index < servo_ids_.size(); ++index) {
+    const auto id = static_cast<uint8_t>(servo_ids_[index]);
+    uint16_t lower = 0, upper = 0;
+    if (!bus_->read_limits(id, lower, upper, error)) {
+      response->message = "servo_" + std::to_string(id) + ": " + error;
+      return;
+    }
+    if (index != 0) { report << ','; }
+    report << "{\"servo_id\":" << static_cast<int>(id)
+           << ",\"zero_position\":" << zero_positions_[index]
+           << ",\"direction\":" << directions_[index]
+           << ",\"raw_lower\":" << lower << ",\"raw_upper\":" << upper << '}';
+  }
+  report << "]}";
+  response->message = report.str();
+  response->success = true;
 }
 
 void DynamixelReadbackNode::read_next_servo()

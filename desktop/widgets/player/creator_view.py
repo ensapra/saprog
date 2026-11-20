@@ -103,6 +103,7 @@ class CreatorView(QWidget):
         joint_layout.setHorizontalSpacing(8)
         joint_layout.setVerticalSpacing(6)
         self.target_inputs = {}
+        self.limit_labels = {}
         self.current_labels = {}
         self.torque_labels = {}
         self.current_positions = {}
@@ -150,6 +151,7 @@ class CreatorView(QWidget):
                     _truncated_rotation(upper) if upper is not None else "—"
                 )
                 maximum_label.setToolTip("Maximum rotation (radians)")
+                self.limit_labels[servo] = (minimum_label, maximum_label)
                 action_row.addWidget(maximum_label)
                 go_to = QPushButton()
                 go_to.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp))
@@ -276,6 +278,14 @@ class CreatorView(QWidget):
             if not self.puppet_buttons[servo].isChecked():
                 self.target_inputs[servo].setText(str(value))
         return len(positions)
+
+    def set_servo_limits(self, limits):
+        """Use freshly measured bounds for both labels and target validation."""
+        self.servo_limits = dict(limits)
+        for servo, (minimum, maximum) in self.limit_labels.items():
+            lower, upper = limits.get(servo, (None, None))
+            minimum.setText(_truncated_rotation(lower) if lower is not None else "—")
+            maximum.setText(_truncated_rotation(upper) if upper is not None else "—")
 
     def set_ros_available(self, available):
         self._ros_available = bool(available)

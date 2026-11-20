@@ -10,6 +10,13 @@ namespace saprog_dynamixel
 {
 struct DynamixelReadbackNodeTestPeer
 {
+  static std_srvs::srv::Trigger::Response limits(DynamixelReadbackNode &node)
+  {
+    auto response = std::make_shared<std_srvs::srv::Trigger::Response>();
+    node.read_servo_limits(response);
+    return *response;
+  }
+
   static void release(DynamixelReadbackNode &node)
   {
     auto response = std::make_shared<std_srvs::srv::Trigger::Response>();
@@ -70,6 +77,10 @@ protected:
     });
     node = std::make_shared<DynamixelReadbackNode>(options);
     writes().clear();
+    auto packet = dynamixel::PacketHandler::getPacketHandler(1.0);
+    packet->angle_limits = {44, 1, 88, 2};
+    packet->limits_result = COMM_SUCCESS;
+    packet->limits_error = 0;
   }
 
   static std::vector<std::pair<uint16_t, uint16_t>> &writes()
@@ -77,6 +88,39 @@ protected:
   void release() { DynamixelReadbackNodeTestPeer::release(*node); writes().clear(); }
   std::shared_ptr<DynamixelReadbackNode> node;
 };
+
+TEST_F(DynamixelCommandTest, ReadsCurrentLimitsAndCalibrationWithoutRegisterWrites)
+{
+  auto response = DynamixelReadbackNodeTestPeer::limits(*node);
+  EXPECT_TRUE(response.success) << response.message;
+  EXPECT_EQ(response.message,
+      "{\"servos\":[{\"servo_id\":11,\"zero_position\":512,\"direction\":1,"
+      "\"raw_lower\":300,\"raw_upper\":600}]}");
+  EXPECT_TRUE(writes().empty());
+  dynamixel::PacketHandler::getPacketHandler(1.0)->angle_limits = {144, 1, 188, 2};
+  response = DynamixelReadbackNodeTestPeer::limits(*node);
+  EXPECT_TRUE(response.success);
+  EXPECT_NE(response.message.find("\"raw_lower\":400"), std::string::npos);
+  EXPECT_TRUE(writes().empty());
+}
+
+TEST_F(DynamixelCommandTest, RejectsInvalidWheelModeAndFailedLimitReads)
+{
+  auto packet = dynamixel::PacketHandler::getPacketHandler(1.0);
+  for (auto limits : {std::vector<uint8_t>{0, 0, 0, 0}, {88, 2, 44, 1}, {0, 0, 0, 4}}) {
+    packet->angle_limits = limits;
+    auto response = DynamixelReadbackNodeTestPeer::limits(*node);
+    EXPECT_FALSE(response.success);
+    EXPECT_EQ(response.message.find("servo_11:"), 0u);
+  }
+  packet->angle_limits = {44, 1, 88, 2};
+  packet->limits_result = COMM_TX_FAIL;
+  EXPECT_FALSE(DynamixelReadbackNodeTestPeer::limits(*node).success);
+  packet->limits_result = COMM_SUCCESS;
+  packet->limits_error = 1;
+  EXPECT_FALSE(DynamixelReadbackNodeTestPeer::limits(*node).success);
+  EXPECT_TRUE(writes().empty());
+}
 
 TEST_F(DynamixelCommandTest, AcceptsUnstampedPositionsBeforeRelease)
 {

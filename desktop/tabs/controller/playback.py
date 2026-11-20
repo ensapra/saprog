@@ -2,25 +2,19 @@
 
 import json
 import math
-import sys
 import time
 from collections import defaultdict
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QTimer, Signal
-from widgets.servo_layout import SERVO_NAMES
-
-_SCRIPTS = str(Path(__file__).resolve().parents[3] / "src" / "saprog" / "scripts")
-if _SCRIPTS not in sys.path:
-    sys.path.insert(0, _SCRIPTS)
-
-from saprog_desktop.snapshot_units import validate_snapshot  # noqa: E402
-from saprog_desktop.timeline_domain import motion_settings, transition_duration  # noqa: E402
-from saprog_desktop.timeline_storage import (  # noqa: E402
+from documents.snapshot_units import validate_snapshot
+from documents.timeline_domain import motion_settings, transition_duration
+from documents.timeline_storage import (
     load_snapshot_reference,
     load_timeline,
     resolve_timeline_steps,
 )
+from PySide6.QtCore import QObject, QTimer, Signal
+from widgets.servo_layout import SERVO_NAMES
 
 
 def measured_bounds():
@@ -36,11 +30,11 @@ def measured_bounds():
 
 
 class ControllerPlayback(QObject):
-    """Run one sequence at a time; latest press owns it, release cancels it.
+    """Run one sequence at a time, either once or repeatedly while held.
 
     A command must be acknowledged before the next group is queued. Stopping
     cancels unpublished commands; a target already published may finish moving.
-    Sequence file loop/end-torque flags do not apply to held-button playback.
+    Sequence file loop/end-torque flags do not apply to controller playback.
     """
 
     status_changed = Signal(str)
@@ -53,6 +47,7 @@ class ControllerPlayback(QObject):
         self.clock = clock
         self.bounds = measured_bounds()
         self.owner = None
+        self.repeat = True
         self.steps = []
         self.index = -1
         self.phase = "idle"
@@ -113,7 +108,7 @@ class ControllerPlayback(QObject):
             self.pending.add(self.manager.release_all_torque())
         self.status_changed.emit(f"Requesting torque {'on' if enabled else 'off'} for all servos")
 
-    def start(self, owner, path):
+    def start(self, owner, path, *, repeat=True):
         document = load_timeline(path, self.snapshot_directory, bounds=self.bounds)
         steps = resolve_timeline_steps(
             document["steps"],
@@ -125,12 +120,16 @@ class ControllerPlayback(QObject):
         self.stop()
         self._require_manager()
         self.owner, self.steps, self.index = owner, steps, -1
-        self.status_changed.emit(f"Repeating {Path(path).stem} while held")
+        self.repeat = repeat
+        self.status_changed.emit(
+            f"Repeating {Path(path).stem} while held" if repeat
+            else f"Playing {Path(path).stem} once"
+        )
         self.timer.start()
         self._advance()
 
     def release(self, owner):
-        if self.owner == owner:
+        if self.owner == owner and self.repeat:
             self.stop("Sequence stopped: button released")
 
     def stop(self, message=None):
@@ -149,7 +148,12 @@ class ControllerPlayback(QObject):
     def _advance(self):
         if self.owner is None:
             return
-        self.index = (self.index + 1) % len(self.steps)
+        self.index += 1
+        if self.index >= len(self.steps):
+            if not self.repeat:
+                self.stop("Sequence finished")
+                return
+            self.index = 0
         step = self.steps[self.index]
         if step.get("kind") == "wait":
             self.phase = "wait"

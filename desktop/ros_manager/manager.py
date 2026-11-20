@@ -107,6 +107,10 @@ class RosDataManager(QObject):
             "torque": torque,
         })
 
+    def refresh_servo_limits(self):
+        """Read the current EEPROM limits through the servo port owner."""
+        return self._queue_command({"op": "refresh_servo_limits"})
+
     def set_servo_torque(self, joint, enabled):
         """Queue a per-servo torque enable or disable service request."""
         if not isinstance(joint, str) or not re.fullmatch(r"servo_\d+", joint):

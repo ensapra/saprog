@@ -3,11 +3,12 @@
 import json
 import math
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
 from .creator_view import CreatorView
 from .keyframes_view import KeyframesView
+from .servo_limits import hardware_report, report_bounds, save_report
 from .snapshot_loader import load_keyframe
 
 
@@ -22,6 +23,11 @@ class StaticAnimatorWidget(QWidget):
         self.ros_manager = ros_manager
         self._state_token = None
         self._pending_commands = {}
+        self._limits_command = None
+        self._limits_timer = QTimer(self)
+        self._limits_timer.setSingleShot(True)
+        self._limits_timer.setInterval(35000)
+        self._limits_timer.timeout.connect(self._limits_timed_out)
         layout = QVBoxLayout(self)
         self.splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self.creator_view = CreatorView(self.splitter)
@@ -57,6 +63,54 @@ class StaticAnimatorWidget(QWidget):
             except (AttributeError, RuntimeError, ValueError) as error:
                 self.creator_view.set_ros_available(False)
                 self.keyframes_view.status_label.setText(f"ROS unavailable: {error}")
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh_servo_limits()
+
+    def refresh_servo_limits(self):
+        """Refresh on entry, keeping cached bounds if the robot is unavailable."""
+        if self.ros_manager is None or self._limits_command is not None:
+            return
+        try:
+            self._limits_command = self.ros_manager.refresh_servo_limits()
+        except (AttributeError, RuntimeError, ValueError) as error:
+            self._limits_failed(str(error))
+            return
+        self._limits_timer.start()
+        self.keyframes_view.status_label.setText("Reading current servo limits…")
+
+    def _limits_failed(self, message):
+        self.keyframes_view.status_label.setText(
+            f"Could not refresh servo limits; using stored values: {message}"
+        )
+
+    def _limits_timed_out(self):
+        command_id, self._limits_command = self._limits_command, None
+        if command_id is not None:
+            self.ros_manager.cancel_commands([command_id])
+            self._limits_failed("Read timed out; reopen this tab to retry")
+
+    def _limits_result(self, success, message):
+        self._limits_command = None
+        self._limits_timer.stop()
+        if not success:
+            self._limits_failed(message)
+            return
+        try:
+            report = hardware_report(message, self.creator_view.target_inputs)
+        except ValueError as error:
+            self._limits_failed(str(error))
+            return
+        self.creator_view.set_servo_limits(report_bounds(report))
+        try:
+            save_report(report)
+        except OSError as error:
+            self.keyframes_view.status_label.setText(
+                f"Servo limits updated, but could not save stored values: {error}"
+            )
+            return
+        self.keyframes_view.status_label.setText("Servo limits updated from hardware and saved")
 
     def _load_keyframe(self, path):
         try:
@@ -192,6 +246,9 @@ class StaticAnimatorWidget(QWidget):
             self.creator_view.update_servo_state(servo, position, torque)
 
     def _on_command_result(self, command_id, success, message):
+        if command_id == self._limits_command:
+            self._limits_result(success, message)
+            return
         pending = self._pending_commands.pop(command_id, None)
         if pending is None:
             return

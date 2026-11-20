@@ -25,6 +25,14 @@ the service after release; use a fresh stamped position command instead.
 Torque-disable requests remain available. Torque services are handled between
 servo reads, with at most one request per servo per poll.
 
+`/saprog/read_servo_limits` (`std_srvs/Trigger`) reads the current CW/CCW angle
+limit registers for all configured servos without writing registers or changing
+torque. On success, `message` contains JSON with a `servos` array: each entry has
+`servo_id`, `zero_position`, `direction`, `raw_lower`, and `raw_upper`. Any failed
+read, wheel-mode range, locked range, or value outside 0..1023 fails the whole
+request. The Qt Static Animator uses this service when its tab becomes visible
+and saves calibrated radian bounds after validating the complete response.
+
 Defaults match the current robot: `/dev/ttyUSB0`, 1 Mbps, Protocol 1.0, servo
 IDs 11–13, 21–23, 31–33 and 41–43, zero positions of 512 and Saprog's direction
 mapping. `poll_rate` defaults to 20 full sweeps per second. Override

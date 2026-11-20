@@ -115,9 +115,6 @@ class ControllerMonitor(QObject):
             stick = self.devices.get(self.selected)
             if stick is None:
                 return
-            if not stick.get_attached():
-                self.refresh()
-                return
             pressed = {
                 f"button:{index}" for index in range(stick.get_numbuttons())
                 if stick.get_button(index)

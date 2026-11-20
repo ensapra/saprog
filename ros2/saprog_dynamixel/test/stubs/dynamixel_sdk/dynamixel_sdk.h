@@ -23,6 +23,9 @@ class PacketHandler
 {
 public:
   std::vector<std::pair<uint16_t, uint16_t>> writes;
+  std::vector<uint8_t> angle_limits{44, 1, 88, 2};  // 300..600
+  int limits_result{COMM_SUCCESS};
+  uint8_t limits_error{0};
   static PacketHandler *getPacketHandler(double) { static PacketHandler packet; return &packet; }
   int write1ByteTxOnly(PortHandler *, uint8_t, uint16_t address, uint8_t value)
   { writes.emplace_back(address, value); return COMM_SUCCESS; }
@@ -32,8 +35,15 @@ public:
   { *error = 0; return write1ByteTxOnly(port, id, address, value); }
   int write2ByteTxRx(PortHandler *port, uint8_t id, uint16_t address, uint16_t value, uint8_t *error)
   { *error = 0; return write2ByteTxOnly(port, id, address, value); }
-  int readTxRx(PortHandler *, uint8_t, uint16_t, uint16_t size, uint8_t *data, uint8_t *error)
-  { std::fill_n(data, size, 0); *error = 0; return COMM_SUCCESS; }
+  int readTxRx(PortHandler *, uint8_t, uint16_t address, uint16_t size, uint8_t *data, uint8_t *error)
+  {
+    if (address == 6 && size == 4) {
+      std::copy(angle_limits.begin(), angle_limits.end(), data);
+      *error = limits_error;
+      return limits_result;
+    }
+    std::fill_n(data, size, 0); *error = 0; return COMM_SUCCESS;
+  }
   const char *getTxRxResult(int) { return "fake communication error"; }
   const char *getRxPacketError(uint8_t) { return "fake device error"; }
 };

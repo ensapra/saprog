@@ -27,11 +27,12 @@ TAB_ORDER = 40
 
 
 class ControllerTab(QWidget):
-    """Map press edges to torque/snapshots, and held inputs to looping sequences."""
+    """Map controller inputs to torque, snapshots and one-shot or held sequences."""
 
     ACTIONS = (
         ("Unmapped", ""), ("Torque on", "torque_on"), ("Torque off", "torque_off"),
         ("Snapshot", "snapshot"), ("Sequence (hold to repeat)", "sequence"),
+        ("Sequence (one shot)", "sequence_once"),
     )
 
     def __init__(self, parent=None, *, ros_manager=None, monitor=None, settings=None,
@@ -62,7 +63,8 @@ class ControllerTab(QWidget):
         outer.addWidget(title)
         hint = QLabel(
             "Choose a controller and map its inputs. Snapshots and torque run on press; "
-            "sequences repeat while held. The latest mapped press takes control."
+            "sequences run once per press or repeat while held. "
+            "The latest mapped press takes control."
         )
         hint.setWordWrap(True)
         outer.addWidget(hint)
@@ -124,7 +126,11 @@ class ControllerTab(QWidget):
         self.status_label = QLabel("Mappings are saved automatically for each controller type.")
         self.status_label.setWordWrap(True)
         outer.addWidget(self.status_label)
-        note = QLabel("Release stops later commands. A movement already sent may finish.")
+        note = QLabel(
+            "Release stops held sequences; one-shot sequences continue. "
+            "A movement already sent may finish."
+        )
+        note.setWordWrap(True)
         note.setObjectName("compactStatus")
         outer.addWidget(note)
         self.monitor.devices_changed.connect(self._devices_changed)
@@ -249,8 +255,9 @@ class ControllerTab(QWidget):
         target.blockSignals(True)
         target.clear()
         target.addItem("Choose a file…", None)
-        for path in self.paths.get(kind, []):
-            target.addItem(str(path.relative_to(Path(self.folders[kind].text()).expanduser())), str(path.resolve()))
+        source = "sequence" if kind == "sequence_once" else kind
+        for path in self.paths.get(source, []):
+            target.addItem(str(path.relative_to(Path(self.folders[source].text()).expanduser())), str(path.resolve()))
         saved = self._mapping(key)
         path = saved.get("path") if saved.get("kind") == kind else None
         index = target.findData(path)
@@ -258,7 +265,7 @@ class ControllerTab(QWidget):
             target.addItem(f"Missing: {Path(path).name}", path)
             index = target.count() - 1
         target.setCurrentIndex(max(0, index))
-        target.setEnabled(kind in ("snapshot", "sequence"))
+        target.setEnabled(kind in ("snapshot", "sequence", "sequence_once"))
         target.blockSignals(False)
 
     def _action_changed(self, key):
@@ -282,7 +289,6 @@ class ControllerTab(QWidget):
         previous, self.pressed = self.pressed, pressed
         for key, (label, _action, _target) in self.rows.items():
             active = key in pressed
-            label.setText(f"{label.property('inputName')}{'  ● Pressed' if active else ''}")
             label.setStyleSheet("color: #34d399; font-weight: bold;" if active else "")
         for key in previous - pressed:
             self.playback.release(key)
@@ -300,14 +306,14 @@ class ControllerTab(QWidget):
                     self.playback.torque(True)
                 elif kind == "torque_off":
                     self.playback.torque(False)
-                elif kind in ("snapshot", "sequence"):
+                elif kind in ("snapshot", "sequence", "sequence_once"):
                     path = mapping.get("path")
                     if not path:
                         raise ValueError("Choose a file for this input first")
                     if kind == "snapshot":
                         self.playback.snapshot(path, self.speed.value(), self.torque.value())
                     else:
-                        self.playback.start(key, path)
+                        self.playback.start(key, path, repeat=kind == "sequence")
             except (OSError, RuntimeError, ValueError, TypeError, KeyError) as error:
                 self._stop(f"Controller action failed: {error}")
 

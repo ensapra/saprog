@@ -10,9 +10,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel, QMainWindow, QMessageBox, QPushButton, QTabWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QTabWidget,
+)
 
 from desktop.tab_workspace import WorkspaceMainWindow
 from desktop.tabs.timeline import TimeLineTab
@@ -111,7 +119,7 @@ class DocumentTest(TimelineFixture):
         self.document.save(self.target)
         original = self.target.read_bytes()
         self.document.update_wait(0, 2.25)
-        with patch("saprog_desktop.snapshot_files.os.replace", side_effect=OSError("disk error")):
+        with patch("documents.snapshot_files.os.replace", side_effect=OSError("disk error")):
             with self.assertRaises(OSError):
                 self.document.save()
         self.assertEqual(self.target.read_bytes(), original)
@@ -124,7 +132,7 @@ class DocumentTest(TimelineFixture):
         self.document.update_duration(0, "seconds", 2)
         original_steps = copy.deepcopy(self.document.steps)
         original_file = self.target.read_bytes()
-        with patch("saprog_desktop.snapshot_files.os.replace", side_effect=OSError("disk error")):
+        with patch("documents.snapshot_files.os.replace", side_effect=OSError("disk error")):
             with self.assertRaises(OSError):
                 self.document.save(absolute_references=True)
         self.assertEqual(self.document.steps, original_steps)
@@ -247,7 +255,7 @@ class TimelineUiTest(TimelineFixture):
         self.assertTrue(self.widget.document.dirty)
         self.assertIn("Could not load", self.widget.status_label.text())
         original = self.target.read_bytes()
-        with patch("saprog_desktop.snapshot_files.os.replace", side_effect=OSError("disk error")):
+        with patch("documents.snapshot_files.os.replace", side_effect=OSError("disk error")):
             self.assertFalse(self.widget.save_timeline(self.target))
         self.assertEqual(self.target.read_bytes(), original)
         self.assertTrue(self.widget.document.dirty)

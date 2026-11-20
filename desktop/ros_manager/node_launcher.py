@@ -1,12 +1,12 @@
 """Build and launch ROS 2 package executables on the local ROS environment."""
 
-import os
 import logging
-import signal
-import time
+import os
 import shlex
 import shutil
+import signal
 import subprocess
+import time
 from pathlib import Path
 from typing import Callable
 
@@ -90,7 +90,7 @@ class RosNodeLauncher:
             f"else exec {run_command}; fi"
         )
         return subprocess.Popen(
-            self._ros_shell(f"exec {command}"),
+            self._ros_shell(command),
             cwd=self.workspace,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

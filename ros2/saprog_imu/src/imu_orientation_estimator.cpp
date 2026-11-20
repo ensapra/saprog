@@ -51,6 +51,11 @@ Vector rotate(const Quaternion &q, const Vector &v)
 }
 }  // namespace
 
+ImuOrientationEstimator::ImuOrientationEstimator(bool use_magnetometer)
+: use_magnetometer_(use_magnetometer)
+{
+}
+
 void ImuOrientationEstimator::reset()
 {
   orientation_ = {1.0, 0.0, 0.0, 0.0};
@@ -84,8 +89,10 @@ void ImuOrientationEstimator::update(const ImuSample &sample)
   const double heading = std::atan2(-hy, hx);
 
   if (!valid_) {
-    // Start from measured tilt and, when available, magnetic heading.
-    orientation_ = from_euler(roll, pitch, norm(sample.magnetic_field) > 1e-9 ? heading : 0.0);
+    // Gravity cannot observe yaw. Use a relative heading unless magnetic
+    // correction was explicitly enabled with suitable sensor measurements.
+    orientation_ = from_euler(roll, pitch,
+      use_magnetometer_ && norm(sample.magnetic_field) > 1e-9 ? heading : 0.0);
     valid_ = true;
     tilt_resume_ms_ = sample.time_ms + 250.0;
   } else {
@@ -125,7 +132,7 @@ void ImuOrientationEstimator::update(const ImuSample &sample)
         }
       }
 
-      if (norm(sample.magnetic_field) > 1e-9) {
+      if (use_magnetometer_ && norm(sample.magnetic_field) > 1e-9) {
         // Rotate the magnetic measurement into world space and slowly align
         // its horizontal component with the estimator's north axis.
         const auto magnetic_world = rotate(orientation_, sample.magnetic_field);

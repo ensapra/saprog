@@ -172,6 +172,69 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(len(self.manager.commands), 1)
         self.assertEqual(self.playback.phase, "idle")
 
+    def test_one_shot_runs_all_steps_after_release_and_never_loops(self):
+        self.write_sequence([
+            {"kind": "wait", "seconds": 1}, self.motion,
+            {"kind": "wait", "seconds": 2}, self.motion,
+        ])
+        document = json.loads(self.sequence.read_text(encoding="utf-8"))
+        document["loop"] = True
+        self.sequence.write_text(json.dumps(document), encoding="utf-8")
+        messages = []
+        self.playback.status_changed.connect(messages.append)
+        self.playback.start("button:0", self.sequence, repeat=False)
+        self.playback.release("button:0")
+        self.assertEqual(self.playback.owner, "button:0")
+        self.assertFalse(self.manager.commands)
+        self.now += 1
+        self.playback.tick()
+        self.playback.release("button:0")
+        self.assertEqual(self.playback.phase, "publishing")
+        self.assertFalse(self.manager.cancelled)
+        self.manager.acknowledge()
+        self.now += 0.25
+        self.playback.tick()
+        self.now += 1
+        self.playback.tick()
+        self.assertEqual(len(self.manager.commands), 1)
+        self.now += 1
+        self.playback.tick()
+        self.assertEqual(len(self.manager.commands), 2)
+        self.manager.acknowledge()
+        self.playback.release("button:0")
+        self.playback.tick()
+        self.assertEqual(self.playback.owner, "button:0")
+        self.now += 0.25
+        self.playback.tick()
+        self.assertIsNone(self.playback.owner)
+        self.assertFalse(self.playback.timer.isActive())
+        self.assertEqual(messages[-1], "Sequence finished")
+        self.now += 100
+        self.playback.tick()
+        self.assertEqual(len(self.manager.commands), 2)
+        self.assertTrue(all(command[1] == "position" for command in self.manager.commands))
+
+    def test_one_shot_waits_for_arrival_after_release(self):
+        self.write_sequence([dict(self.motion, duration={"mode": "until_reached"})])
+        self.playback.start("button:0", self.sequence, repeat=False)
+        self.manager.acknowledge()
+        self.playback.release("button:0")
+        self.now += 1
+        self.playback.tick()
+        self.assertEqual(self.playback.phase, "arrival")
+        stamp = self.playback.sent_at
+        with patch("tabs.controller.playback.time.time_ns", return_value=stamp + 1000):
+            for offset in (1, 2, 3):
+                timestamp = stamp + offset
+                self.playback.observe(self.playback.STATE_TOPIC, {
+                    "header": {"stamp": {"sec": timestamp // 1_000_000_000,
+                                          "nanosec": timestamp % 1_000_000_000}},
+                    "name": ["servo_11"], "position": [0.0],
+                })
+        self.playback.tick()
+        self.assertIsNone(self.playback.owner)
+        self.assertEqual(len(self.manager.commands), 1)
+
     def test_latest_press_owns_sequence_and_old_release_does_not_stop_it(self):
         self.playback.start("button:0", self.sequence)
         self.playback.start("button:1", self.sequence)
@@ -333,9 +396,63 @@ class ControllerTest(unittest.TestCase):
         for _ in range(3):
             tab.monitor.inputs_changed.emit({"button:0"})
         self.assertEqual(len(self.manager.commands), 1)
-        self.assertIn("Pressed", tab.rows["button:0"][0].text())
+        self.assertIn("#34d399", tab.rows["button:0"][0].styleSheet())
         tab.monitor.inputs_changed.emit(set())
-        self.assertNotIn("Pressed", tab.rows["button:0"][0].text())
+        self.assertEqual(tab.rows["button:0"][0].styleSheet(), "")
+
+    def test_one_shot_mapping_persists_and_runs_once_per_press(self):
+        tab = self.make_tab()
+        tab.monitor.select(1)
+        self.map(tab, "button:0", "sequence_once", self.sequence)
+        self.assertTrue(tab.rows["button:0"][2].isEnabled())
+        tab.close()
+        tab = self.make_tab()
+        tab.monitor.select(1)
+        self.assertEqual(tab.rows["button:0"][1].currentData(), "sequence_once")
+        self.assertEqual(tab.rows["button:0"][2].currentData(), str(self.sequence.resolve()))
+        tab.playback.clock = lambda: self.now
+        tab.monitor.inputs_changed.emit(set())
+        tab.monitor.inputs_changed.emit({"button:0"})
+        self.manager.acknowledge()
+        self.now += 0.25
+        tab.playback.tick()
+        self.assertIsNone(tab.playback.owner)
+        tab.monitor.inputs_changed.emit({"button:0"})
+        self.assertEqual(len(self.manager.commands), 1)
+        tab.monitor.inputs_changed.emit(set())
+        tab.monitor.inputs_changed.emit({"button:0"})
+        tab.monitor.inputs_changed.emit(set())
+        self.assertEqual(tab.playback.owner, "button:0")
+        self.assertEqual(len(self.manager.commands), 2)
+
+    def test_one_shot_can_be_interrupted(self):
+        tab = self.make_tab()
+        for action in ("stop", "torque_off", "snapshot", "disconnect", "mapping", "folder"):
+            with self.subTest(action=action):
+                tab.monitor.select(1)
+                tab.folders["sequence"].setText(str(self.sequences))
+                tab.refresh_files()
+                self.map(tab, "button:0", "sequence_once", self.sequence)
+                if action in ("torque_off", "snapshot"):
+                    self.map(tab, "button:1", action, self.pose if action == "snapshot" else None)
+                tab.monitor.inputs_changed.emit(set())
+                tab.monitor.inputs_changed.emit({"button:0"})
+                command_id = self.manager.commands[-1][0]
+                if action == "stop":
+                    tab._stop()
+                elif action in ("torque_off", "snapshot"):
+                    tab.monitor.inputs_changed.emit({"button:1"})
+                elif action == "disconnect":
+                    tab.monitor.select(None)
+                elif action == "mapping":
+                    self.map(tab, "button:0", "sequence", self.sequence)
+                else:
+                    tab.folders["sequence"].setText(str(self.directory))
+                    tab.refresh_files()
+                self.assertIsNone(tab.playback.owner)
+                self.assertIn(command_id, self.manager.cancelled)
+                self.manager.command_result.emit(command_id, True, "Late publication")
+                self.assertEqual(tab.playback.phase, "idle")
 
     def test_initially_held_input_must_be_released_before_activation(self):
         tab = self.make_tab()
@@ -469,7 +586,7 @@ class CancellationTest(unittest.TestCase):
 
     def test_bridge_cancels_only_unpublished_requested_commands(self):
         pending = [{"id": "controller"}, {"id": "other-widget"}]
-        with patch("ros_manager.wsl_bridge.emit") as emit:
+        with patch("ros_manager.wsl_bridge.commands.emit") as emit:
             cancel_pending_commands(pending, ["controller", "already-published"])
         self.assertEqual(pending, [{"id": "other-widget"}])
         self.assertEqual(emit.call_count, 1)
@@ -494,8 +611,8 @@ class PublisherMatchingTest(unittest.TestCase):
         return SimpleNamespace(header=SimpleNamespace(stamp=None))
 
     def test_first_pose_stays_pending_until_its_publisher_matches(self):
-        with patch("ros_manager.wsl_bridge.emit") as emit, patch(
-            "ros_manager.wsl_bridge.time.monotonic", return_value=100,
+        with patch("ros_manager.wsl_bridge.commands.emit") as emit, patch(
+            "ros_manager.wsl_bridge.commands.time.monotonic", return_value=100,
         ):
             publisher, completed = publish_position_command(
                 self.node, None, self.command, self.message_type,
@@ -514,8 +631,8 @@ class PublisherMatchingTest(unittest.TestCase):
             self.assertTrue(emit.call_args.kwargs["success"])
 
     def test_unmatched_publisher_times_out_without_publishing(self):
-        with patch("ros_manager.wsl_bridge.emit") as emit, patch(
-            "ros_manager.wsl_bridge.time.monotonic", return_value=131,
+        with patch("ros_manager.wsl_bridge.commands.emit") as emit, patch(
+            "ros_manager.wsl_bridge.commands.time.monotonic", return_value=131,
         ):
             _publisher, completed = publish_position_command(
                 self.node, None, self.command, self.message_type,
@@ -534,7 +651,7 @@ class DiscoveryTest(unittest.TestCase):
                 self.addCleanup(monitor.close)
                 stick = SimpleNamespace(
                     init=lambda: None, quit=lambda: None, get_instance_id=lambda: 42,
-                    get_name=lambda: "Gamepad", get_guid=lambda: "guid", get_attached=lambda: True,
+                    get_name=lambda: "Gamepad", get_guid=lambda: "guid",
                     get_numbuttons=lambda: 1, get_numhats=lambda: 0, get_numaxes=lambda: 0,
                     get_button=lambda index: True,
                 )
@@ -571,14 +688,15 @@ class DiscoveryTest(unittest.TestCase):
         monitor = ControllerMonitor()
         stick = SimpleNamespace(
             init=lambda: None, quit=lambda: None, get_instance_id=lambda: 42,
-            get_name=lambda: "Gamepad", get_guid=lambda: "guid", get_attached=lambda: True,
+            get_name=lambda: "Gamepad", get_guid=lambda: "guid",
             get_numbuttons=lambda: 2, get_numhats=lambda: 1, get_numaxes=lambda: 1,
             get_button=lambda index: index == 1, get_hat=lambda index: (-1, 1),
             get_axis=lambda index: 0.9,
         )
         devices = [stick]
+        events = []
         monitor.pygame = SimpleNamespace(
-            event=SimpleNamespace(pump=lambda: None, get=lambda: []),
+            event=SimpleNamespace(pump=lambda: None, get=lambda: list(events)),
             joystick=SimpleNamespace(get_count=lambda: len(devices), Joystick=lambda index: devices[index]),
             error=RuntimeError, JOYDEVICEADDED=1, JOYDEVICEREMOVED=2,
         )
@@ -593,7 +711,8 @@ class DiscoveryTest(unittest.TestCase):
         monitor.poll()
         self.assertEqual(inputs[-1], {"button:1", "hat:0:left", "hat:0:up", "axis:0:+"})
         devices.clear()
-        monitor.refresh()
+        events.append(SimpleNamespace(type=monitor.pygame.JOYDEVICEREMOVED))
+        monitor.poll()
         self.assertIsNone(selected[-1])
         self.assertEqual(inputs[-1], set())
         self.assertEqual(discovered[-1], [])

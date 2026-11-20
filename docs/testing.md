@@ -1,110 +1,61 @@
-# Validation suites
+# Testing
 
-## Fast development loop
+## Desktop
 
-Keep one persistent build tree in the WSL home directory. Reusing it preserves
-the CMake cache and avoids placing generated files in the Windows-mounted
-checkout. Run these commands from Ubuntu/WSL at the workspace root:
-
-```sh
-cd /mnt/c/Users/pauso/Documents/GitHub/saprog
-source /opt/ros/jazzy/setup.bash
-colcon build --packages-select saprog --symlink-install \
-  --build-base "$HOME/saprog-build/build" \
-  --install-base "$HOME/saprog-build/install" \
-  --log-base "$HOME/saprog-build/log" \
-  --cmake-args -DSAPROG_BUILD_ROBOT_VIEW=OFF
-source "$HOME/saprog-build/install/setup.bash"
-```
-
-Repeat the build command after C++ or interface changes. Colcon reuses the
-existing build tree and rebuilds affected targets; `--symlink-install` also
-exposes Python and resource edits without copying them into the install tree.
-Use the full default build in `launch_home.sh` when validating the embedded
-RViz view or preparing to run the full desktop.
-
-For Python-only changes, skip colcon build and run the narrow suite directly
-from `src/saprog/test`:
+Install [desktop dependencies](../desktop/requirements.txt) into your chosen
+Python environment. From the repository root:
 
 ```sh
-cd /mnt/c/Users/pauso/Documents/GitHub/saprog/src/saprog/test
-PYTHONPATH=../scripts python3 -m unittest test_monitor_models
+python -m pip install -r desktop/requirements.txt
+python -m unittest discover -s desktop/tests
 ```
 
-Replace the test module with the affected module. To run the complete pure
-Python layer, use the command below. Once the core build is sourced, the CTest
-layers can be run independently as documented here.
+The Qt tests select the offscreen platform themselves. They use fake managers,
+controllers and ROS endpoints; ROS and physical devices are not required.
+
+| Suite | Coverage |
+| --- | --- |
+| [test_controller.py](../desktop/tests/test_controller.py) | Input discovery, mappings, sequence ownership, timing, torque release and publication readiness |
+| [test_player.py](../desktop/tests/test_player.py) | Snapshot load/save, movement commands, Puppet Mode and limit refresh |
+| [test_servo_limits.py](../desktop/tests/test_servo_limits.py) | Complete hardware reports, metadata preservation and bridge service results |
+| [test_timeline_editor.py](../desktop/tests/test_timeline_editor.py) | Document migration, references, edits, atomic saves and window close handling |
+| [test_ros_launcher.py](../desktop/tests/test_ros_launcher.py) | Launch shell, USB preflight and parameter-file behavior with stub commands |
+| [test_wsl_bridge.py](../desktop/tests/test_wsl_bridge.py) | Protocol, subscriptions, command dispatch and owned-process cleanup |
+
+Launcher tests require Bash and skip when it is unavailable. On Windows they
+look for Git Bash at C:/Program Files/Git/bin/bash.exe.
+
+For a focused run, use the matching filename, for example:
 
 ```sh
-PYTHONPATH=../scripts python3 -m unittest \
-  test_player_settings test_snapshot_units test_monitor_models \
-  test_playback_adapters test_project_data test_controller
+python -m unittest discover -s desktop/tests -p test_controller.py
 ```
 
-The first build in a fresh `$HOME/saprog-build` tree is still a full compile.
-Keep that tree between sessions; remove it only when intentionally starting
-from a clean build. Add `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache` to the CMake
-arguments if `ccache` is installed and you want compiler-result caching across
-separate build trees.
-
-The Python tests are split by the dependencies and behavior they exercise.
-Run commands from `src/saprog/test` after activating the Python environment
-used by the ROS Jazzy workspace.
-
-## Pure Python
-
-These tests do not need sourced ROS, a display server, or robot hardware:
+Optional static checks use the pinned tools in
+[requirements-dev.txt](../requirements-dev.txt) and the
+[Ruff configuration](../pyproject.toml):
 
 ```sh
-PYTHONPATH=../scripts python3 -m unittest \
-  test_player_settings test_snapshot_units test_monitor_models test_playback_adapters \
-  test_project_data
+python -m pip install -r requirements-dev.txt
+ruff check desktop
 ```
 
-The `saprog_pure_python_tests` CTest entry runs the same modules from the test
-directory. It covers storage preferences, snapshot units and validation,
-display-independent monitor models, playback coordination, configuration
-decoding, and asynchronous adapter behavior through small fakes.
-It also validates all checked-in snapshots and resolves each checked-in
-timeline sequence against the snapshot directory.
+## ROS packages
 
-## Process and platform checks
+The current C++ tests are registered under BUILD_TESTING in each package's CMake
+file. Use a ROS Jazzy environment with the declared package dependencies and
+ament_cmake_gtest installed, build with testing enabled, and run the discovered
+suites through the CMake Tools test integration.
 
-`test.test_robot_view` checks URDF mappings and orientation freshness on any
-platform. Renderer process-group lifecycle tests run on POSIX; they are skipped
-on platforms without `os.killpg`. Run them with:
+- [dynamixel_command_test](../ros2/saprog_dynamixel/test/dynamixel_command_test.cpp)
+  uses SDK stubs to test position/torque ordering, command rejection, release
+  behavior and EEPROM limit reads. Registration is in its
+  [CMakeLists.txt](../ros2/saprog_dynamixel/CMakeLists.txt).
+- [imu_orientation_estimator_test](../ros2/saprog_imu/test/imu_orientation_estimator_test.cpp)
+  checks rotations, hold, gravity correction, reset and magnetic-heading mode.
+  Registration is in its [CMakeLists.txt](../ros2/saprog_imu/CMakeLists.txt).
 
-```sh
-PYTHONPATH=../scripts python3 -m unittest test_robot_view
-```
-
-## ROS, Tk, and native checks
-
-Source the ROS Jazzy and built workspace setup files before running the
-`saprog_ros_tk_python_tests` CTest entry. It covers ROS client integration,
-Tk presenters and timeline behavior. Tk construction tests need an available
-display. The `saprog_process_python_tests` entry exercises renderer process
-lifecycle with fake children and requires POSIX process-group support.
-
-The remaining CTest entries build C++ tests against ROS and message packages.
-Configure `SAPROG_BUILD_ROBOT_VIEW=OFF` to build the core package without the
-RViz, Qt, and X11 embedding target; the default remains ON for the full desktop
-build. A successful pure Python run does not establish a Jazzy build, display
-embedding, serial behavior, or live-hardware timing.
-
-## Servo response latency
-
-The virtual AX serial bus test runs the real controller on a pseudo-terminal,
-in an isolated ROS domain, without accessing robot hardware. After the core
-build above:
-
-```sh
-python3 src/saprog/test/test_readback_latency.py \
-  "$HOME/saprog-build/install/saprog/lib/saprog/saprog_nodes" \
-  src/saprog/config/saprog.yaml
-```
-
-It checks full-sweep frequency, position-command torque enable and torque-off
-service/telemetry latency with delayed serial replies. Its timings describe the
-virtual bus; USB/IP, disconnected servos and physical motion need separate live
-measurement.
+These suites do not establish real USB behavior, physical arrival, EEPROM
+configuration, magnetic calibration or robot mounting accuracy. Record actual
+hardware validation separately from automated test results. Test counts and old
+build outcomes are not guarantees for a later checkout.

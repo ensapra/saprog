@@ -31,6 +31,7 @@ public:
   bool connected() const;
   bool connect(std::string &error);
   bool read(uint8_t id, ServoReading &reading, std::string &error);
+  bool read_limits(uint8_t id, uint16_t &lower, uint16_t &upper, std::string &error);
   bool set_positions(const std::vector<uint8_t> &ids,
                      const std::vector<uint16_t> &positions,
                      const std::vector<uint16_t> &speeds,

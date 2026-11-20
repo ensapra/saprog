@@ -1,185 +1,79 @@
-# IMU contract and limitations
+# IMU contract
 
-[imu_node.cpp](../src/saprog/src/imu_node.cpp) owns the serial device, USB helper,
-parsing and ROS services. [imu_filter.hpp](../src/saprog/include/saprog/imu_filter.hpp)
-owns attitude, gyro bias and zero. The [monitor](../src/saprog/scripts/saprog_desktop/views/imu_monitor.py)
-only displays data/calls services; closing it preserves backend state. Reconnect
-or backend restart resets gyro calibration and zero; saved magnetometer calibration
-persists. Home starts/stops its own backend.
+The current provider is [imu_publisher_node](../ros2/saprog_imu/src/imu_publisher_node.cpp)
+in saprog_imu. The [Statistics widget](../desktop/widgets/imu_visualizer/__init__.py)
+requests its three topics through the shared desktop ROS manager.
 
-## Input and estimation
+## Serial input
 
-SparkFun calculated output defaults to 115200 baud and exactly ten finite columns:
+[SerialImuReader](../ros2/saprog_imu/src/serial_imu_reader.cpp) opens a nonblocking
+8N1 serial connection and extracts newline-delimited records, accepting CRLF.
+The [parser](../ros2/saprog_imu/src/imu_csv_parser.cpp) requires exactly ten finite
+numeric CSV fields:
 
 ```text
 time_ms, ax, ay, az, gx, gy, gz, mx, my, mz
 ```
 
-Firmware units are g, degrees/s and microtesla. Startup `accel_scale`, `gyro_scale`
-and `mag_scale` multiply incoming values to those units. Raw-count scales depend
-on firmware settings; do not guess them. Extra/missing columns are rejected.
-The backend keeps retrying discovery and connection while auto-connect is enabled.
-It reconnects after serial errors, a stopped stream, or a connection that produces
-no valid samples; on WSL it also retries USB attachment. A manual `disconnect`
-service disables this recovery until a new connection is requested. If valid
-samples do not arrive, the backend sends one Space resume toggle per connection.
-WSL attachment uses [ensure_imu_usb.bash](../scripts/ensure_imu_usb.bash), default
-hardware ID `1B4F:9D0F`; if usbipd reports the IMU is not shared, it requests
-the one-time `usbipd bind` through Windows UAC before attaching. Approve the
-administrator prompt; if it is unavailable or denied, bind the device manually
-in elevated PowerShell. Recovery retries after 30 seconds to avoid repeating
-the prompt continuously. Override selection with `SAPROG_IMU_USB_BUSID` or
-`SAPROG_IMU_USB_HARDWARE_ID`. Explicit device selection uses `SAPROG_IMU_DEVICE`
-or the launch argument. Servo ports are never selected automatically.
+Time must be nonnegative. Acceleration is in g, angular velocity in degrees/s,
+and magnetic field in microtesla. Extra fields, nonnumeric values and trailing
+commas are rejected. Headers are not data. The reader discards a pending buffer
+larger than 4096 bytes.
 
-Gyro integration uses sensor timestamps and quaternions. Gravity correction is
-suppressed above 45 degrees/s or acceleration magnitude more than 8% from resting
-gravity; it resumes after 250 ms with a 0.5 s time constant. These heuristics cannot
-recover clipped rates/missing rotations or distinguish all translation from tilt.
-Magnetic heading is enabled by default and can be disabled with the
-`use_magnetometer:=false` launch argument or runtime service. Without it yaw is
-relative and drifts. Optional magnetometer calibration corrects hard-iron offsets
-and per-axis scaling; it does not correct general cross-axis soft-iron distortion
-or changing interference from steel, motors and wiring.
-Timestamp gaps, peak gyro rate and sample frequency are diagnostics, not calibration.
+| Startup parameter | Default |
+| --- | --- |
+| device | SAPROG_IMU_DEVICE, otherwise /dev/ttyACM0 |
+| baud_rate | 115200 |
+| frame_id | imu_link |
+| use_magnetometer | false |
 
-**Zero** stores `q_zero`; display rotation is `inverse(q_zero) * q_current`. It
-changes the reference, not accuracy. **Clear zero** removes that offset and
-returns to the filter's local world reference; it does not calibrate sensor
-mounting. **Calibrate gyro + zero** needs four seconds
-and at least 20 stationary samples, rejects noise/motion/bad timing, averages gyro
-bias and saves zero. It does not calibrate magnetic distortion or sensor scales.
-Heading-mode changes reset the estimate/zero while retaining gyro bias.
+Supported baud rates are 9600, 19200, 38400, 57600 and 115200. The node polls every
+5 ms, retries opening at two-second intervals and reconnects after three seconds
+without serial bytes. It resets orientation after three seconds without a valid
+sample. A silent newly opened device receives one space character after about
+1.5 seconds to toggle firmware streaming.
 
-## Magnetometer calibration
+## Published data
 
-In the IMU monitor, click **Calibrate magnetometer**. Move the sensor slowly
-through all orientations for about 20–60 seconds: turn every face up, including
-upside down, and sweep each axis. Keep it away from magnetic objects and changing
-motor currents. Then click **Save calibration**. A figure eight on a flat surface
-alone does not provide the required three-dimensional coverage. The monitor
-shows sample count and rejection reasons. If coverage is incomplete, keep rotating
-and save again; **Cancel** keeps the previous correction.
+[ImuMessagePublisher](../ros2/saprog_imu/src/imu_message_publisher.cpp) uses
+sensor-data QoS and ROS receipt timestamps.
 
-The backend requires at least ten seconds, 200 samples, coverage of all eight
-octants and six axis directions, plausible field ranges and a consistent corrected
-field magnitude. Collection is bounded to 12,000 samples and two minutes, cancels
-on disconnect, and cannot run alongside gyro calibration. These checks reject
-obvious poor data; they do not certify heading accuracy or fully model soft iron.
-Apply calibration with the sensor in its intended magnetic environment; changing
-mounting, nearby metal or the sensor itself can require recalibration.
-
-Successful calibration is saved atomically to
-`~/.ros/saprog/magnetometer_calibration.txt` in the Linux backend's home directory.
-The startup parameter `magnetometer_calibration_file` selects another file; use
-separate files for different sensors/installations. The profile records `mag_scale`
-and is rejected if that startup scale changes. Invalid profiles are reported and
-raw magnetic readings are used. Save failures, rejected data and cancellation
-preserve the previous correction. Calibration survives reconnects, backend restarts
-and closing the monitor. Saving restarts attitude estimation and clears zero while
-retaining gyro bias. Both attitude estimation and `/saprog/imu/mag` use the corrected
-field; the `serial` topic remains the original input.
-
-Trigger services under `/saprog/imu/` are `start_magnetometer_calibration`,
-`finish_magnetometer_calibration`, and `cancel_magnetometer_calibration`.
-`ImuStatus` includes magnetometer calibration activity, validity, sample count and
-a separate message. Rebuild the ROS package and restart backend and displays after
-updating this message interface.
-
-## ROS interface
-
-Node: `/saprog_imu`. Topics below share `/saprog/imu/`; sensor topics use
-best-effort sensor-data QoS, status is reliable at 5 Hz.
-
-| Suffix | Type | Contract |
+| Topic | Type | Contents |
 | --- | --- | --- |
-| `data_raw` | `sensor_msgs/Imu` | Uncorrected gyro/acceleration; orientation unavailable |
-| `data` | `sensor_msgs/Imu` | Absolute estimated attitude, bias-corrected gyro, measured acceleration |
-| `mag` | `sensor_msgs/MagneticField` | Magnetic field in tesla |
-| `orientation` | `geometry_msgs/QuaternionStamped` | Rotation relative to zero, or local world without zero |
-| `status` | [ImuStatus](../src/saprog/msg/ImuStatus.msg) | Connection, calibration, reference and timing diagnostics |
-| `serial` | `std_msgs/String` | Original lines, including rejected ones |
+| /saprog/imu/data_raw | sensor_msgs/msg/Imu | Acceleration in m/s² and angular velocity in rad/s; orientation_covariance[0] is -1 |
+| /saprog/imu/mag | sensor_msgs/msg/MagneticField | Magnetic field in tesla |
+| /saprog/imu/orientation | geometry_msgs/msg/QuaternionStamped | Estimated orientation, published when valid, with frame imu_world |
 
-Standard sensor headers use ROS reception time and `imu_link`; data uses SI units
-(m/s^2, rad/s, tesla). Acceleration includes the gravity response. Covariances are
-unknown (zero); unavailable raw orientation has covariance element 0 set to -1.
-The relative quaternion names `imu_zero` or `imu_world`; these are local references.
+Raw and magnetic messages use frame_id. Quaternion fields are x, y, z, w on the
+ROS interface; the estimator internally stores w, x, y, z.
 
-Services under the same prefix: `connect` ([ConnectImu](../src/saprog/srv/ConnectImu.srv)),
-`use_magnetometer` (`SetBool`), and `disconnect`, `refresh_ports`, `toggle_readings`,
-`zero`, `clear_zero`, `calibrate` (`Trigger`). Empty device detects the SparkFun IMU;
-baud 0 uses its parameter. Runtime changes use services; parameters configure startup:
-`device`, `baud_rate`, `frame_id`, `auto_connect`, `use_magnetometer`, `usb_helper`,
-`accel_scale`, `gyro_scale`, `mag_scale`.
+## Orientation and limitations
 
-## Run and verify
+The [estimator](../ros2/saprog_imu/src/imu_orientation_estimator.cpp) initializes
+tilt from nonzero acceleration and integrates body-frame gyro rates using
+firmware timestamps. It applies gravity correction when acceleration magnitude
+and rotation rate satisfy its reliability checks. Yaw starts at zero by default
+and can drift with gyro bias.
 
-After building/sourcing the workspace:
+use_magnetometer enables magnetic heading correction at startup. Magnetic values
+are passed through without calibration or axis remapping, so this mode requires
+suitable input measurements. See the [package guide](../ros2/saprog_imu/README.md).
+There are no current gyro-calibration, magnetic-calibration, connect or zeroing
+ROS services, and no persisted calibration profile. The desktop draws a sensor
+orientation box; it does not apply a measured sensor-to-robot mounting transform.
 
-```sh
-ros2 launch saprog imu.launch.py
-```
+## Direct inspection
 
-Alternatively, start the backend alone and open a separate display:
+After building the package and sourcing ROS plus the ros2 workspace overlay:
 
 ```sh
-ros2 launch saprog imu.launch.py gui:=false device:=/dev/ttyACM0 baud_rate:=115200
-ros2 run saprog imu_monitor
-ros2 topic echo /saprog/imu/status
-ros2 service call /saprog/imu/zero std_srvs/srv/Trigger '{}'
+ros2 run saprog_imu imu_publisher_node --ros-args -p device:=/dev/ttyACM0
 ```
 
-Use one backend per device. Closing a display leaves the launch/backend running;
-stop standalone launch with Ctrl+C. Use `auto_connect:=false` for manual connection.
+In another sourced shell:
 
-The Robot view uses the absolute `data` attitude, so monitor zeroing does not
-remove its magnetic-north reference. It composes that attitude with a fixed
-180-degree X-axis display rotation before publishing `world -> base`. This is
-the current assumed mounting correction, not a measured sensor-to-base transform.
-When valid IMU data stops for 0.5 seconds, diagnostics mark it stale while the
-view holds the last valid orientation until samples resume. Floor and height are
-illustrations, not measured position. A measured mounting transform and a
-declared display reference remain open under
-[#4](https://github.com/ensapra/saprog/issues/4).
-[Filter tests](../src/saprog/test/imu_filter_test.cpp) cover parsing, rotations,
-zero and calibration; physical units, mounting, clipping and serial lifecycle still
-need validation. Library/transport follow-up: [#5](https://github.com/ensapra/saprog/issues/5).
+```sh
+ros2 topic echo /saprog/imu/data_raw sensor_msgs/msg/Imu --qos-reliability best_effort --once
+```
 
-The project supports ROS 2 Jazzy. The unused ROS 1 `display.launch` and
-`gazebo.launch` exports were removed; they used catkin-era package names and
-could not run from this ament package. The maintained robot display entry point
-is `ros2 launch saprog robot_view.launch.py` (the embedded Home view uses the
-same launch file).
-
-## Library evaluation (#5)
-
-No estimator or trajectory dependency is adopted by this refactor. The current
-estimator has behavior-specific tests for timestamped gyro integration, gated
-gravity correction, optional magnetic heading, zero, and stationary gyro-bias
-calibration. Replacing it with a generic Madgwick or complementary filter would
-change at least some of those transitions and requires replay comparisons against
-the existing tests plus representative recorded sensor traces. The repository
-does not yet contain a recorded hardware trace set or mounting/calibration
-acceptance data, so an estimator replacement cannot be shown equivalent.
-
-`imu_filter_madgwick` and `imu_complementary_filter` are the relevant ROS
-orientation-filter candidates for a later comparison. `robot_localization` is a
-multi-sensor EKF/UKF layer rather than a drop-in serial-sample estimator. Any
-candidate should first be run against the existing replay cases and recorded
-samples, then compared for reset, zero, stale-data, calibration, and magnetic
-heading behavior. This pass does not claim an up-to-date maintenance audit of
-those external projects.
-
-For timeline execution, ROS 2 `joint_trajectory_controller` is the relevant
-maintained controller candidate; it expects the `ros2_control` hardware
-interface and trajectory goal lifecycle. saprog currently owns a single shared
-DYNAMIXEL bus, per-servo calibration/measured limits, torque services, and its
-timeline final-action policy. Moving execution to that controller would require
-a hardware plugin and regression coverage for those policies, so it is not a
-safe dependency swap within the transport/estimation extraction. MoveIt Servo is
-also not a direct replacement: it streams Cartesian/joint commands and brings a
-planning-scene/configuration layer that this fixed-joint timeline does not use.
-
-The decision is to retain the tested local estimator and controller until
-recorded sensor traces and a `ros2_control` hardware adapter provide evidence for
-an equivalent migration. No new runtime dependency is added.
+For WSL USB selection and desktop launch, see [operation](operation.md).

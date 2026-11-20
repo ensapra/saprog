@@ -1,16 +1,9 @@
 """Offline timeline editing using the shared document rules and atomic storage."""
 
 import copy
-import sys
 from pathlib import Path
 
-# The standalone desktop runs directly from this checkout, outside the ROS install.
-# Import only the pure model modules; none of these modules initializes ROS or Tk.
-_SCRIPTS = str(Path(__file__).resolve().parents[3] / "src" / "saprog" / "scripts")
-if _SCRIPTS not in sys.path:
-    sys.path.insert(0, _SCRIPTS)
-
-from saprog_desktop.timeline_domain import (  # noqa: E402
+from documents.timeline_domain import (
     CONTROL_MODES,
     control_groups,
     motion_settings,
@@ -19,8 +12,8 @@ from saprog_desktop.timeline_domain import (  # noqa: E402
     transition_duration,
     wait_seconds,
 )
-from saprog_desktop.timeline_presenter import TimelineEditorPresenter  # noqa: E402
-from saprog_desktop.timeline_storage import (  # noqa: E402
+from documents.timeline_presenter import TimelineEditorPresenter
+from documents.timeline_storage import (
     load_snapshot_reference,
     load_timeline,
     make_snapshot_reference,

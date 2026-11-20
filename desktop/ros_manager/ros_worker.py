@@ -57,7 +57,7 @@ class RosWorker(threading.Thread):
                 raise RuntimeError("wsl.exe was not found on PATH")
 
             distro = os.environ.get("SAPROG_WSL_DISTRO", "Ubuntu-24.04")
-            bridge = Path(__file__).with_name("wsl_bridge.py")
+            bridge = Path(__file__).with_name("wsl_bridge")
             workspace = self._wsl_path(wsl, distro, self._launcher.workspace)
             bridge_path = self._wsl_path(wsl, distro, bridge)
             ros_distro = os.environ.get("ROS_DISTRO", "jazzy")

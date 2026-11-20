@@ -35,6 +35,7 @@ private:
       const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
       std::shared_ptr<std_srvs::srv::Trigger::Response> response);
   bool ensure_connected(std::string &error);
+  void read_servo_limits(std::shared_ptr<std_srvs::srv::Trigger::Response> response);
 
   std::string device_name_;
   int baud_rate_;
@@ -55,6 +56,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr position_subscription_;
   std::vector<rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr> torque_services_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr release_all_service_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr limits_service_;
   rclcpp::Time last_release_stamp_;
   int64_t last_release_system_stamp_{0};
   bool has_release_stamp_{false};
