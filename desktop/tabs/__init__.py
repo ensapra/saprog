@@ -1,10 +1,11 @@
 """Discover and load individual desktop tab modules."""
 
 from importlib import import_module
+from inspect import signature
 from pkgutil import iter_modules
 
 
-def discover_tabs():
+def discover_tabs(ros_manager=None):
     """Load each tab module and return its ``(title, widget)`` pair.
 
     Each tab package provides ``TAB_TITLE`` and ``create_tab()`` in its
@@ -23,6 +24,10 @@ def discover_tabs():
         if not callable(create_tab):
             raise ValueError(f"Tab module {module.__name__} must define create_tab()")
         order = getattr(module, "TAB_ORDER", 100)
-        discovered.append((order, title, create_tab()))
+        if "ros_manager" in signature(create_tab).parameters:
+            widget = create_tab(ros_manager=ros_manager)
+        else:
+            widget = create_tab()
+        discovered.append((order, title, widget))
     ordered = sorted(discovered, key=lambda item: (item[0], item[1].casefold()))
     return [(title, widget) for _order, title, widget in ordered]

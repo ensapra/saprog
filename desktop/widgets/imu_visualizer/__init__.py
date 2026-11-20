@@ -1,7 +1,9 @@
-"""ROS-independent IMU readings and orientation widget."""
+"""IMU readings and orientation widget with optional ROS data requests."""
 
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+
+from ros_manager.config import IMU_MAGNETOMETER, IMU_ORIENTATION, IMU_RAW, IMU_TOPICS
 
 from .imu_cube import IMUCube
 
@@ -9,14 +11,16 @@ from .imu_cube import IMUCube
 class IMUVisualizer(QWidget):
     """Display IMU readings and a box rotated by the fused orientation.
 
-    A future data adapter can call :meth:`update_data` with ordinary Python
-    numbers and tuples, without making this widget depend on ROS message types.
+    The widget can receive plain values through :meth:`update_data`, or request
+    the raw sensor and estimated orientation topics through a shared manager.
     """
 
     _data_received = Signal(object)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, ros_manager=None):
         super().__init__(parent)
+        self._ros_manager = ros_manager
+        self._ros_statuses = {}
         self._data_received.connect(self._apply_data)
 
         layout = QVBoxLayout(self)
@@ -52,6 +56,12 @@ class IMUVisualizer(QWidget):
         self.time_label.setStyleSheet("font-size: 9pt;")
         layout.addWidget(self.time_label)
 
+        self.connection_label = QLabel(
+            "ROS: waiting" if ros_manager is not None else "ROS: disconnected"
+        )
+        self.connection_label.setStyleSheet("font-size: 9pt;")
+        layout.addWidget(self.connection_label)
+
         orientation_group = QGroupBox("3D orientation")
         orientation_group.setStyleSheet(
             "QGroupBox { margin-top: 5px; padding: 3px 4px 4px 4px; }"
@@ -62,6 +72,68 @@ class IMUVisualizer(QWidget):
         self.cube = IMUCube(orientation_group)
         orientation_layout.addWidget(self.cube)
         layout.addWidget(orientation_group, stretch=1)
+
+        if ros_manager is not None:
+            self._connect_ros(ros_manager)
+
+    def _connect_ros(self, ros_manager):
+        ros_manager.message_received.connect(self._on_ros_message)
+        ros_manager.status_changed.connect(self._on_ros_status)
+        tokens = [
+            ros_manager.request_topic(
+                topic_config.topic,
+                topic_config.message_type,
+                package=topic_config.package,
+                executable=topic_config.executable,
+            )
+            for topic_config in IMU_TOPICS
+        ]
+        # Keep the manager and tokens in the closure, not the widget, so Qt can
+        # release the requests when this page is destroyed.
+        self.destroyed.connect(
+            lambda _object=None, manager=ros_manager, request_tokens=tokens:
+                [manager.release(token) for token in request_tokens]
+        )
+
+    @Slot(str, object)
+    def _on_ros_message(self, topic, message):
+        if topic == IMU_RAW.topic:
+            acceleration = message.get("linear_acceleration", {})
+            gyroscope = message.get("angular_velocity", {})
+            self.update_data(
+                acceleration=self._vector(acceleration),
+                gyroscope=self._vector(gyroscope),
+            )
+        elif topic == IMU_MAGNETOMETER.topic:
+            self.update_data(magnetometer=self._vector(message.get("magnetic_field", {})))
+        elif topic == IMU_ORIENTATION.topic:
+            quaternion = message.get("quaternion", {})
+            try:
+                values = tuple(float(quaternion[axis]) for axis in ("x", "y", "z", "w"))
+            except (KeyError, TypeError, ValueError):
+                return
+            self.update_data(orientation_quaternion=values)
+
+    @staticmethod
+    def _vector(vector):
+        try:
+            return tuple(float(vector[axis]) for axis in ("x", "y", "z"))
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    @Slot(str, str)
+    def _on_ros_status(self, topic, status):
+        if topic == "":
+            self.connection_label.setText(f"ROS: {status}")
+            return
+        self._ros_statuses[topic] = status
+        if all(
+            self._ros_statuses.get(topic_config.topic) == "Connected"
+            for topic_config in IMU_TOPICS
+        ):
+            self.connection_label.setText("ROS: connected")
+        else:
+            self.connection_label.setText(f"ROS: {status.lower()}")
 
     def update_data(
         self,

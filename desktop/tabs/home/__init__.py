@@ -13,7 +13,7 @@ TAB_ORDER = 0
 class StatisticsTab(QWidget):
     """Show robot statistics widgets."""
 
-    def __init__(self, parent=None):
+    def __init__(self, ros_manager=None, parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -21,13 +21,13 @@ class StatisticsTab(QWidget):
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(6)
         splitter.addWidget(TemperatureGraph(splitter))
-        splitter.addWidget(IMUVisualizer(splitter))
+        splitter.addWidget(IMUVisualizer(splitter, ros_manager=ros_manager))
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([660, 330])
         layout.addWidget(splitter)
 
 
-def create_tab():
+def create_tab(ros_manager=None):
     """Build the Statistics tab for the main window."""
-    return StatisticsTab()
+    return StatisticsTab(ros_manager=ros_manager)

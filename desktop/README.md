@@ -13,8 +13,12 @@ Then launch it from the repository root with:
 python desktop
 ```
 
-The Statistics tab contains standalone IMU and servo temperature widgets.
-They expose plain-data update methods and are not connected to ROS yet.
+The Statistics tab contains an IMU widget and a servo temperature widget. The
+IMU widget requests its raw readings and orientation through the shared ROS data
+manager. On Windows, the manager connects through WSL (default distro
+`Ubuntu-24.04`; override with `SAPROG_WSL_DISTRO`), and builds/starts a requested
+ROS package when its topic is unavailable. The desktop can still start without
+ROS; the IMU widget reports the connection status.
 
 The tabs use a standard Qt tab bar. Drag a tab within the bar to reorder it;
 double-click a tab to open it in a separate window. Closing that window returns
