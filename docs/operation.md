@@ -126,8 +126,8 @@ Both tools default to [snapshots/](../snapshots/); `--directory PATH` overrides 
   state. Closing a snapshot window does not change torque.
 - Schema 1 saves `schema_version: 1`, `name` and `positions` keyed by joint
   names such as `servo_11`, with radian values.
-  Schema 2 remains readable with explicit `units` of `radians` or `normalized`.
-  Normalized targets need measured limits; all targets must be finite and match
+  Schema 2 remains readable with explicit `units` of `radians`.
+  Other units are rejected; all targets must be finite and match
   the configured joint set. Overwrites ask first; writes replace JSON atomically.
 
 ## Timelines

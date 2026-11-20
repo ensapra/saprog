@@ -5,9 +5,11 @@ import math
 import os
 import re
 import tempfile
-from decimal import Decimal, ROUND_DOWN
+from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
 
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
@@ -23,9 +25,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
+
 from widgets.servo_layout import LEG_LAYOUT
+
+from .snapshot_loader import load_keyframe
 
 
 def _load_servo_limits():
@@ -56,12 +59,13 @@ class CreatorView(QWidget):
     """Display the Creator controls without connecting them to robot actions."""
 
     save_requested = Signal()
+    release_all_torque_requested = Signal()
+    move_requested = Signal(str)
+    puppet_mode_requested = Signal(str, bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Snapshot Creator"))
-
         self.speed_slider = QSlider(Qt.Orientation.Horizontal)
         self.speed_slider.setRange(0, 1023)
         self.speed_slider.setValue(512)
@@ -95,7 +99,18 @@ class CreatorView(QWidget):
         scroll.setWidgetResizable(True)
         joint_panel = QWidget()
         joint_layout = QGridLayout(joint_panel)
+        joint_layout.setContentsMargins(6, 6, 6, 6)
+        joint_layout.setHorizontalSpacing(8)
+        joint_layout.setVerticalSpacing(6)
         self.target_inputs = {}
+        self.current_labels = {}
+        self.torque_labels = {}
+        self.current_positions = {}
+        self.torque_states = {}
+        self.go_to_buttons = {}
+        self.puppet_buttons = {}
+        self._puppet_pending = set()
+        self._ros_available = False
         self.servo_limits = _load_servo_limits()
         for name, servos, row, column in LEG_LAYOUT:
             group = QGroupBox(name)
@@ -109,8 +124,14 @@ class CreatorView(QWidget):
                 heading = QHBoxLayout()
                 heading.addWidget(QLabel(servo))
                 heading.addStretch(1)
-                heading.addWidget(QLabel("Current: 0.00"))
-                heading.addWidget(QLabel("Torque: Off"))
+                current_label = QLabel("Current: —")
+                torque_label = QLabel("Torque: Unknown")
+                self.current_labels[servo] = current_label
+                self.torque_labels[servo] = torque_label
+                self.current_positions[servo] = None
+                self.torque_states[servo] = None
+                heading.addWidget(current_label)
+                heading.addWidget(torque_label)
                 controls.addLayout(heading)
 
                 target_input = QLineEdit()
@@ -130,19 +151,29 @@ class CreatorView(QWidget):
                 )
                 maximum_label.setToolTip("Maximum rotation (radians)")
                 action_row.addWidget(maximum_label)
-                actions = (
-                    ("Go To", self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp)),
-                    ("Puppet Mode", self._person_icon()),
+                go_to = QPushButton()
+                go_to.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp))
+                go_to.setIconSize(QSize(16, 16))
+                go_to.setFixedSize(32, 28)
+                go_to.setToolTip(f"Move {servo} to target")
+                go_to.setAccessibleName(f"Go to target for {servo}")
+                go_to.setEnabled(False)
+                go_to.clicked.connect(lambda _checked=False, name=servo: self.move_requested.emit(name))
+                self.go_to_buttons[servo] = go_to
+                action_row.addWidget(go_to)
+                puppet = QPushButton()
+                puppet.setIcon(self._person_icon())
+                puppet.setIconSize(QSize(16, 16))
+                puppet.setFixedSize(32, 28)
+                puppet.setToolTip(f"Toggle torque for {servo}")
+                puppet.setAccessibleName(f"Puppet mode for {servo}")
+                puppet.setEnabled(False)
+                puppet.setCheckable(True)
+                puppet.toggled.connect(
+                    lambda enabled, name=servo: self._puppet_mode_toggled(name, enabled)
                 )
-                for text, icon in actions:
-                    button = QPushButton()
-                    button.setIcon(icon)
-                    button.setIconSize(QSize(16, 16))
-                    button.setFixedSize(32, 28)
-                    button.setToolTip(text)
-                    button.setAccessibleName(text)
-                    button.setEnabled(False)
-                    action_row.addWidget(button)
+                self.puppet_buttons[servo] = puppet
+                action_row.addWidget(puppet)
                 controls.addLayout(action_row)
                 servo_layout.addWidget(servo_view)
             joint_layout.setColumnStretch(column, 1)
@@ -162,8 +193,9 @@ class CreatorView(QWidget):
         self.save_button = QPushButton("Save targets")
         self.save_button.clicked.connect(self.save_requested.emit)
         actions.addWidget(self.save_button)
-        self.release_button = QPushButton("Release all joints")
-        self.release_button.setEnabled(False)
+        self.release_button = QPushButton("Release all torque")
+        self.release_button.setToolTip("Cancel queued motion and disable torque for every configured servo")
+        self.release_button.clicked.connect(self.release_all_torque_requested.emit)
         actions.addWidget(self.release_button)
         layout.addLayout(actions)
 
@@ -239,27 +271,67 @@ class CreatorView(QWidget):
 
     def load_keyframe_fields(self, path):
         """Populate target inputs from a keyframe JSON file."""
-        with Path(path).open("r", encoding="utf-8") as stream:
-            document = json.load(stream)
-        positions = document.get("positions") if isinstance(document, dict) else None
-        if not isinstance(positions, dict):
-            raise ValueError("Keyframe must contain a positions object")
+        _name, positions = load_keyframe(path, self.target_inputs, self.servo_limits)
+        for servo, value in positions.items():
+            if not self.puppet_buttons[servo].isChecked():
+                self.target_inputs[servo].setText(str(value))
+        return len(positions)
 
-        loaded = 0
-        for servo, target_input in self.target_inputs.items():
-            if servo not in positions:
-                continue
-            try:
-                value = float(positions[servo])
-            except (TypeError, ValueError, OverflowError) as error:
-                raise ValueError(f"Invalid target value for {servo}") from error
-            if not math.isfinite(value):
-                raise ValueError(f"Invalid target value for {servo}")
-            target_input.setText(str(positions[servo]))
-            loaded += 1
-        if not loaded:
-            raise ValueError("Keyframe contains no matching servo positions")
-        return loaded
+    def set_ros_available(self, available):
+        self._ros_available = bool(available)
+        for servo in self.target_inputs:
+            self._update_puppet_controls(servo)
+
+    def set_puppet_pending(self, servo, pending):
+        if pending:
+            self._puppet_pending.add(servo)
+        else:
+            self._puppet_pending.discard(servo)
+        self._update_puppet_controls(servo)
+
+    def set_puppet_mode(self, servo, active):
+        """Restore mode after a failed request without sending another command."""
+        button = self.puppet_buttons[servo]
+        blocked = button.blockSignals(True)
+        try:
+            button.setChecked(active)
+        finally:
+            button.blockSignals(blocked)
+        self._update_puppet_controls(servo)
+
+    def _update_puppet_controls(self, servo):
+        active = self.puppet_buttons[servo].isChecked()
+        pending = servo in self._puppet_pending
+        self.target_inputs[servo].setEnabled(not active and not pending)
+        self.go_to_buttons[servo].setEnabled(self._ros_available and not active and not pending)
+        self.puppet_buttons[servo].setEnabled(self._ros_available and not pending)
+        self.puppet_buttons[servo].setToolTip(
+            f"{'Exit' if active else 'Enter'} Puppet Mode for {servo}"
+        )
+
+    def _puppet_mode_toggled(self, servo, enabled):
+        if enabled:
+            position = self.current_positions[servo]
+            if position is not None:
+                self.target_inputs[servo].setText(repr(position))
+        self._update_puppet_controls(servo)
+        self.puppet_mode_requested.emit(servo, enabled)
+
+    def update_servo_state(self, servo, position=None, torque_enabled=None):
+        if servo not in self.current_labels:
+            return
+        if position is not None:
+            position = float(position)
+            if not math.isfinite(position):
+                return
+            self.current_positions[servo] = position
+            self.current_labels[servo].setText(f"Current: {position:.2f}")
+            if self.puppet_buttons[servo].isChecked():
+                self.target_inputs[servo].setText(repr(position))
+        if torque_enabled is not None:
+            enabled = bool(torque_enabled)
+            self.torque_states[servo] = enabled
+            self.torque_labels[servo].setText(f"Torque: {'On' if enabled else 'Off'}")
 
 
 __all__ = ["CreatorView"]

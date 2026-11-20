@@ -68,9 +68,6 @@ class SimulationRobot:
         path = Path(path)
         if kind == "snapshot":
             document = json.loads(path.read_text(encoding="utf-8"))
-            # A normalized hardware pose needs measured encoder calibration;
-            # URDF travel limits are not a substitute for those measurements.
-            validate_snapshot(document, self.mapping)
             name, positions = validate_snapshot(document, self.mapping, self.bounds)
             settings = {joint: {"speed": 300, "torque": 1023} for joint in self.mapping}
             return {"name": name, "steps": [{"targets": self.targets(positions, settings),

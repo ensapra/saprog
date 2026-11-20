@@ -1,4 +1,4 @@
-"""Unit conversion shared by snapshot editors and playback. ROS uses radians."""
+"""Radian validation shared by snapshot editors and playback."""
 
 import math
 
@@ -33,7 +33,9 @@ def joint_bounds(ids, zeros, directions, lower, upper):
 
 
 def to_radians(value, bounds, unit):
-    """Validate a target and convert legacy normalized values using joint limits."""
+    """Validate a radian target against its joint limits."""
+    if unit != "radians":
+        raise ValueError("Snapshot targets must use radians")
     low, high = bounds
     try:
         finite = math.isfinite(value)
@@ -41,20 +43,9 @@ def to_radians(value, bounds, unit):
         finite = False
     if not finite:
         raise ValueError("Target must be finite")
-    if unit == "normalized":
-        if not -1 <= value <= 1:
-            raise ValueError("Normalized target must be between -1 and 1")
-        return low + (value + 1) * (high - low) / 2
-    if unit != "radians" or not low <= value <= high:
+    if not low <= value <= high:
         raise ValueError(f"Radian target must be between {low:.6g} and {high:.6g}")
     return value
-
-
-def from_radians(value, bounds, unit):
-    if unit == "radians":
-        return value
-    low, high = bounds
-    return 2 * (value - low) / (high - low) - 1
 
 
 def validate_snapshot(document, expected_names=None, bounds=None):
@@ -62,7 +53,6 @@ def validate_snapshot(document, expected_names=None, bounds=None):
 
     Hardware callers supply joint names and limits. Offline timeline editing may
     omit them to check a radian document's structure, but cannot certify reachability.
-    Normalized snapshots always need measured limits to recover radian targets.
     """
     if not isinstance(document, dict):
         raise ValueError("Unsupported snapshot schema")
@@ -70,9 +60,9 @@ def validate_snapshot(document, expected_names=None, bounds=None):
     if type(version) is not int or version not in (1, 2):
         raise ValueError("Unsupported snapshot schema")
     # Version 1 stores radians implicitly; version 2 declares its units explicitly.
-    unit = "radians" if version == 1 else document.get("units")
-    if unit not in ("normalized", "radians"):
-        raise ValueError("Snapshot must specify normalized or radians units")
+    unit = document.get("units", "radians" if version == 1 else None)
+    if unit != "radians":
+        raise ValueError("Snapshot targets must use radians")
     name = document.get("name")
     positions = document.get("positions")
     if not isinstance(name, str) or not name.strip() or not isinstance(positions, dict):
@@ -86,8 +76,6 @@ def validate_snapshot(document, expected_names=None, bounds=None):
     if set(positions) != set(expected_names):
         raise ValueError("Snapshot joint set does not match the configured robot")
     if bounds is None:
-        if unit == "normalized":
-            raise ValueError("Normalized snapshots require hardware joint limits")
         bounds = {joint: (-math.inf, math.inf) for joint in expected_names}
     result = {}
     for joint in expected_names:

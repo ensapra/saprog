@@ -277,11 +277,11 @@ serialization in a view.
 ### Snapshot format and playback
 
 Snapshots are JSON files under `snapshots/` or a `--directory` override.
-Schema 1 stores radian positions implicitly. Schema 2 declares `radians` or
-`normalized` units. Normalized values require measured hardware bounds.
+Schema 1 stores radian positions implicitly. Schema 2 declares `radians` units.
+Other units are rejected.
 
 The validation boundary is `validate_snapshot()` in `snapshot_units.py`. It
-does not mutate a document and converts normalized values to radians.
+does not mutate a document and validates radian values against supplied bounds.
 
 Snapshot playback in [snapshot_player.py](../src/saprog/scripts/saprog_desktop/views/snapshot_player.py)
 publishes one `JointState` command containing the selected joints/targets.
@@ -312,7 +312,7 @@ Closing a window does not disable torque.
 Timelines are schema-2 documents containing snapshot references, not copied
 poses. [timeline_storage.py](../src/saprog/scripts/saprog_desktop/timeline_storage.py)
 loads and validates those references. [timeline_action.py](../src/saprog/scripts/saprog_desktop/timeline_action.py)
-flattens normalized timeline steps into the action arrays.
+flattens validated timeline steps into the action arrays.
 
 Flat arrays are intentionally row-major:
 

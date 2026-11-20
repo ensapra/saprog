@@ -382,6 +382,8 @@ class TimelineTest(unittest.TestCase):
             app.root = object()
             app.joints = self.joints
             app.bounds = self.bounds
+            app.run_steps = None
+            app.sequence_directory = directory
             app.discard = lambda: (app.steps[0].update(motion={"speed": 99, "torque": 99}) or True)
             app.dependencies = SimpleNamespace(
                 filedialog=SimpleNamespace(askopenfilename=lambda **_kwargs: str(path))
@@ -570,7 +572,7 @@ class TimelineTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 reference_for_legacy_snapshot(invalid, directory, self.joints, self.bounds)
 
-    def test_legacy_normalized_migration_requires_measured_limits(self):
+    def test_legacy_migration_rejects_unsupported_units(self):
         legacy = {
             "schema_version": 2,
             "units": "normalized",
@@ -579,12 +581,10 @@ class TimelineTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             Path(directory, "pose.json").write_text(json.dumps(legacy))
-            with self.assertRaisesRegex(ValueError, "hardware joint limits"):
+            with self.assertRaisesRegex(ValueError, "must use radians"):
                 reference_for_legacy_snapshot(legacy, directory)
-            self.assertEqual(
-                reference_for_legacy_snapshot(legacy, directory, self.joints, self.bounds),
-                "pose.json",
-            )
+            with self.assertRaisesRegex(ValueError, "must use radians"):
+                reference_for_legacy_snapshot(legacy, directory, self.joints, self.bounds)
 
     def test_global_and_override_resolution(self):
         self.assertEqual(

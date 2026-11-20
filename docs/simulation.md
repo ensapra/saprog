@@ -21,8 +21,7 @@ file, and **Snapshot folder** changes where sequence references are resolved.
 
 Playback reads the existing files and validates every sequence reference and
 target before sending motion. Radian snapshot schemas 1 and 2 are supported;
-normalized snapshots need measured hardware calibration and must be saved in
-radians first. Targets are checked against the installed URDF limits, including
+other units are rejected. Targets are checked against the installed URDF limits, including
 the source knee mimic relationship. Files outside those limits are rejected
 with a message in the panel.
 

@@ -1,36 +1,38 @@
 import unittest
 
-from saprog_desktop.snapshot_units import from_radians, joint_bounds, to_radians, validate_snapshot
+from saprog_desktop.snapshot_units import joint_bounds, to_radians, validate_snapshot
 
 
 class SnapshotUnitsTest(unittest.TestCase):
     def test_asymmetric_limits_and_reversed_direction(self):
         bounds = joint_bounds([13, 33], [512, 512], [1, -1], [350, 570], [440, 660])
+        self.assertLess(bounds['servo_13'][1], 0)
+        self.assertLess(bounds['servo_33'][1], 0)
         for limits in bounds.values():
-            for normalized in (-1, -0.3, 0, 0.7, 1):
-                radians = to_radians(normalized, limits, "normalized")
-                self.assertAlmostEqual(from_radians(radians, limits, "normalized"), normalized)
-            self.assertEqual(to_radians(-1, limits, "normalized"), limits[0])
-            self.assertEqual(to_radians(1, limits, "normalized"), limits[1])
-            self.assertAlmostEqual(to_radians(0, limits, "normalized"), sum(limits) / 2)
+            for value in (limits[0], sum(limits) / 2, limits[1]):
+                self.assertEqual(to_radians(value, limits, "radians"), value)
+            for value in (limits[0] - 0.01, limits[1] + 0.01):
+                with self.assertRaises(ValueError):
+                    to_radians(value, limits, "radians")
 
     def test_legacy_and_new_snapshots(self):
         bounds = {"servo_13": (-0.8, -0.3)}
         for version, units, value in (
             (1, None, -0.55),
-            (2, "normalized", 0),
             (2, "radians", -0.55),
         ):
             doc = dict(
                 schema_version=version, units=units, name="pose", positions={"servo_13": value}
             )
+            if units is None:
+                doc.pop("units")
             self.assertAlmostEqual(validate_snapshot(doc, bounds, bounds)[1]["servo_13"], -0.55)
         for value in (-1.01, 1.01, float("nan"), float("inf"), True):
             with self.assertRaises(ValueError):
                 validate_snapshot(
                     dict(
                         schema_version=2,
-                        units="normalized",
+                        units="radians",
                         name="pose",
                         positions={"servo_13": value},
                     ),
@@ -41,6 +43,16 @@ class SnapshotUnitsTest(unittest.TestCase):
             validate_snapshot(
                 dict(schema_version=2, name="pose", positions={"servo_13": 0}), bounds, bounds
             )
+
+    def test_other_units_are_rejected_even_with_measured_limits(self):
+        for version in (1, 2):
+            for units in ("normalized", "degrees", None):
+                with self.subTest(version=version, units=units):
+                    with self.assertRaisesRegex(ValueError, "must use radians"):
+                        validate_snapshot({
+                            "schema_version": version, "units": units, "name": "pose",
+                            "positions": {"servo_11": 0.0},
+                        }, bounds={"servo_11": (-0.2, 0.6)})
 
 if __name__ == "__main__":
     unittest.main()

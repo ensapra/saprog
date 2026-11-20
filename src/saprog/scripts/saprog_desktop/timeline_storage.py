@@ -62,7 +62,7 @@ def resolve_timeline_steps(steps, snapshot_resolver):
 
 
 def load_timeline(path, directory, joints=None, bounds=None):
-    """Read, migrate and fully validate before returning a normalized document."""
+    """Read, migrate and fully validate before returning a timeline document."""
     path = Path(path)
     document = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(document, dict):

@@ -83,8 +83,17 @@ def ensure_executable(workspace, package, cancel_event):
 def launch_node(workspace, package, executable):
     quoted_package = shlex.quote(package)
     run_command = f"ros2 run {quoted_package} {shlex.quote(executable)}"
+    usb_preflight = ""
+    if package == "saprog_dynamixel":
+        helper = os.path.join(os.path.dirname(workspace), "scripts", "ensure_usb.bash")
+        usb_preflight = (
+            f"if [ -f {shlex.quote(helper)} ]; then "
+            f"if [ -z \"$share_dir\" ]; then exit 1; fi; "
+            f"bash {shlex.quote(helper)} \"$share_dir/config/saprog.yaml\" || exit 1; fi; "
+        )
     command = (
         f"share_dir=$(ros2 pkg prefix --share {quoted_package} 2>/dev/null || true); "
+        f"{usb_preflight}"
         f"if [ -n \"$share_dir\" ] && [ -f \"$share_dir/config/saprog.yaml\" ]; then "
         f"exec {run_command} --ros-args --params-file \"$share_dir/config/saprog.yaml\"; "
         f"else exec {run_command}; fi"
@@ -132,12 +141,51 @@ def stop_process(process):
                 pass
 
 
+def cancel_pending_commands(pending_commands, command_ids):
+    """Drop only unpublished commands owned by the caller."""
+    cancelled = set(command_ids)
+    for pending in pending_commands[:]:
+        if pending["id"] in cancelled:
+            pending_commands.remove(pending)
+            emit(
+                "command_result", id=pending["id"], success=False,
+                message="Cancelled by controller release or selection change",
+            )
+
+
+def publish_position_command(node, publisher, command, message_type):
+    """Retain a position command until this publisher has a matched subscriber."""
+    if publisher is None:
+        publisher = node.create_publisher(message_type, "/saprog/position_command", 10)
+    if publisher.get_subscription_count() == 0:
+        if time.monotonic() - command["_queued_at"] > 30.0:
+            emit(
+                "command_result", id=command["id"], success=False,
+                message="Position controller unavailable on /saprog/position_command",
+            )
+            return publisher, True
+        return publisher, False
+    message = message_type()
+    message.header.stamp = node.get_clock().now().to_msg()
+    message.name = command["joints"]
+    message.position = command["positions"]
+    speed = command["speed"] * (0.111 * 2.0 * 3.141592653589793 / 60.0)
+    message.velocity = [speed] * len(message.name)
+    message.effort = [float(command["torque"])] * len(message.name)
+    publisher.publish(message)
+    emit("command_result", id=command["id"], success=True, message="Position command published")
+    return publisher, True
+
+
 def run(workspace):
     import rclpy
     from rosidl_runtime_py.convert import message_to_ordereddict
     from rosidl_runtime_py.utilities import get_message
     from rclpy.executors import SingleThreadedExecutor
     from rclpy.qos import qos_profile_sensor_data
+    from sensor_msgs.msg import JointState
+    from std_srvs.srv import SetBool
+    from std_srvs.srv import Trigger
 
     rclpy.init(args=None)
     node = rclpy.create_node("saprog_desktop_wsl_bridge")
@@ -154,6 +202,10 @@ def run(workspace):
     start_time = time.monotonic()
     command_queue = queue.Queue()
     shutdown_event = threading.Event()
+    pending_commands = []
+    torque_clients = {}
+    release_all_client = None
+    command_publisher = None
 
     def read_commands():
         try:
@@ -180,6 +232,21 @@ def run(workspace):
     def process_command(command):
         op = command.get("op")
         token = command.get("token")
+        if op == "cancel_commands":
+            cancel_pending_commands(pending_commands, command.get("ids", ()))
+            return
+        if op == "release_all_torque":
+            for pending in pending_commands:
+                emit(
+                    "command_result", id=pending["id"], success=False,
+                    message="Cancelled by Release all torque",
+                )
+            pending_commands.clear()
+            pending_commands.append(dict(command, _queued_at=time.monotonic()))
+            return
+        if op in ("publish_position", "set_torque"):
+            pending_commands.append(dict(command, _queued_at=time.monotonic()))
+            return
         if op == "release":
             requests.pop(token, None)
             return
@@ -314,6 +381,66 @@ def run(workspace):
                     )
                     build_jobs[key] = build_thread
                     build_thread.start()
+
+            remaining_commands = []
+            for command in pending_commands:
+                if command["op"] == "release_all_torque":
+                    if release_all_client is None:
+                        release_all_client = node.create_client(
+                            Trigger, "/saprog/release_all_torque"
+                        )
+                    if not release_all_client.service_is_ready():
+                        if time.monotonic() - command["_queued_at"] > 30.0:
+                            emit(
+                                "command_result", id=command["id"], success=False,
+                                message="Release all torque service is unavailable",
+                            )
+                        else:
+                            remaining_commands.append(command)
+                        continue
+
+                    request = Trigger.Request()
+                    future = release_all_client.call_async(request)
+
+                    def torque_release_done(future, request_id=command["id"]):
+                        try:
+                            response = future.result()
+                            emit(
+                                "command_result", id=request_id,
+                                success=response.success, message=response.message,
+                            )
+                        except Exception as error:
+                            emit("command_result", id=request_id, success=False, message=str(error))
+
+                    future.add_done_callback(torque_release_done)
+                elif command["op"] == "publish_position":
+                    command_publisher, completed = publish_position_command(
+                        node, command_publisher, command, JointState,
+                    )
+                    if not completed:
+                        remaining_commands.append(command)
+                elif command["op"] == "set_torque":
+                    service_name = f"/saprog/{command['joint']}/torque"
+                    client = torque_clients.get(service_name)
+                    if client is None:
+                        client = node.create_client(SetBool, service_name)
+                        torque_clients[service_name] = client
+                    if client.service_is_ready():
+                        request = SetBool.Request()
+                        request.data = command["enabled"]
+                        future = client.call_async(request)
+                        def torque_done(result, cmd=command):
+                            try:
+                                response = result.result()
+                                emit("command_result", id=cmd["id"], success=response.success, message=response.message)
+                            except Exception as error:
+                                emit("command_result", id=cmd["id"], success=False, message=str(error))
+                        future.add_done_callback(torque_done)
+                    elif time.monotonic() - command["_queued_at"] > 30.0:
+                        emit("command_result", id=command["id"], success=False, message=f"Torque service unavailable: {service_name}")
+                    else:
+                        remaining_commands.append(command)
+            pending_commands = remaining_commands
 
             executor.spin_once(timeout_sec=0.05)
     finally:

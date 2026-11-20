@@ -114,7 +114,7 @@ proposed symbols as already available.
 ## Existing work and responsibilities to retain
 
 [#3](https://github.com/ensapra/saprog/issues/3) is closed: current legacy migration
-compares normalized poses, rejects mismatched/missing matches, and chooses stable
+compares validated radian poses, rejects mismatched/missing matches, and chooses stable
 order among identical-pose files. Preserve it; do not propose the old name-only
 bug as still present. [#6](https://github.com/ensapra/saprog/issues/6) remains
 open for the embedded Static Animator composition and Creator / Player workflow.
