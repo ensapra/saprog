@@ -4,6 +4,15 @@
 /log/
 /.vscode/
 
+# ROS 2 / colcon workspace outputs
+/ros2/build/
+/ros2/install/
+/ros2/log/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.coverage
+
 .saprog-build.lock
 __pycache__/
 *.py[cod]
