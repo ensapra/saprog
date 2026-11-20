@@ -33,11 +33,11 @@ class RosDataManager(QObject):
             handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
             _LOGGER.addHandler(handler)
             _LOGGER.propagate = False
-        _LOGGER.info("ROS data manager ready")
         ros_workspace = Path(workspace) if workspace else Path(__file__).resolve().parents[2] / "ros2"
         self._launcher = RosNodeLauncher(ros_workspace)
         self._lock = threading.RLock()
         self._requests: dict[str, TopicRequest] = {}
+        self._topic_statuses: dict[str, str] = {}
         self._worker: RosWorker | None = None
 
     def request_topic(
@@ -61,6 +61,10 @@ class RosDataManager(QObject):
             raise ValueError("package and executable are required")
 
         request = TopicRequest(topic, message_type, NodeRequirement(package, executable))
+        _LOGGER.info(
+            "Node requested: %s/%s (topic: %s, type: %s)",
+            package, executable, topic, message_type,
+        )
         with self._lock:
             if any(
                 existing.topic == topic and existing != request
@@ -69,24 +73,34 @@ class RosDataManager(QObject):
                 raise ValueError(f"Topic {topic} was already requested with a different type or provider")
             token = uuid.uuid4().hex
             self._requests[token] = request
-            self.status_changed.emit(topic, "Waiting for ROS 2 data")
             if self._worker is None or not self._worker.is_alive():
+                self._topic_statuses.clear()
+                self._emit_status(topic, "Waiting for ROS 2 data")
                 self._worker = RosWorker(
                     self._active_requests,
                     self.message_received.emit,
-                    self.status_changed.emit,
+                    self._emit_status,
                     self._launcher,
                 )
                 self._worker.start()
-                _LOGGER.info("ROS data requested; starting ROS manager worker")
+            else:
+                self._emit_status(
+                    topic, self._topic_statuses.get(topic, "Waiting for ROS 2 data")
+                )
         return token
 
     def release(self, token: str) -> None:
         """Release a widget's subscription request."""
         with self._lock:
             request = self._requests.pop(token, None)
+            still_requested = request is not None and any(
+                existing.topic == request.topic for existing in self._requests.values()
+            )
         if request:
-            self.status_changed.emit(request.topic, "No longer requested")
+            if not still_requested:
+                with self._lock:
+                    self._topic_statuses.pop(request.topic, None)
+                self.status_changed.emit(request.topic, "No longer requested")
 
     def close(self, timeout: float = 5.0) -> None:
         """Stop the ROS worker and the node processes it launched."""
@@ -104,3 +118,10 @@ class RosDataManager(QObject):
     def _active_requests(self) -> dict[str, TopicRequest]:
         with self._lock:
             return dict(self._requests)
+
+    def _emit_status(self, topic: str, status: str) -> None:
+        """Cache per-topic state so new subscribers see the current status."""
+        if topic:
+            with self._lock:
+                self._topic_statuses[topic] = status
+        self.status_changed.emit(topic, status)

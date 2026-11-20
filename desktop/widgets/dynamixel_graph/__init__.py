@@ -1,13 +1,12 @@
-"""Selectable, ROS-independent servo temperature history widget."""
+"""Selectable DYNAMIXEL telemetry history widget."""
 
-import math
 import time
-from collections import deque
 
 from PySide6.QtCore import QPointF, QRectF, QSize, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QGridLayout,
     QGroupBox,
@@ -19,46 +18,32 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from desktop_style import ACCENT_LIGHT, BACKGROUND, FOREGROUND, MUTED
-from .plot import TemperaturePlot
+from desktop_style import FOREGROUND, MUTED
+from .plot import DynamixelPlot
+from .history import HISTORY_SECONDS, LEG_SERVOS, SERVO_COLORS, TelemetryHistory
+from .ros_adapter import DynamixelRosAdapter
 
 
-LEG_SERVOS = (
-    ("Front Right Leg", ("servo_11", "servo_12", "servo_13")),
-    ("Back Right Leg", ("servo_21", "servo_22", "servo_23")),
-    ("Front Left Leg", ("servo_31", "servo_32", "servo_33")),
-    ("Back Left Leg", ("servo_41", "servo_42", "servo_43")),
-)
-SERVO_COLORS = (
-    "#70b5f5", "#f2a65a", "#7fd1ae", "#e883a8", "#b49aff", "#e6d36a",
-    "#58c5d0", "#fa806e", "#9bc76b", "#d58bdc", "#f0a0ce", "#a7c6ed",
-)
-HISTORY_SECONDS = 300.0
-MAX_SAMPLES = 18000
-
-
-class TemperatureGraph(QWidget):
-    """Show selectable servo temperatures over a user-selected time window.
-
-    A future data adapter can call ``update_temperature`` with a servo name,
-    temperature in degrees Celsius, and an optional monotonic timestamp.
-    """
+class DynamixelGraph(QWidget):
+    """Show selectable DYNAMIXEL telemetry over a user-selected time window."""
 
     _sample_received = Signal(object)
+    _ros_status_received = Signal(int)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, ros_manager=None):
         super().__init__(parent)
+        self._ros_adapter = None
         self._sample_received.connect(self._apply_sample)
-        self._samples = {
-            name: deque(maxlen=MAX_SAMPLES)
-            for _leg, names in LEG_SERVOS
-            for name in names
-        }
-        self._selected = set(self._samples)
+        self._ros_status_received.connect(self._show_ros_status)
+        self._history = TelemetryHistory()
+        self._samples = self._history.samples
+        self._latest_values = {kind: {} for kind in self._samples}
+        self._servo_names = self._history.servo_names
+        self._selected = set(self._servo_names)
         self._checkboxes = {}
         self._latest_labels = {}
         self._colors = {
-            name: SERVO_COLORS[index] for index, name in enumerate(self._samples)
+            name: SERVO_COLORS[index] for index, name in enumerate(self._servo_names)
         }
 
         layout = QVBoxLayout(self)
@@ -135,15 +120,25 @@ class TemperatureGraph(QWidget):
         controls.addWidget(self.window_input)
         controls.addWidget(self._make_zoom_button(zoom_in=True))
         controls.addWidget(self._make_zoom_button(zoom_in=False))
+        self.data_type_input = QComboBox()
+        self.data_type_input.addItem("Temperature", "temperature")
+        self.data_type_input.addItem("Voltage", "voltage")
+        self.data_type_input.addItem("Speed", "speed")
+        self.data_type_input.currentIndexChanged.connect(self._refresh_plot)
+        controls.addWidget(self.data_type_input)
         layout.addLayout(controls)
 
-        self.plot = TemperaturePlot(self)
+        self.plot = DynamixelPlot(self)
         layout.addWidget(self.plot, stretch=1)
         self._timer = QTimer(self)
         self._timer.setInterval(250)
         self._timer.timeout.connect(self._refresh_plot)
         self._timer.start()
         self._refresh_plot()
+        if ros_manager is not None:
+            self._ros_adapter = DynamixelRosAdapter(
+                ros_manager, self.update_data, self._queue_ros_status, self
+            )
 
     def _make_zoom_button(self, *, zoom_in):
         button = QToolButton()
@@ -178,27 +173,30 @@ class TemperatureGraph(QWidget):
         ``timestamp`` should use ``time.monotonic()`` units; if omitted, the
         widget supplies one. This method is safe to call from another thread.
         """
-        self._sample_received.emit((servo_name, temperature_c, timestamp))
+        self.update_data(servo_name, "temperature", temperature_c, timestamp)
+
+    def update_data(self, servo_name, data_type, value, timestamp=None):
+        """Queue one telemetry sample; safe to call from a ROS callback thread."""
+        self._sample_received.emit((servo_name, data_type, value, timestamp))
 
     @Slot(object)
     def _apply_sample(self, sample):
-        servo_name, temperature_c, timestamp = sample
-        if servo_name not in self._samples:
+        servo_name, data_type, value, timestamp = sample
+        value = self._history.add(servo_name, data_type, value, timestamp)
+        if value is None:
             return
-        try:
-            value = float(temperature_c)
-            stamp = time.monotonic() if timestamp is None else float(timestamp)
-        except (TypeError, ValueError):
-            return
-        if not math.isfinite(value) or not math.isfinite(stamp):
-            return
+        self._latest_values[data_type][servo_name] = value
+        if data_type == self.data_type_input.currentData():
+            self._update_latest_labels(data_type)
 
-        points = self._samples[servo_name]
-        points.append((stamp, value))
-        cutoff = stamp - HISTORY_SECONDS
-        while points and points[0][0] < cutoff:
-            points.popleft()
-        self._latest_labels[servo_name].setText(f"{value:.0f} °C")
+    def _queue_ros_status(self, _topic, _status, connected_count):
+        self._ros_status_received.emit(connected_count)
+
+    @Slot(int)
+    def _show_ros_status(self, connected_count):
+        self.status_label.setText(
+            f"{len(self._selected)}/12 selected · {connected_count}/3 topics connected"
+        )
 
     def _set_selected(self, servo_name, selected):
         if selected:
@@ -208,7 +206,7 @@ class TemperatureGraph(QWidget):
         self._refresh_plot()
 
     def _select_all(self, selected):
-        self._selected = set(self._samples) if selected else set()
+        self._selected = set(self._servo_names) if selected else set()
         for checkbox in self._checkboxes.values():
             checkbox.blockSignals(True)
             checkbox.setChecked(selected)
@@ -218,14 +216,23 @@ class TemperatureGraph(QWidget):
     def _zoom(self, factor):
         self.window_input.setValue(self.window_input.value() * factor)
 
+    def _update_latest_labels(self, data_type):
+        units = {"temperature": "°C", "voltage": "V", "speed": ""}[data_type]
+        for servo_name, label in self._latest_labels.items():
+            value = self._latest_values[data_type].get(servo_name)
+            label.setText("—" if value is None else f"{value:.1f} {units}".strip())
+
     @Slot()
     def _refresh_plot(self, *_args):
         window_seconds = self.window_input.value()
-        self.plot.set_samples(self._samples, self._selected, self._colors, window_seconds)
+        data_type = self.data_type_input.currentData()
+        self._update_latest_labels(data_type)
+        self.plot.set_samples(self._samples[data_type], self._selected, self._colors, window_seconds, data_type)
         selected_count = len(self._selected)
         now = time.monotonic()
         live_count = sum(
             bool(points) and now - points[-1][0] <= 2.5
-            for points in self._samples.values()
+            for points in self._samples[data_type].values()
         )
-        self.status_label.setText(f"{selected_count}/12 selected · {live_count} live")
+        if self._ros_adapter is None:
+            self.status_label.setText(f"{selected_count}/12 selected · {live_count} live")

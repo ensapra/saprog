@@ -1,4 +1,4 @@
-"""PyQtGraph view for servo temperature history."""
+"""PyQtGraph view for selectable DYNAMIXEL telemetry history."""
 
 import time
 
@@ -7,10 +7,9 @@ import pyqtgraph as pg
 from PySide6.QtCore import Qt
 
 from desktop_style import ACCENT_LIGHT, BACKGROUND, FOREGROUND, MUTED
-from desktop_style import ACCENT_LIGHT
 
 
-class TemperaturePlot(pg.PlotWidget):
+class DynamixelPlot(pg.PlotWidget):
     """Plot selected servo traces with a fixed, rolling time window."""
 
     def __init__(self, parent=None):
@@ -22,7 +21,6 @@ class TemperaturePlot(pg.PlotWidget):
         self.setMenuEnabled(False)
         self.setMouseEnabled(x=False, y=False)
         self.showGrid(x=True, y=True, alpha=0.25)
-        self.setLabel("left", "Temperature", units="°C", color=FOREGROUND)
         self.setLabel("bottom", "Time before now", units="s", color=FOREGROUND)
         plot = self.getPlotItem()
         plot.getAxis("left").setPen(MUTED)
@@ -38,10 +36,17 @@ class TemperaturePlot(pg.PlotWidget):
         )
         self.addItem(self._temperature_limit)
 
-    def set_samples(self, samples, selected, colors, window_seconds):
+    def set_samples(self, samples, selected, colors, window_seconds, data_type="temperature"):
         now = time.monotonic()
         cutoff = now - window_seconds
         visible_values = []
+        title, units = {
+            "temperature": ("Temperature", "°C"),
+            "voltage": ("Voltage", "V"),
+            "speed": ("Speed", "raw units"),
+        }[data_type]
+        self.setLabel("left", title, units=units, color=FOREGROUND)
+        self._temperature_limit.setVisible(data_type == "temperature")
 
         for name, all_points in samples.items():
             curve = self._curves.get(name)
@@ -69,17 +74,17 @@ class TemperaturePlot(pg.PlotWidget):
 
         self.setXRange(-window_seconds, 0, padding=0)
         if visible_values:
-            low = min(min(visible_values) - 5, 70)
-            high = max(max(visible_values) + 5, 80)
-            if high - low < 10:
-                midpoint = (low + high) / 2
-                low, high = midpoint - 5, midpoint + 5
+            padding = max((max(visible_values) - min(visible_values)) * 0.1, 1.0)
+            low = min(visible_values) - padding
+            high = max(visible_values) + padding
+            if data_type == "temperature":
+                low, high = min(low, 70), max(high, 80)
             self.setYRange(low, high, padding=0)
             self._empty_message.setVisible(False)
         else:
-            self.setYRange(15, 80, padding=0)
+            self.setYRange(15, 80, padding=0) if data_type == "temperature" else self.setYRange(0, 10, padding=0)
             self._empty_message.setText(
-                "Waiting for selected servo temperatures" if selected else "Select servos to graph"
+                f"Waiting for selected servo {title.lower()} readings" if selected else "Select servos to graph"
             )
-            self._empty_message.setPos(-window_seconds / 2, 32.5)
+            self._empty_message.setPos(-window_seconds / 2, 5 if data_type != "temperature" else 32.5)
             self._empty_message.setVisible(True)

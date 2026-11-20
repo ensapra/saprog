@@ -38,6 +38,12 @@ void ImuPublisherNode::poll_serial()
       return;
     }
     RCLCPP_INFO(get_logger(), "Connected to IMU serial device %s", device_.c_str());
+    connection_opened_ = steady_now;
+    last_valid_sample_ = steady_now;
+    last_received_data_ = steady_now;
+    resume_toggle_sent_ = false;
+    orientation_stale_ = false;
+    orientation_estimator_.reset();
   }
 
   std::vector<std::string> lines;
@@ -46,12 +52,40 @@ void ImuPublisherNode::poll_serial()
     RCLCPP_WARN(get_logger(), "IMU serial read failed: %s", error.c_str());
     return;
   }
+  const auto steady_now = std::chrono::steady_clock::now();
+  if (serial_reader_.received_data_this_read()) {
+    last_received_data_ = steady_now;
+  }
+  const bool valid_sample_stale = steady_now - last_valid_sample_ > std::chrono::seconds(3);
+  if (valid_sample_stale && !orientation_stale_) {
+    orientation_estimator_.reset();
+    orientation_stale_ = true;
+  }
+  if (steady_now - last_received_data_ > std::chrono::seconds(3))
+  {
+    RCLCPP_WARN(get_logger(), "No IMU data received; reconnecting");
+    serial_reader_.disconnect();
+    orientation_estimator_.reset();
+    return;
+  }
+  if (!resume_toggle_sent_ &&
+    steady_now - connection_opened_ > std::chrono::milliseconds(1500) &&
+    steady_now - last_received_data_ > std::chrono::milliseconds(1500))
+  {
+    resume_toggle_sent_ = true;
+    std::string toggle_error;
+    if (!serial_reader_.send_resume_toggle(toggle_error)) {
+      RCLCPP_WARN(get_logger(), "Could not send IMU resume toggle: %s", toggle_error.c_str());
+    }
+  }
   if (!error.empty()) {
     RCLCPP_WARN(get_logger(), "Discarding %s", error.c_str());
   }
   for (const auto &line : lines) {
     ImuSample sample;
     if (parse_imu_csv(line, sample)) {
+      last_valid_sample_ = std::chrono::steady_clock::now();
+      orientation_stale_ = false;
       orientation_estimator_.update(sample);
       publisher_.publish(sample, frame_id_, now().to_msg(),
         orientation_estimator_.orientation(), orientation_estimator_.valid());

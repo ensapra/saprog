@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QHBoxLayout, QSplitter, QWidget
 
 from widgets.imu_visualizer import IMUVisualizer
-from widgets.temperature_graph import TemperatureGraph
+from widgets.dynamixel_graph import DynamixelGraph
 
 TAB_TITLE = "Statistics"
 TAB_ORDER = 0
@@ -20,7 +20,7 @@ class StatisticsTab(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(6)
-        splitter.addWidget(TemperatureGraph(splitter))
+        splitter.addWidget(DynamixelGraph(splitter, ros_manager=ros_manager))
         splitter.addWidget(IMUVisualizer(splitter, ros_manager=ros_manager))
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 1)

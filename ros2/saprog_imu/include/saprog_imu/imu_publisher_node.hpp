@@ -25,6 +25,11 @@ private:
   ImuOrientationEstimator orientation_estimator_;
   ImuMessagePublisher publisher_;
   std::chrono::steady_clock::time_point last_open_attempt_{};
+  std::chrono::steady_clock::time_point connection_opened_{};
+  std::chrono::steady_clock::time_point last_valid_sample_{};
+  std::chrono::steady_clock::time_point last_received_data_{};
+  bool resume_toggle_sent_{false};
+  bool orientation_stale_{false};
   rclcpp::TimerBase::SharedPtr timer_;
 };
 }  // namespace saprog_imu

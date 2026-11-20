@@ -36,8 +36,14 @@ class IMUCube(QWidget):
 
     def set_orientation(self, quaternion):
         """Set orientation from an ``(x, y, z, w)`` quaternion."""
-        length = math.sqrt(sum(component * component for component in quaternion))
-        if length <= 1e-12:
+        try:
+            quaternion = tuple(float(component) for component in quaternion)
+        except (TypeError, ValueError, OverflowError):
+            return
+        if len(quaternion) != 4 or not all(math.isfinite(value) for value in quaternion):
+            return
+        length = math.hypot(*quaternion)
+        if not math.isfinite(length) or length <= 1e-12:
             return
         self._quaternion = tuple(component / length for component in quaternion)
         self.update()

@@ -9,6 +9,7 @@ namespace saprog_imu
 class ImuOrientationEstimator
 {
 public:
+  void reset();
   void update(const ImuSample &sample);
   bool valid() const;
   const std::array<double, 4> &orientation() const;

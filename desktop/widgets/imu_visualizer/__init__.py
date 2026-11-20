@@ -1,5 +1,7 @@
 """IMU readings and orientation widget with optional ROS data requests."""
 
+import math
+
 from PySide6.QtCore import Signal, Slot
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
@@ -52,10 +54,6 @@ class IMUVisualizer(QWidget):
             readings_layout.addWidget(group, stretch=1)
             self._reading_labels[key] = value
 
-        self.time_label = QLabel("Sensor time: — ms")
-        self.time_label.setStyleSheet("font-size: 9pt;")
-        layout.addWidget(self.time_label)
-
         self.connection_label = QLabel(
             "ROS: waiting" if ros_manager is not None else "ROS: disconnected"
         )
@@ -90,14 +88,22 @@ class IMUVisualizer(QWidget):
         ]
         # Keep the manager and tokens in the closure, not the widget, so Qt can
         # release the requests when this page is destroyed.
-        self.destroyed.connect(
-            lambda _object=None, manager=ros_manager, request_tokens=tokens:
-                [manager.release(token) for token in request_tokens]
-        )
+        manager_ref = [ros_manager]
+        ros_manager.destroyed.connect(lambda _object=None: manager_ref.__setitem__(0, None))
+
+        def release_requests(_object=None):
+            manager = manager_ref[0]
+            if manager is not None:
+                for token in tokens:
+                    manager.release(token)
+
+        self.destroyed.connect(release_requests)
 
     @Slot(str, object)
     def _on_ros_message(self, topic, message):
         if topic == IMU_RAW.topic:
+            self._ros_statuses[topic] = "Connected"
+            self._update_ros_status_label()
             acceleration = message.get("linear_acceleration", {})
             gyroscope = message.get("angular_velocity", {})
             self.update_data(
@@ -105,13 +111,28 @@ class IMUVisualizer(QWidget):
                 gyroscope=self._vector(gyroscope),
             )
         elif topic == IMU_MAGNETOMETER.topic:
+            self._ros_statuses[topic] = "Connected"
+            self._update_ros_status_label()
             self.update_data(magnetometer=self._vector(message.get("magnetic_field", {})))
         elif topic == IMU_ORIENTATION.topic:
             quaternion = message.get("quaternion", {})
             try:
                 values = tuple(float(quaternion[axis]) for axis in ("x", "y", "z", "w"))
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError, OverflowError):
+                self._ros_statuses[topic] = "Invalid orientation data"
+                self._update_ros_status_label()
                 return
+            length = math.hypot(*values)
+            if (
+                not all(math.isfinite(value) for value in values)
+                or not math.isfinite(length)
+                or length <= 1e-12
+            ):
+                self._ros_statuses[topic] = "Invalid orientation data"
+                self._update_ros_status_label()
+                return
+            self._ros_statuses[topic] = "Connected"
+            self._update_ros_status_label()
             self.update_data(orientation_quaternion=values)
 
     @staticmethod
@@ -126,19 +147,56 @@ class IMUVisualizer(QWidget):
         if topic == "":
             self.connection_label.setText(f"ROS: {status}")
             return
+        if topic not in {topic_config.topic for topic_config in IMU_TOPICS}:
+            return
+        if (
+            topic == IMU_ORIENTATION.topic
+            and status == "Connected"
+            and self._ros_statuses.get(topic) == "Invalid orientation data"
+        ):
+            # The manager reports transport activity; it cannot validate the
+            # quaternion. Keep the data-quality warning until a valid sample
+            # arrives and this widget explicitly marks orientation connected.
+            return
         self._ros_statuses[topic] = status
+        self._update_ros_status_label()
+
+    def _update_ros_status_label(self):
         if all(
             self._ros_statuses.get(topic_config.topic) == "Connected"
             for topic_config in IMU_TOPICS
         ):
             self.connection_label.setText("ROS: connected")
         else:
+            statuses = [
+                self._ros_statuses.get(topic_config.topic)
+                for topic_config in IMU_TOPICS
+            ]
+            # Surface stale or failed topics instead of allowing a later
+            # healthy topic's status to hide the problem.
+            concerning = next(
+                (
+                    status
+                    for status in statuses
+                    if status and (
+                        "stale" in status.lower()
+                        or "invalid" in status.lower()
+                        or "could not" in status.lower()
+                        or "unavailable" in status.lower()
+                        or "unknown" in status.lower()
+                    )
+                ),
+                None,
+            )
+            status = concerning or next(
+                (status for status in statuses if status and status != "Connected"),
+                "Waiting for ROS 2 data",
+            )
             self.connection_label.setText(f"ROS: {status.lower()}")
 
     def update_data(
         self,
         *,
-        sensor_time_ms=None,
         acceleration=None,
         gyroscope=None,
         magnetometer=None,
@@ -153,7 +211,6 @@ class IMUVisualizer(QWidget):
         thread.
         """
         self._data_received.emit({
-            "sensor_time_ms": sensor_time_ms,
             "acceleration": acceleration,
             "gyroscope": gyroscope,
             "magnetometer": magnetometer,
@@ -162,9 +219,6 @@ class IMUVisualizer(QWidget):
 
     @Slot(object)
     def _apply_data(self, sample):
-        if sample["sensor_time_ms"] is not None:
-            self.time_label.setText(f"Sensor time: {sample['sensor_time_ms']:.0f} ms")
-
         for key in ("acceleration", "gyroscope", "magnetometer"):
             vector = sample[key]
             if vector is None:

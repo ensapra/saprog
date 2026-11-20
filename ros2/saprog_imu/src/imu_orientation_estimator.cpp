@@ -51,21 +51,31 @@ Vector rotate(const Quaternion &q, const Vector &v)
 }
 }  // namespace
 
+void ImuOrientationEstimator::reset()
+{
+  orientation_ = {1.0, 0.0, 0.0, 0.0};
+  valid_ = false;
+  last_time_ms_ = -1.0;
+  tilt_resume_ms_ = 0.0;
+}
+
 void ImuOrientationEstimator::update(const ImuSample &sample)
 {
   // Firmware acceleration is in g. Its direction gives tilt, but not rotation
   // around gravity (yaw).
   const double acceleration_magnitude = norm(sample.acceleration);
-  if (acceleration_magnitude < 1e-9) {
-    return;
-  }
-  const Vector acceleration{
+  const bool acceleration_available = acceleration_magnitude >= 1e-9;
+  const Vector acceleration = acceleration_available ? Vector{
     sample.acceleration[0] / acceleration_magnitude,
     sample.acceleration[1] / acceleration_magnitude,
-    sample.acceleration[2] / acceleration_magnitude};
-    
-  const double roll = std::atan2(acceleration[1], acceleration[2]);
-  const double pitch = std::atan2(-acceleration[0], std::hypot(acceleration[1], acceleration[2]));
+    sample.acceleration[2] / acceleration_magnitude} : Vector{};
+
+  if (!acceleration_available && !valid_) {
+    return;
+  }
+  const double roll = acceleration_available ? std::atan2(acceleration[1], acceleration[2]) : 0.0;
+  const double pitch = acceleration_available ?
+    std::atan2(-acceleration[0], std::hypot(acceleration[1], acceleration[2])) : 0.0;
   const double hx = sample.magnetic_field[0] * std::cos(pitch) +
     sample.magnetic_field[1] * std::sin(roll) * std::sin(pitch) +
     sample.magnetic_field[2] * std::cos(roll) * std::sin(pitch);
@@ -96,7 +106,7 @@ void ImuOrientationEstimator::update(const ImuSample &sample)
       constexpr double gravity_g = 1.0;
       // Trust acceleration as a gravity direction only when its magnitude and
       // the current rotation rate suggest little linear motion.
-      const bool reliable_acceleration =
+      const bool reliable_acceleration = acceleration_available &&
         std::abs(acceleration_magnitude / gravity_g - 1.0) < 0.08 && rate < 45.0 * radians;
       if (!reliable_acceleration) {
         tilt_resume_ms_ = sample.time_ms + 250.0;

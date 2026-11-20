@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from .models import NodeRequirement, TopicRequest
+from .models import TopicRequest
 from .node_launcher import RosNodeLauncher
 
 _LOGGER = logging.getLogger("saprog.ros_manager")
@@ -47,6 +47,8 @@ class RosWorker(threading.Thread):
             return
 
         launched: dict[tuple[str, str], subprocess.Popen] = {}
+        build_results: queue.Queue = queue.Queue()
+        build_jobs: dict[tuple[str, str], threading.Thread] = {}
         node = None
         rclpy = None
         try:
@@ -68,10 +70,24 @@ class RosWorker(threading.Thread):
             executor.add_node(node)
             subscriptions = {}
             last_attempt: dict[tuple[str, str], float] = {}
+            last_message_at: dict[str, float] = {}
             last_status: dict[str, str] = {}
             initialized_at = time.monotonic()
 
             while not self._stopping.is_set():
+                while True:
+                    try:
+                        key, topic, process, error = build_results.get_nowait()
+                    except queue.Empty:
+                        break
+                    build_jobs.pop(key, None)
+                    if error is not None:
+                        _LOGGER.warning("Could not start ROS component %s: %s", key[0], error)
+                        self._set_status(last_status, topic, f"Could not start {key[0]}: {error}")
+                    elif process is not None:
+                        launched[key] = process
+                        self._set_status(last_status, topic, f"Started {key[1]}")
+
                 requests = {
                     request.topic: request
                     for request in self._get_requests().values()
@@ -79,6 +95,7 @@ class RosWorker(threading.Thread):
 
                 for stale_topic in set(subscriptions) - set(requests):
                     node.destroy_subscription(subscriptions.pop(stale_topic))
+                    last_message_at.pop(stale_topic, None)
 
                 for topic, request in requests.items():
                     if topic not in subscriptions:
@@ -89,6 +106,7 @@ class RosWorker(threading.Thread):
                             continue
 
                         def receive(message, topic_name=topic):
+                            last_message_at[topic_name] = time.monotonic()
                             self._on_message(
                                 topic_name, dict(message_to_ordereddict(message))
                             )
@@ -100,8 +118,28 @@ class RosWorker(threading.Thread):
 
                     requirement = request.requirement
                     key = (requirement.package, requirement.executable)
-                    if node.count_publishers(topic) > 0:
-                        self._set_status(last_status, topic, "Connected")
+                    publishers = node.count_publishers(topic)
+                    process = launched.get(key)
+
+                    last_message = last_message_at.get(topic)
+                    if last_message is not None:
+                        topic_status = (
+                            "Stale IMU data" if time.monotonic() - last_message > 2.0 else "Connected"
+                        )
+                    elif publishers > 0:
+                        topic_status = "Waiting for IMU data"
+                    else:
+                        topic_status = "Subscribed; waiting for publisher"
+
+                    if process is not None and process.poll() is None:
+                        self._set_status(
+                            last_status,
+                            topic,
+                            topic_status if publishers > 0 else f"Starting {requirement.executable}",
+                        )
+                        continue
+                    if publishers > 0:
+                        self._set_status(last_status, topic, topic_status)
                         continue
 
                     if time.monotonic() - initialized_at < self.DISCOVERY_SECONDS:
@@ -109,30 +147,48 @@ class RosWorker(threading.Thread):
                     if time.monotonic() - last_attempt.get(key, 0.0) < self.RETRY_SECONDS:
                         continue
 
-                    process = launched.get(key)
-                    if process is not None and process.poll() is None:
-                        self._set_status(last_status, topic, f"Starting {requirement.executable}")
-                        continue
-
                     last_attempt[key] = time.monotonic()
                     self._set_status(last_status, topic, f"Checking {requirement.package}")
-                    try:
-                        self._launcher.ensure_executable(
-                            requirement,
-                            lambda status, topic_name=topic:
-                                self._set_status(last_status, topic_name, status),
+                    if key not in build_jobs:
+                        def build_and_launch(
+                            build_key=key, build_topic=topic, build_requirement=requirement
+                        ):
+                            try:
+                                self._launcher.ensure_executable(
+                                    build_requirement,
+                                    lambda status: self._on_status(build_topic, status),
+                                    cancel_event=self._stopping,
+                                )
+                                process = None if self._stopping.is_set() else self._launcher.launch(build_requirement)
+                                error = None
+                            except Exception as build_error:
+                                process = None
+                                error = build_error
+                            build_results.put((build_key, build_topic, process, error))
+
+                        build_thread = threading.Thread(
+                            target=build_and_launch,
+                            name=f"saprog-build-{requirement.package}",
+                            daemon=True,
                         )
-                        launched[key] = self._launcher.launch(requirement)
-                        self._set_status(last_status, topic, f"Started {requirement.executable}")
-                    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
-                        _LOGGER.warning("Could not start ROS component %s: %s", requirement.package, error)
-                        self._set_status(last_status, topic, f"Could not start {requirement.package}: {error}")
+                        build_jobs[key] = build_thread
+                        build_thread.start()
 
                 executor.spin_once(timeout_sec=0.1)
         except Exception as error:  # ROS remains optional for the desktop app.
             _LOGGER.exception("ROS manager worker failed")
             self._on_status("", f"ROS manager unavailable: {error}")
         finally:
+            self._stopping.set()
+            for build_thread in build_jobs.values():
+                build_thread.join()
+            while True:
+                try:
+                    _key, _topic, process, _error = build_results.get_nowait()
+                except queue.Empty:
+                    break
+                if process is not None:
+                    self._launcher.stop_process(process)
             self._launcher.stop_processes(launched)
             if node is not None:
                 node.destroy_node()
@@ -219,7 +275,8 @@ class RosWorker(threading.Thread):
                 elif event.get("event") == "status":
                     topic = event.get("topic", "")
                     status = event.get("status", "")
-                    if status.startswith("Building ") or status.startswith("Launching "):
+                    if (status.startswith("Checking build") or status.startswith("Built ")
+                            or status.endswith("is already up to date") or status.startswith("Launching ")):
                         _LOGGER.info("ROS manager: %s", status)
                     self._on_status(topic, status)
 

@@ -8,10 +8,12 @@ inside the WSL ROS Python environment.
 import argparse
 import json
 import os
-import select
+import queue
+import signal
 import shlex
 import subprocess
 import sys
+import threading
 import time
 
 
@@ -29,40 +31,64 @@ def ros_shell(workspace, command):
     return ["bash", "-lc", " && ".join(parts)]
 
 
-def ensure_executable(workspace, package, executable):
-    package_name = package
-    quoted_package = shlex.quote(package_name)
-    result = subprocess.run(
-        ros_shell(workspace, f"ros2 pkg executables {quoted_package}"),
-        cwd=workspace,
-        capture_output=True,
-        text=True,
-        timeout=15,
-        check=False,
-    )
-    expected = f"{package_name} {executable}"
-    if result.returncode == 0 and expected in result.stdout.splitlines():
-        return
-
-    emit("status", topic="", status=f"Building {package_name}")
-    build = subprocess.run(
+def ensure_executable(workspace, package, cancel_event):
+    quoted_package = shlex.quote(package)
+    emit("status", topic="", status=f"Checking build for {package}")
+    build = subprocess.Popen(
         ros_shell(
             workspace,
-            f"cd {shlex.quote(workspace)} && colcon build --packages-up-to {quoted_package}",
+            f"cd {shlex.quote(workspace)} && colcon build --event-handlers console_direct+ --packages-up-to {quoted_package}",
         ),
         cwd=workspace,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        timeout=600,
-        check=False,
+        start_new_session=True,
     )
+    deadline = time.monotonic() + 600
+    while True:
+        try:
+            stdout, stderr = build.communicate(timeout=0.2)
+            break
+        except subprocess.TimeoutExpired:
+            cancelled = cancel_event.is_set()
+            timed_out = time.monotonic() >= deadline
+            if not cancelled and not timed_out:
+                continue
+            try:
+                os.killpg(build.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                stdout, stderr = build.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(build.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                stdout, stderr = build.communicate()
+            if cancelled:
+                raise RuntimeError("ROS package build cancelled")
+            raise RuntimeError("ROS package build timed out after 600 seconds")
     if build.returncode != 0:
-        details = (build.stderr or build.stdout).strip()
+        details = (stderr or stdout).strip()
         raise RuntimeError(details[-1500:] or "colcon build failed")
+    build_output = f"{stdout}\n{stderr}"
+    if f"Starting >>> {package}" in build_output:
+        emit("status", topic="", status=f"Built {package}")
+    else:
+        emit("status", topic="", status=f"{package} is already up to date")
 
 
 def launch_node(workspace, package, executable):
-    command = f"ros2 run {shlex.quote(package)} {shlex.quote(executable)}"
+    quoted_package = shlex.quote(package)
+    run_command = f"ros2 run {quoted_package} {shlex.quote(executable)}"
+    command = (
+        f"share_dir=$(ros2 pkg prefix --share {quoted_package} 2>/dev/null || true); "
+        f"if [ -n \"$share_dir\" ] && [ -f \"$share_dir/config/saprog.yaml\" ]; then "
+        f"exec {run_command} --ros-args --params-file \"$share_dir/config/saprog.yaml\"; "
+        f"else exec {run_command}; fi"
+    )
     return subprocess.Popen(
         ros_shell(workspace, f"exec {command}"),
         cwd=workspace,
@@ -91,6 +117,21 @@ def stop_processes(processes):
                     pass
 
 
+def stop_process(process):
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, 15)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=2.0)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, 9)
+            except ProcessLookupError:
+                pass
+
+
 def run(workspace):
     import rclpy
     from rosidl_runtime_py.convert import message_to_ordereddict
@@ -107,12 +148,34 @@ def run(workspace):
     processes = {}
     last_attempt = {}
     last_status = {}
+    last_message_at = {}
+    build_results = queue.Queue()
+    build_jobs = {}
     start_time = time.monotonic()
+    command_queue = queue.Queue()
+    shutdown_event = threading.Event()
+
+    def read_commands():
+        try:
+            for line in sys.stdin:
+                command_queue.put(line)
+        finally:
+            shutdown_event.set()
+            command_queue.put(None)
+
+    command_reader = threading.Thread(target=read_commands, name="saprog-command-reader", daemon=True)
+    command_reader.start()
 
     def set_status(topic, status):
         if last_status.get(topic) != status:
             last_status[topic] = status
             emit("status", topic=topic, status=status)
+
+    def topic_status(topic, publishers):
+        last_message = last_message_at.get(topic)
+        if last_message is not None:
+            return "Stale IMU data" if time.monotonic() - last_message > 2.0 else "Connected"
+        return "Waiting for IMU data" if publishers > 0 else "Subscribed; waiting for publisher"
 
     def process_command(command):
         op = command.get("op")
@@ -147,6 +210,7 @@ def run(workspace):
             return
 
         def receive(message, topic=request["topic"]):
+            last_message_at[topic] = time.monotonic()
             emit("message", topic=topic, data=dict(message_to_ordereddict(message)))
 
         subscriptions[request["topic"]] = node.create_subscription(
@@ -156,48 +220,113 @@ def run(workspace):
 
     try:
         while rclpy.ok():
-            if select.select([sys.stdin], [], [], 0.01)[0]:
-                line = sys.stdin.readline()
-                if not line:
+            while True:
+                try:
+                    key, topic, process, error = build_results.get_nowait()
+                except queue.Empty:
+                    break
+                build_jobs.pop(key, None)
+                if error is not None:
+                    set_status(topic, f"Could not start {key[0]}: {error}")
+                elif process is not None:
+                    processes[key] = process
+                    set_status(topic, f"Started {key[1]}")
+
+            try:
+                line = command_queue.get(timeout=0.01)
+                if line is None:
                     break
                 try:
                     process_command(json.loads(line))
                 except (json.JSONDecodeError, KeyError, TypeError) as error:
                     emit("status", topic="", status=f"Invalid manager request: {error}")
+                while True:
+                    try:
+                        line = command_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    if line is None:
+                        return
+                    try:
+                        process_command(json.loads(line))
+                    except (json.JSONDecodeError, KeyError, TypeError) as error:
+                        emit("status", topic="", status=f"Invalid manager request: {error}")
+            except queue.Empty:
+                pass
 
             active_topics = {request["topic"] for request in requests.values()}
             for topic in set(subscriptions) - active_topics:
                 node.destroy_subscription(subscriptions.pop(topic))
+                last_message_at.pop(topic, None)
                 last_status.pop(topic, None)
 
             for topic in active_topics:
                 request = next(item for item in requests.values() if item["topic"] == topic)
-                if node.count_publishers(topic) > 0:
-                    set_status(topic, "Connected")
-                    continue
                 if time.monotonic() - start_time < 1.5:
                     continue
 
                 key = (request["package"], request["executable"])
                 process = processes.get(key)
+                publishers = node.count_publishers(topic)
                 if process is not None and process.poll() is None:
-                    set_status(topic, f"Starting {request['executable']}")
+                    set_status(
+                        topic,
+                        topic_status(topic, publishers) if publishers > 0 else f"Starting {request['executable']}",
+                    )
+                    continue
+                if publishers > 0:
+                    set_status(topic, topic_status(topic, publishers))
                     continue
                 if time.monotonic() - last_attempt.get(key, 0.0) < 5.0:
                     continue
 
                 last_attempt[key] = time.monotonic()
                 set_status(topic, f"Checking {request['package']}")
-                try:
-                    ensure_executable(workspace, *key)
-                    emit("status", topic=topic, status=f"Launching {request['package']} ({request['executable']})")
-                    processes[key] = launch_node(workspace, *key)
-                    set_status(topic, f"Started {request['executable']}")
-                except (OSError, RuntimeError, subprocess.SubprocessError) as error:
-                    set_status(topic, f"Could not start {request['package']}: {error}")
+                if key not in build_jobs:
+                    def build_and_launch(build_key=key, build_topic=topic, build_request=request):
+                        try:
+                            ensure_executable(
+                                workspace,
+                                build_request["package"],
+                                cancel_event=shutdown_event,
+                            )
+                            if shutdown_event.is_set():
+                                process = None
+                            else:
+                                emit(
+                                    "status",
+                                    topic=build_topic,
+                                    status=f"Launching {build_request['package']} ({build_request['executable']})",
+                                )
+                                process = launch_node(
+                                    workspace, build_request["package"], build_request["executable"]
+                                )
+                            error = None
+                        except Exception as build_error:
+                            process = None
+                            error = build_error
+                        build_results.put((build_key, build_topic, process, error))
+
+                    build_thread = threading.Thread(
+                        target=build_and_launch,
+                        name=f"saprog-build-{request['package']}",
+                        daemon=True,
+                    )
+                    build_jobs[key] = build_thread
+                    build_thread.start()
 
             executor.spin_once(timeout_sec=0.05)
     finally:
+        shutdown_event.set()
+        for build_thread in build_jobs.values():
+            build_thread.join()
+        while True:
+            try:
+                _key, _topic, process, _error = build_results.get_nowait()
+            except queue.Empty:
+                break
+            if process is not None:
+                stop_process(process)
         stop_processes(processes)
         node.destroy_node()
         if rclpy.ok():

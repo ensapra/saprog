@@ -11,6 +11,7 @@ class TopicConfig:
     message_type: str
     package: str
     executable: str
+    data_type: str = ""
 
 
 IMU_RAW = TopicConfig(
@@ -33,3 +34,17 @@ IMU_ORIENTATION = TopicConfig(
 )
 
 IMU_TOPICS = (IMU_RAW, IMU_MAGNETOMETER, IMU_ORIENTATION)
+
+DYNAMIXEL_TEMPERATURE = TopicConfig(
+    "/saprog/temperatures", "sensor_msgs/msg/Temperature", "saprog_dynamixel",
+    "dynamixel_readback_node", "temperature",
+)
+DYNAMIXEL_VOLTAGE = TopicConfig(
+    "/saprog/voltages", "sensor_msgs/msg/JointState", "saprog_dynamixel",
+    "dynamixel_readback_node", "voltage",
+)
+DYNAMIXEL_SPEED = TopicConfig(
+    "/saprog/speeds", "sensor_msgs/msg/JointState", "saprog_dynamixel",
+    "dynamixel_readback_node", "speed",
+)
+DYNAMIXEL_TOPICS = (DYNAMIXEL_TEMPERATURE, DYNAMIXEL_VOLTAGE, DYNAMIXEL_SPEED)
