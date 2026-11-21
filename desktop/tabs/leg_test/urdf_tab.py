@@ -158,9 +158,6 @@ class SingleLegTestTab(QWidget):
         if self.mode in ("Vertical preview", "Sequence preview"):
             self.stop()
         if self.model is not None:
-            for mapping, fields in zip(self.model.mappings, self.mapping_fields):
-                bounds = self.limits.bounds.get(mapping.servo)
-                fields["limits"].setText(f"{bounds[0]:.5f} to {bounds[1]:.5f} rad" if bounds else "Waiting for EEPROM read")
             self.refresh()
 
     @staticmethod
@@ -293,6 +290,8 @@ class SingleLegTestTab(QWidget):
             rows.append(f"Horizontal deviation from requested vertical line: {lateral_error:.3f} mm")
         self.metrics.setText("\n".join(rows))
         for mapping, fields in zip(self.model.mappings, self.mapping_fields):
+            bounds = self.limits.bounds.get(mapping.servo)
+            fields["limits"].setText(f"{bounds[0]:.5f} to {bounds[1]:.5f} rad" if bounds else "Waiting for EEPROM read")
             blocker = QSignalBlocker(fields["pose"])
             fields["pose"].setValue(self.values[mapping.servo])
             del blocker
