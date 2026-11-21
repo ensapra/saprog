@@ -9,9 +9,8 @@ namespace saprog_imu
 class ImuOrientationEstimator
 {
 public:
-  // Raw magnetic readings can undo real gyro turns when biased or stuck.
-  // Enable heading correction only with calibrated, body-frame measurements.
-  explicit ImuOrientationEstimator(bool use_magnetometer = false);
+  // Magnetic measurements must use the same body frame as accel/gyro.
+  explicit ImuOrientationEstimator(bool use_magnetometer = true);
   void reset();
   void update(const ImuSample &sample);
   bool valid() const;

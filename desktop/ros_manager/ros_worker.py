@@ -28,6 +28,7 @@ class RosWorker(threading.Thread):
         on_status: Callable[[str, str], None],
         on_command_result: Callable[[str, bool, str], None],
         launcher: RosNodeLauncher,
+        on_position_published: Callable[[str, int], None] | None = None,
     ):
         super().__init__(name="saprog-ros-data-manager", daemon=True)
         self._get_requests = get_requests
@@ -36,6 +37,7 @@ class RosWorker(threading.Thread):
         self._on_status = on_status
         self._on_command_result = on_command_result
         self._launcher = launcher
+        self._on_position_published = on_position_published
         self._stopping = threading.Event()
 
     def stop(self) -> None:
@@ -150,17 +152,26 @@ class RosWorker(threading.Thread):
     def _handle_event(self, event: dict) -> None:
         kind = event.get("event")
         if kind == "message":
-            self._on_message(event.get("topic", ""), event.get("data", {}))
+            data = event.get("data", {})
+            if isinstance(data, dict) and "received_at_ns" in event:
+                data = {**data, "_ros_received_at_ns": event["received_at_ns"]}
+            self._on_message(event.get("topic", ""), data)
         elif kind == "status":
             topic = event.get("topic", "")
             status = event.get("status", "")
             if (
                 status.startswith(("Checking build", "Built ", "Launching "))
                 or status.endswith("is already up to date")
+                or "exited with code" in status
+                or status.startswith("Could not start ")
             ):
                 _LOGGER.info("ROS manager: %s", status)
             self._on_status(topic, status)
         elif kind == "command_result":
+            if event.get("success") and self._on_position_published is not None:
+                stamp = event.get("published_at_ns")
+                if type(stamp) is int:
+                    self._on_position_published(event.get("id", ""), stamp)
             self._on_command_result(
                 event.get("id", ""),
                 bool(event.get("success")),

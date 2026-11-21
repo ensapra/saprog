@@ -1,0 +1,34 @@
+{
+  "kind": "saprog_timeline",
+  "schema_version": 2,
+  "steps": [
+    {
+      "snapshot": "SideStep1.json",
+      "motion": {
+        "speed": 296,
+        "torque": 1023
+      },
+      "overrides": {},
+      "control_mode": "Global Control",
+      "duration": {
+        "mode": "until_reached",
+        "seconds": 1.0
+      }
+    },
+    {
+      "snapshot": "SideStep2.json",
+      "motion": {
+        "speed": 206,
+        "torque": 1023
+      },
+      "overrides": {},
+      "control_mode": "Global Control",
+      "duration": {
+        "mode": "until_reached",
+        "seconds": 1.0
+      }
+    }
+  ],
+  "on_end": "on",
+  "loop": true
+}

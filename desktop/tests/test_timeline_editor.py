@@ -47,6 +47,18 @@ class TimelineFixture(unittest.TestCase):
 
 
 class DocumentTest(TimelineFixture):
+    def test_snapshot_targets_are_clamped_when_bounds_are_available(self):
+        bounds = {
+            "servo_11": (-0.2, 0.6),
+            "servo_12": (-0.5, 0.5),
+            "servo_31": (-0.5, 0.5),
+        }
+        self.pose["positions"]["servo_11"] = 2.0
+        self.snapshot.write_text(json.dumps(self.pose), encoding="utf-8")
+        document = TimelineDocument(self.snapshots, bounds=bounds)
+        document.add_snapshot(self.snapshot)
+        self.assertEqual(document.snapshot(0)["positions"]["servo_11"], 0.6)
+
     def test_snapshot_directory_expands_home_on_creation_and_new(self):
         with patch.dict(os.environ, {"HOME": str(self.root), "USERPROFILE": str(self.root)}):
             document = TimelineDocument("~/snapshots")
@@ -66,6 +78,7 @@ class DocumentTest(TimelineFixture):
         document.update_motion(0, "Custom Control", "servo_11", "speed", 241)
         document.add_wait(1, 0.75)
         document.set_lifecycle("off", True)
+        document.set_smooth_playback(True)
         self.assertTrue(document.dirty)
         expected = copy.deepcopy(document.steps)
         document.save(self.target)
@@ -77,8 +90,22 @@ class DocumentTest(TimelineFixture):
         restored.load(self.target)
         self.assertEqual(restored.steps, expected)
         self.assertEqual((restored.on_end, restored.loop), ("off", True))
+        self.assertTrue(restored.smooth_playback)
         self.assertEqual(restored.path, self.target.resolve())
         self.assertFalse(restored.dirty)
+
+    def test_smooth_setting_marks_document_dirty_and_rejects_invalid_value(self):
+        self.document.add_snapshot(self.snapshot)
+        self.document.save(self.target)
+        self.document.set_smooth_playback(True)
+        self.assertTrue(self.document.dirty)
+        self.document.save()
+        data = json.loads(self.target.read_text(encoding="utf-8"))
+        data["smooth_playback"] = "true"
+        self.target.write_text(json.dumps(data), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            self.document.load(self.target)
+        self.assertTrue(self.document.smooth_playback)
 
     def test_invalid_load_keeps_existing_state_and_reference_base(self):
         self.document.add_snapshot(self.snapshot)
@@ -272,14 +299,20 @@ class TimelineUiTest(TimelineFixture):
         self.widget.refresh_sources()
         self.widget.load_source(1)
         self.assertEqual(self.widget.document.snapshot(0)["positions"]["servo_11"], 0.1)
-        self.assertEqual(self.widget.document.snapshot(1)["positions"]["servo_11"], 1.5)
+        self.assertAlmostEqual(
+            self.widget.document.snapshot(1)["positions"]["servo_11"],
+            self.widget.playback.bounds["servo_11"][1],
+        )
         self.assertTrue(self.widget.save_timeline(self.target))
         self.document.load(self.target)
         self.assertEqual(self.document.snapshot(0)["positions"]["servo_11"], 0.1)
         self.assertEqual(self.document.snapshot(1)["positions"]["servo_11"], 1.5)
         self.assertTrue(self.widget.load_timeline(self.target))
         self.assertEqual(self.widget.document.snapshot(0)["positions"]["servo_11"], 0.1)
-        self.assertEqual(self.widget.document.snapshot(1)["positions"]["servo_11"], 1.5)
+        self.assertAlmostEqual(
+            self.widget.document.snapshot(1)["positions"]["servo_11"],
+            self.widget.playback.bounds["servo_11"][1],
+        )
         self.assertTrue(Path(self.widget.document.steps[0]["snapshot"]).is_absolute())
         self.assertTrue(Path(self.widget.document.steps[1]["snapshot"]).is_absolute())
 

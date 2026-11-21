@@ -89,8 +89,8 @@ void ImuOrientationEstimator::update(const ImuSample &sample)
   const double heading = std::atan2(-hy, hx);
 
   if (!valid_) {
-    // Gravity cannot observe yaw. Use a relative heading unless magnetic
-    // correction was explicitly enabled with suitable sensor measurements.
+    // Gravity cannot observe yaw. Use a relative heading when magnetic
+    // correction is disabled or magnetic measurements are unavailable.
     orientation_ = from_euler(roll, pitch,
       use_magnetometer_ && norm(sample.magnetic_field) > 1e-9 ? heading : 0.0);
     valid_ = true;

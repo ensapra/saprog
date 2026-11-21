@@ -124,10 +124,12 @@ class PlayerTest(unittest.TestCase):
         self.assertEqual(self.view.limit_labels["servo_11"][0].text(), "-0.45")
         self.view.target_inputs["servo_11"].setText("0.9")
         self.view.go_to_buttons["servo_11"].click()
-        self.assertEqual(len(self.manager.commands), 1)
+        self.assertEqual(len(self.manager.commands), 2)
+        self.assertEqual(self.manager.commands[-1][1], "position")
+        self.assertAlmostEqual(self.manager.commands[-1][2][1][0], upper)
         self.widget.hide()
         self.widget.show()
-        self.assertEqual(len(self.manager.commands), 2)
+        self.assertEqual(len(self.manager.commands), 3)
         self.assertEqual(self.manager.commands[-1][1], "limits")
 
     def test_failed_or_incomplete_limit_read_preserves_cached_bounds(self):
@@ -263,7 +265,7 @@ class PlayerTest(unittest.TestCase):
 
     def test_invalid_targets_leave_loaded_fields_and_hardware_unchanged(self):
         for positions in (
-            {"servo_999": 0.0}, {"servo_11": True}, {"servo_11": 100},
+            {"servo_999": 0.0}, {"servo_11": True},
             {"servo_11": 0.2, "servo_12": None},
         ):
             with self.subTest(positions=positions):
@@ -274,6 +276,28 @@ class PlayerTest(unittest.TestCase):
                 self.widget._play_keyframe(path)
                 self.assertIn("Could not play", self.widget.keyframes_view.status_label.text())
         self.assertFalse(self.manager.commands)
+
+    def test_out_of_range_targets_are_clamped_for_load_move_and_save(self):
+        upper = self.view.servo_limits["servo_11"][1]
+        path = self.pose(positions={"servo_11": 100})
+        self.widget._load_keyframe(path)
+        self.assertAlmostEqual(float(self.view.target_inputs["servo_11"].text()), upper)
+
+        self.view.target_inputs["servo_11"].setText("100")
+        self.view.go_to_buttons["servo_11"].click()
+        self.assertEqual(self.manager.commands[-1][2][1], [upper])
+        self.assertAlmostEqual(float(self.view.target_inputs["servo_11"].text()), upper)
+
+        self.view.target_inputs["servo_11"].setText("100")
+        for servo, field in self.view.target_inputs.items():
+            if servo != "servo_11":
+                low, high = self.view.servo_limits[servo]
+                field.setText(str((low + high) / 2))
+        self.view.name_input.setText("clamped_pose")
+        saved = self.view.save_targets(self.directory)
+        self.assertAlmostEqual(
+            json.loads(saved.read_text())["positions"]["servo_11"], upper,
+        )
 
     def test_explicit_radian_snapshot_preserves_targets(self):
         path = self.pose(schema_version=2, units="radians")

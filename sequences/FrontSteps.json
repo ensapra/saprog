@@ -1,0 +1,61 @@
+{
+  "kind": "saprog_timeline",
+  "schema_version": 2,
+  "steps": [
+    {
+      "snapshot": "recordings/recorded_motion4_20261120_193941_252981/pose_0001.json",
+      "motion": {
+        "speed": 174,
+        "torque": 1023
+      },
+      "duration": {
+        "mode": "seconds",
+        "seconds": 0.25066110002808273
+      },
+      "control_mode": "Global Control",
+      "overrides": {}
+    },
+    {
+      "snapshot": "recordings/recorded_motion4_20261120_193941_252981/pose_0003.json",
+      "motion": {
+        "speed": 280,
+        "torque": 1023
+      },
+      "duration": {
+        "mode": "seconds",
+        "seconds": 0.3023651000112295
+      },
+      "control_mode": "Global Control",
+      "overrides": {}
+    },
+    {
+      "snapshot": "recordings/recorded_motion4_20261120_193941_252981/pose_0005.json",
+      "motion": {
+        "speed": 120,
+        "torque": 1023
+      },
+      "duration": {
+        "mode": "seconds",
+        "seconds": 0.2554352000588551
+      },
+      "control_mode": "Global Control",
+      "overrides": {}
+    },
+    {
+      "snapshot": "recordings/recorded_motion4_20261120_193941_252981/pose_0009.json",
+      "motion": {
+        "speed": 147,
+        "torque": 1023
+      },
+      "duration": {
+        "mode": "seconds",
+        "seconds": 0.2528139000060037
+      },
+      "control_mode": "Global Control",
+      "overrides": {}
+    }
+  ],
+  "on_end": "on",
+  "loop": true,
+  "smooth_playback": true
+}

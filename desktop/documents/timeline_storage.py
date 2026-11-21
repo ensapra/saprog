@@ -84,8 +84,8 @@ def load_timeline(path, directory, joints=None, bounds=None):
     return candidate
 
 
-def save_timeline(path, steps, on_end="on", loop=False, snapshot_resolver=None):
+def save_timeline(path, steps, on_end="on", loop=False, snapshot_resolver=None, *, smooth_playback=False):
     document = {"kind": "saprog_timeline", "schema_version": 2, "steps": steps,
-                "on_end": on_end, "loop": loop}
+                "on_end": on_end, "loop": loop, "smooth_playback": smooth_playback}
     validate_timeline(document, snapshot_resolver=snapshot_resolver)
     write_json_atomic(path, document)

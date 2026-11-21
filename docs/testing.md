@@ -21,6 +21,12 @@ controllers and ROS endpoints; ROS and physical devices are not required.
 | [test_timeline_editor.py](../desktop/tests/test_timeline_editor.py) | Document migration, references, edits, atomic saves and window close handling |
 | [test_ros_launcher.py](../desktop/tests/test_ros_launcher.py) | Launch shell, USB preflight and parameter-file behavior with stub commands |
 | [test_wsl_bridge.py](../desktop/tests/test_wsl_bridge.py) | Protocol, subscriptions, command dispatch and owned-process cleanup |
+| [test_simulation.py](../desktop/tests/test_simulation.py) | Lazy Gazebo startup, UI controls, isolated command/results, path conversion and world generation |
+| [test_leg_test.py](../desktop/tests/test_leg_test.py) | Four-bar closure, loaded MuJoCo sweeps, lifecycle, Qt controls and isolated node routing |
+
+The single-leg physics tests additionally require `mujoco>=3.2,<4`; without it
+those tests skip. See the [single-leg guide](../ros2/saprog_leg_test/README.md)
+for the separate ROS runtime environment and calibration limitations.
 
 Launcher tests require Bash and skip when it is unavailable. On Windows they
 look for Git Bash at C:/Program Files/Git/bin/bash.exe.
@@ -41,6 +47,9 @@ ruff check desktop
 ```
 
 ## ROS packages
+
+The simulation package has an opt-in headless Gazebo test for import, gravity,
+pause, reset and cleanup. See its [guide](../ros2/saprog_simulation/README.md#validation).
 
 The current C++ tests are registered under BUILD_TESTING in each package's CMake
 file. Use a ROS Jazzy environment with the declared package dependencies and

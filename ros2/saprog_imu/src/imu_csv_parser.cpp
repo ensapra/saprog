@@ -31,8 +31,11 @@ bool parse_imu_csv(const std::string &line, ImuSample &sample)
     return false;
   }
 
+  // SparkFun Razor M0 firmware reports the MPU-9250 magnetometer in its
+  // native axes: X/Y are swapped and Z is inverted relative to accel/gyro.
+  // Express all three sensors in the accel/gyro body frame for fusion and ROS.
   sample = {values[0], {values[1], values[2], values[3]},
-            {values[4], values[5], values[6]}, {values[7], values[8], values[9]}};
+            {values[4], values[5], values[6]}, {values[8], values[7], -values[9]}};
   return true;
 }
 }  // namespace saprog_imu

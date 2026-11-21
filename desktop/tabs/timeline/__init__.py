@@ -27,8 +27,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..controller.playback import ControllerPlayback
 from .backend import (
     CONTROL_MODES,
+    MIRROR_MODES,
     TimelineDocument,
     control_groups,
     motion_settings,
@@ -43,12 +45,13 @@ TAB_ORDER = 35
 class TimeLineTab(QWidget):
     """Edit and persist timelines locally using the shared timeline file format."""
 
-    def __init__(self, parent=None, *, snapshot_directory=None, sequence_directory=None):
+    def __init__(self, parent=None, *, ros_manager=None, snapshot_directory=None, sequence_directory=None):
         super().__init__(parent)
         workspace = Path(__file__).resolve().parents[3]
         snapshot_directory = snapshot_directory or workspace / "snapshots"
         sequence_directory = sequence_directory or workspace / "sequences"
-        self.document = TimelineDocument(snapshot_directory)
+        self.playback = ControllerPlayback(ros_manager, snapshot_directory, self)
+        self.document = TimelineDocument(snapshot_directory, bounds=self.playback.bounds)
         self._syncing = False
         self._watched_window = None
         self.motion_controls = {}
@@ -169,10 +172,22 @@ class TimeLineTab(QWidget):
         outer.addLayout(lifecycle)
 
         playback = QHBoxLayout()
+        self.smooth_playback = QCheckBox("Smooth timed playback")
+        self.smooth_playback.setToolTip("Adjust each servo speed to the pose duration, up to its saved speed.")
+        self.smooth_playback.toggled.connect(self._smooth_changed)
+        playback.addWidget(self.smooth_playback)
+        self.play_buttons = {}
         for label in ("▶  Play timeline", "Test selected step", "■  Stop timeline"):
             button = QPushButton(label)
-            button.setEnabled(False)
-            button.setToolTip("ROS playback is not connected")
+            button.setEnabled(ros_manager is not None)
+            button.setToolTip("Connect to ROS to play this timeline" if ros_manager is None else label)
+            callback = {
+                "▶  Play timeline": self.play_timeline,
+                "Test selected step": self.test_selected_step,
+                "■  Stop timeline": self.stop_timeline,
+            }[label]
+            button.clicked.connect(callback)
+            self.play_buttons[label] = button
             playback.addWidget(button)
         playback.addStretch(1)
         outer.addLayout(playback)
@@ -186,6 +201,7 @@ class TimeLineTab(QWidget):
         self.status_label.setFrameStyle(QLabel.Shape.Panel | QLabel.Shadow.Sunken)
         self.status_label.setMinimumHeight(42)
         outer.addWidget(self.status_label)
+        self.playback.status_changed.connect(self.status_label.setText)
         self._redraw()
 
     def showEvent(self, event):
@@ -272,6 +288,7 @@ class TimeLineTab(QWidget):
             self.steps_list.setCurrentRow(selected_row if selected_row is not None else 0)
         self.end_action.setCurrentIndex(0 if self.document.on_end == "on" else 1)
         self.loop_toggle.setChecked(self.document.loop)
+        self.smooth_playback.setChecked(self.document.smooth_playback)
         self._syncing = False
         self._select_step()
         self._state_changed()
@@ -281,6 +298,9 @@ class TimeLineTab(QWidget):
             return
         selected = self._selected()
         index = selected[0] if selected is not None else None
+        self.play_buttons["▶  Play timeline"].setEnabled(
+            self.playback.manager is not None and bool(self.document.steps)
+        )
         for label, button in self.step_buttons.items():
             enabled = index is not None
             if label == "Up":
@@ -288,6 +308,9 @@ class TimeLineTab(QWidget):
             elif label == "Down":
                 enabled = enabled and index < len(self.document.steps) - 1
             button.setEnabled(enabled)
+        self.play_buttons["Test selected step"].setEnabled(
+            self.playback.manager is not None and selected is not None and selected[1] != "wait"
+        )
         self._render_editor()
 
     def _render_editor(self):
@@ -345,6 +368,20 @@ class TimeLineTab(QWidget):
             )
             label.setWordWrap(True)
             layout.addWidget(label)
+            mirror_picker = QComboBox()
+            mirror_picker.addItems(MIRROR_MODES)
+            mirror_picker.setAccessibleName("Snapshot mirror mode")
+            mirror_picker.setCurrentText(step.get("mirror", "None"))
+            mirror_picker.currentTextChanged.connect(
+                lambda mode, i=index: self._edit(self.document.update_mirror, i, mode)
+            )
+            form = QFormLayout()
+            form.addRow("Play mirrored", mirror_picker)
+            layout.addLayout(form)
+            hint = QLabel("Mirroring swaps corresponding leg targets across the selected axis.")
+            hint.setWordWrap(True)
+            hint.setObjectName("compactStatus")
+            layout.addWidget(hint)
             layout.addStretch(1)
             return
         self.editor.setTitle(f"Transition {index + 1} → {snapshot['name']}")
@@ -446,6 +483,35 @@ class TimeLineTab(QWidget):
                 "on" if self.end_action.currentIndex() == 0 else "off",
                 self.loop_toggle.isChecked(),
             )
+
+    def _smooth_changed(self, enabled):
+        if not self._syncing:
+            self._edit(self.document.set_smooth_playback, enabled)
+
+    def play_timeline(self):
+        try:
+            self.playback.start_steps(
+                self, self.document.steps, repeat=self.document.loop,
+                smooth=self.document.smooth_playback,
+            )
+        except (OSError, RuntimeError, ValueError, TypeError, KeyError) as error:
+            self.status_label.setText(f"Could not play timeline: {error}")
+            return False
+        return True
+
+    def test_selected_step(self):
+        selected = self._selected()
+        if selected is None or selected[1] == "wait":
+            return False
+        try:
+            self.playback.start_steps(self, [self.document.steps[selected[0]]])
+        except (OSError, RuntimeError, ValueError, TypeError, KeyError) as error:
+            self.status_label.setText(f"Could not test step: {error}")
+            return False
+        return True
+
+    def stop_timeline(self):
+        self.playback.stop("Timeline stopped")
 
     def load_source(self, source):
         path = self.source_controls[source][0].currentData()
@@ -557,6 +623,7 @@ class TimeLineTab(QWidget):
         return True
 
     def closeEvent(self, event):
+        self.playback.close()
         if self._confirm_discard():
             super().closeEvent(event)
         else:
@@ -568,9 +635,10 @@ class TimeLineTab(QWidget):
             if not self._confirm_discard():
                 event.ignore()
                 return True
+            self.playback.close()
         return super().eventFilter(watched, event)
 
 
-def create_tab():
+def create_tab(ros_manager=None):
     """Build the offline TimeLine editor."""
-    return TimeLineTab()
+    return TimeLineTab(ros_manager=ros_manager)

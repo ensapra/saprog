@@ -25,6 +25,7 @@ visualizations belong in [widgets](../desktop/widgets/).
 | Controller discovery and input polling | [devices](../desktop/tabs/controller/devices.py) |
 | Mappings and press/release routing | [Controller tab](../desktop/tabs/controller/__init__.py) |
 | Sequence execution and arrival monitoring | [playback](../desktop/tabs/controller/playback.py) |
+| Gazebo startup and physics controls | [Simulation tab](../desktop/tabs/simulation/) |
 
 ## Shared documents
 
@@ -74,5 +75,8 @@ encoding belongs to [ServoReadingsPublisher](../ros2/saprog_dynamixel/src/servo_
 orientation estimation and ROS publication. See the [IMU contract](imu.md).
 
 The [description package](../urdf/) contains geometry and calibrated model data.
-It lives outside the desktop's ros2 workspace and is not required by its current
-tabs. See [testing](testing.md) before validating changes.
+It lives outside the desktop's ros2 workspace. The Simulation tab imports it
+directly through [saprog_simulation](../ros2/saprog_simulation/), which owns an
+isolated Gazebo server using native Transport bindings. Its command/result path
+is separate from hardware commands in the shared WSL bridge. See
+[simulation](../ros2/saprog_simulation/README.md) and [testing](testing.md).

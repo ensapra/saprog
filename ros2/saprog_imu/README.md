@@ -1,28 +1,34 @@
-# Serial IMU orientation
+# Saprog serial IMU
+
+[imu_publisher_node](src/imu_publisher_node.cpp) reads ten-column CSV samples from
+a serial IMU, publishes raw readings and magnetic field, and estimates orientation.
+See the [IMU contract](../../docs/imu.md) for input units, topics, serial recovery
+and startup parameters.
+
+After building the package and sourcing ROS and the workspace overlay:
+
+```sh
+ros2 run saprog_imu imu_publisher_node --ros-args -p device:=/dev/ttyACM0
+```
+
+The default serial port is SAPROG_IMU_DEVICE, otherwise /dev/ttyACM0, at
+115200 baud. The desktop WSL bridge can attach and select the sensor before
+launch; a direct invocation requires the device to be available already.
 
 The [estimator](src/imu_orientation_estimator.cpp) integrates body-frame gyro
-rates and corrects roll/pitch drift using gravity. By default, yaw starts at zero
-and remains relative to startup. It can drift with gyro bias over time.
-
-Magnetic heading correction is disabled by default. Previously, every nonzero
-raw magnetic reading corrected yaw toward magnetic north with a 0.5-second time
-constant. A stuck or biased magnetometer could pull the estimate back toward the
-same heading after a real rotation. Disabling magnetic correction prevents that
-input from overriding gyro turns; it does not calibrate the magnetometer.
-
-To enable absolute magnetic heading at startup:
+rates and corrects tilt drift using gravity under reliability checks. Yaw starts
+at zero by default and remains relative to startup; gyro bias can cause drift.
+Magnetic heading correction is disabled by default. To opt in at startup:
 
 ```sh
 ros2 run saprog_imu imu_publisher_node --ros-args -p use_magnetometer:=true
 ```
 
-Enable this only with calibrated magnetic measurements expressed in the same
-body frame as acceleration and angular velocity. This package currently passes
-the serial magnetic measurements through without calibration or axis remapping.
-The magnetic-field topic is published in either mode. Gravity correction remains
-active in either mode and requires acceleration in g and angular velocity in
-degrees/s in the ten-column serial input.
+Magnetic heading requires suitable calibrated measurements in the same body
+frame as acceleration and gyro. The node does not calibrate or remap magnetic
+measurements. Magnetic-field messages are published in either mode. There are
+no current calibration or zeroing services.
 
-[Regression tests](test/imu_orientation_estimator_test.cpp) cover rotation and
-hold on all three axes, gravity drift correction, startup/reset, missing magnetic
-data, and opt-in magnetic heading.
+[Estimator tests](test/imu_orientation_estimator_test.cpp) cover rotations,
+hold, gravity correction, reset and opt-in magnetic heading. See
+[testing](../../docs/testing.md) for their scope.

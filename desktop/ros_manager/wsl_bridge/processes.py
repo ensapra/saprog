@@ -149,6 +149,8 @@ class NodeProcesses:
         self.last_attempt = {}
         self.build_results = queue.Queue()
         self.build_jobs = {}
+        self.built_packages = set()
+        self.build_lock = threading.Lock()
         self.start_time = time.monotonic()
 
     def collect_results(self):
@@ -178,6 +180,10 @@ class NodeProcesses:
                 else f"Starting {request['executable']}",
             )
             return
+        if process is not None:
+            exit_code = process.poll()
+            self.processes.pop(key, None)
+            self.set_status(topic, f"{key[1]} exited with code {exit_code}; retrying")
         if publishers > 0:
             self.set_status(topic, topic_status(topic, publishers))
             return
@@ -198,9 +204,12 @@ class NodeProcesses:
 
     def _build_and_launch(self, key, topic, request):
         try:
-            ensure_executable(
-                self.workspace, request["package"], cancel_event=self.shutdown_event,
-            )
+            with self.build_lock:
+                if request["package"] not in self.built_packages:
+                    ensure_executable(
+                        self.workspace, request["package"], cancel_event=self.shutdown_event,
+                    )
+                    self.built_packages.add(request["package"])
             if self.shutdown_event.is_set():
                 process = None
             else:

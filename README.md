@@ -11,26 +11,32 @@ python -m pip install -r desktop/requirements.txt
 python desktop
 ```
 
-The desktop starts without ROS. Hardware widgets use the shared ROS manager to
-build and start the required packages from `ros2/`. On Windows this runs through
-WSL, using `Ubuntu-24.04` by default; override it with `SAPROG_WSL_DISTRO`.
-ROS 2 Jazzy and the packages' build dependencies must be installed there.
+The desktop starts without ROS. Its hardware worker currently requires Windows
+with WSL and builds/starts the required packages from [ros2/](ros2/). The default
+distribution is Ubuntu-24.04; override it with SAPROG_WSL_DISTRO. ROS 2 Jazzy and
+the packages' build dependencies must be installed there. The ROS executables
+can also be launched directly in Linux; the desktop worker does not currently
+connect to native Linux ROS.
 
 See the [desktop guide](desktop/README.md) for tabs, controller mappings and IMU
 setup, and the [DYNAMIXEL guide](ros2/saprog_dynamixel/README.md) for servo topics,
 commands and configuration.
+
+The **Simulation** tab imports the URDF into headless Gazebo Harmonic with
+gravity. Its viewer is optional to keep CPU/GPU load low. See the
+[simulation guide](ros2/saprog_simulation/README.md).
 
 ## Repository layout
 
 | Folder | Contents |
 | --- | --- |
 | [desktop/](desktop/) | Current Qt application, shared document models and tests |
-| [ros2/](ros2/) | Current DYNAMIXEL and IMU ROS packages |
+| [ros2/](ros2/) | DYNAMIXEL, IMU and Gazebo simulation ROS packages |
 | [scripts/](scripts/) | USB attachment helpers used by the ROS manager |
 | [snapshots/](snapshots/) | Saved poses |
 | [sequences/](sequences/) | Saved timelines |
 | [urdf/](urdf/) | Robot geometry and measured servo limits |
-| [docs/](docs/README.md) | Project documentation and historical design notes |
+| [docs/](docs/README.md) | Current operation, architecture, style and testing guides |
 
 The legacy ROS/Tk source tree and shell launchers have been retired. Build,
 install and log folders are generated when the current ROS workspace is built.
@@ -64,3 +70,6 @@ With the desktop dependencies installed, run from the repository root:
 ```sh
 python -m unittest discover -s desktop/tests
 ```
+
+See the [documentation index](docs/README.md) for operation, file formats and
+development guides, and [testing](docs/testing.md) for suite coverage.

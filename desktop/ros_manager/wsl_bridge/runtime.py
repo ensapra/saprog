@@ -4,20 +4,35 @@ import argparse
 import json
 import queue
 import threading
+import time
 
 from .commands import RobotCommands
 from .processes import NodeProcesses
 from .protocol import CommandReader, emit
+from .simulation import SimulationCommands
 from .subscriptions import TopicSubscriptions
 
 
-def dispatch_command(line, commands, topics):
+def dispatch_command(line, commands, topics, simulation=None, leg_test=None):
     try:
         command = json.loads(line)
+        if leg_test is not None and leg_test.handle(command):
+            return
+        if simulation is not None and simulation.handle(command):
+            return
         if not commands.handle(command):
             topics.handle(command)
     except (json.JSONDecodeError, KeyError, TypeError) as error:
         emit("status", topic="", status=f"Invalid manager request: {error}")
+
+
+def spin_ready_callbacks(executor, *, clock=time.monotonic):
+    """Drain bursts without delaying the next input/cancellation check."""
+    deadline = clock() + 0.005
+    for _ in range(100):
+        executor.spin_once(timeout_sec=0)
+        if clock() >= deadline:
+            break
 
 
 def run(workspace):
@@ -25,6 +40,7 @@ def run(workspace):
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
     from sensor_msgs.msg import JointState
+    from std_msgs.msg import String
     from std_srvs.srv import SetBool, Trigger
 
     rclpy.init(args=None)
@@ -34,6 +50,8 @@ def run(workspace):
     shutdown_event = threading.Event()
     topics = TopicSubscriptions(node)
     commands = RobotCommands(node, JointState, SetBool, Trigger)
+    simulation = SimulationCommands(node, String)
+    leg_test = SimulationCommands(node, String, operation="leg_test", namespace="/saprog/leg_test")
     processes = NodeProcesses(workspace, shutdown_event, topics.set_status)
     reader = CommandReader(shutdown_event)
     reader.start()
@@ -45,7 +63,7 @@ def run(workspace):
                 line = reader.queue.get(timeout=0.01)
                 if line is None:
                     break
-                dispatch_command(line, commands, topics)
+                dispatch_command(line, commands, topics, simulation, leg_test)
                 while True:
                     try:
                         line = reader.queue.get_nowait()
@@ -53,14 +71,16 @@ def run(workspace):
                         break
                     if line is None:
                         return
-                    dispatch_command(line, commands, topics)
+                    dispatch_command(line, commands, topics, simulation, leg_test)
             except queue.Empty:
                 pass
 
             for request in topics.active_requests():
                 processes.ensure_provider(request, node, topics.topic_status)
             commands.process_pending()
-            executor.spin_once(timeout_sec=0.05)
+            simulation.process_pending()
+            leg_test.process_pending()
+            spin_ready_callbacks(executor)
     finally:
         processes.close()
         node.destroy_node()

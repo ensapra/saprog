@@ -8,6 +8,7 @@ import tempfile
 from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
 
+from documents.snapshot_units import clamp_to_bounds
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
@@ -195,6 +196,9 @@ class CreatorView(QWidget):
         self.save_button = QPushButton("Save targets")
         self.save_button.clicked.connect(self.save_requested.emit)
         actions.addWidget(self.save_button)
+        self.finish_edit_button = QPushButton("Finish editing")
+        self.finish_edit_button.hide()
+        actions.addWidget(self.finish_edit_button)
         self.release_button = QPushButton("Release all torque")
         self.release_button.setToolTip("Cancel queued motion and disable torque for every configured servo")
         self.release_button.clicked.connect(self.release_all_torque_requested.emit)
@@ -211,18 +215,7 @@ class CreatorView(QWidget):
         if not filename:
             raise ValueError("The keyframe name must contain letters or numbers")
 
-        positions = {}
-        for servo, target_input in self.target_inputs.items():
-            text = target_input.text().strip()
-            if not text:
-                raise ValueError(f"Enter a target value for {servo}")
-            try:
-                value = float(text)
-            except ValueError as error:
-                raise ValueError(f"Target for {servo} must be a number") from error
-            if not math.isfinite(value):
-                raise ValueError(f"Target for {servo} must be finite")
-            positions[servo] = value
+        positions = self.target_positions()
 
         directory = Path(directory).expanduser()
         directory.mkdir(parents=True, exist_ok=True)
@@ -255,6 +248,28 @@ class CreatorView(QWidget):
                 temporary.unlink(missing_ok=True)
         return path
 
+    def target_positions(self, servos=None):
+        """Validate targets for a whole snapshot or a recorded pose's joints."""
+        positions = {}
+        for servo in self.target_inputs if servos is None else servos:
+            target_input = self.target_inputs[servo]
+            text = target_input.text().strip()
+            if not text:
+                raise ValueError(f"Enter a target value for {servo}")
+            try:
+                value = float(text)
+            except ValueError as error:
+                raise ValueError(f"Target for {servo} must be a number") from error
+            if not math.isfinite(value):
+                raise ValueError(f"Target for {servo} must be finite")
+            limits = self.servo_limits.get(servo)
+            if limits is not None:
+                value = clamp_to_bounds(value, limits)
+                target_input.setText(repr(value))
+            positions[servo] = value
+
+        return positions
+
     def _person_icon(self):
         """Draw a small person glyph for the Puppet Mode control."""
         pixmap = QPixmap(20, 20)
@@ -286,6 +301,15 @@ class CreatorView(QWidget):
             lower, upper = limits.get(servo, (None, None))
             minimum.setText(_truncated_rotation(lower) if lower is not None else "—")
             maximum.setText(_truncated_rotation(upper) if upper is not None else "—")
+            if lower is not None and upper is not None:
+                try:
+                    value = float(self.target_inputs[servo].text().strip())
+                except ValueError:
+                    continue
+                if math.isfinite(value):
+                    self.target_inputs[servo].setText(
+                        repr(clamp_to_bounds(value, (lower, upper)))
+                    )
 
     def set_ros_available(self, available):
         self._ros_available = bool(available)

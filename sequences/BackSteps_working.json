@@ -1,0 +1,257 @@
+{
+  "kind": "saprog_timeline",
+  "schema_version": 2,
+  "steps": [
+    {
+      "snapshot": "recordings/FrontSteps_working_20261121_122509_518279/pose_0004.json",
+      "motion": {
+        "speed": 147,
+        "torque": 1023
+      },
+      "duration": {
+        "mode": "seconds",
+        "seconds": 0.2528139000060037
+      },
+      "control_mode": "Leg Control",
+      "overrides": {
+        "servo_31": {
+          "speed": 147,
+          "torque": 921
+        },
+        "servo_32": {
+          "speed": 147,
+          "torque": 921
+        },
+        "servo_33": {
+          "speed": 147,
+          "torque": 921
+        },
+        "servo_11": {
+          "speed": 147,
+          "torque": 275
+        },
+        "servo_12": {
+          "speed": 147,
+          "torque": 275
+        },
+        "servo_13": {
+          "speed": 147,
+          "torque": 275
+        },
+        "servo_41": {
+          "speed": 147,
+          "torque": 315
+        },
+        "servo_42": {
+          "speed": 147,
+          "torque": 315
+        },
+        "servo_43": {
+          "speed": 147,
+          "torque": 315
+        },
+        "servo_21": {
+          "speed": 147,
+          "torque": 942
+        },
+        "servo_22": {
+          "speed": 147,
+          "torque": 942
+        },
+        "servo_23": {
+          "speed": 147,
+          "torque": 942
+        }
+      }
+    },
+    {
+      "snapshot": "recordings/FrontSteps_working_20261121_122509_518279/pose_0003.json",
+      "motion": {
+        "speed": 120,
+        "torque": 1023
+      },
+      "duration": {
+        "mode": "seconds",
+        "seconds": 0.2554352000588551
+      },
+      "control_mode": "Leg Control",
+      "overrides": {
+        "servo_31": {
+          "speed": 120,
+          "torque": 934
+        },
+        "servo_32": {
+          "speed": 120,
+          "torque": 934
+        },
+        "servo_33": {
+          "speed": 120,
+          "torque": 934
+        },
+        "servo_11": {
+          "speed": 120,
+          "torque": 356
+        },
+        "servo_12": {
+          "speed": 120,
+          "torque": 356
+        },
+        "servo_13": {
+          "speed": 120,
+          "torque": 356
+        },
+        "servo_41": {
+          "speed": 120,
+          "torque": 383
+        },
+        "servo_42": {
+          "speed": 120,
+          "torque": 383
+        },
+        "servo_43": {
+          "speed": 120,
+          "torque": 383
+        },
+        "servo_21": {
+          "speed": 120,
+          "torque": 932
+        },
+        "servo_22": {
+          "speed": 120,
+          "torque": 932
+        },
+        "servo_23": {
+          "speed": 120,
+          "torque": 932
+        }
+      }
+    },
+    {
+      "snapshot": "recordings/FrontSteps_working_20261121_122509_518279/pose_0002.json",
+      "motion": {
+        "speed": 280,
+        "torque": 1023
+      },
+      "duration": {
+        "mode": "seconds",
+        "seconds": 0.3023651000112295
+      },
+      "control_mode": "Leg Control",
+      "overrides": {
+        "servo_31": {
+          "speed": 280,
+          "torque": 307
+        },
+        "servo_32": {
+          "speed": 280,
+          "torque": 307
+        },
+        "servo_33": {
+          "speed": 280,
+          "torque": 307
+        },
+        "servo_11": {
+          "speed": 280,
+          "torque": 892
+        },
+        "servo_12": {
+          "speed": 280,
+          "torque": 892
+        },
+        "servo_13": {
+          "speed": 280,
+          "torque": 892
+        },
+        "servo_41": {
+          "speed": 280,
+          "torque": 900
+        },
+        "servo_42": {
+          "speed": 280,
+          "torque": 900
+        },
+        "servo_43": {
+          "speed": 280,
+          "torque": 900
+        },
+        "servo_21": {
+          "speed": 280,
+          "torque": 372
+        },
+        "servo_22": {
+          "speed": 280,
+          "torque": 372
+        },
+        "servo_23": {
+          "speed": 280,
+          "torque": 372
+        }
+      }
+    },
+    {
+      "snapshot": "recordings/FrontSteps_working_20261121_122509_518279/pose_0001.json",
+      "motion": {
+        "speed": 174,
+        "torque": 1023
+      },
+      "duration": {
+        "mode": "seconds",
+        "seconds": 0.25066110002808273
+      },
+      "control_mode": "Leg Control",
+      "overrides": {
+        "servo_31": {
+          "speed": 174,
+          "torque": 330
+        },
+        "servo_32": {
+          "speed": 174,
+          "torque": 330
+        },
+        "servo_33": {
+          "speed": 174,
+          "torque": 330
+        },
+        "servo_11": {
+          "speed": 174,
+          "torque": 1023
+        },
+        "servo_12": {
+          "speed": 174,
+          "torque": 1023
+        },
+        "servo_13": {
+          "speed": 174,
+          "torque": 1023
+        },
+        "servo_41": {
+          "speed": 174,
+          "torque": 1023
+        },
+        "servo_42": {
+          "speed": 174,
+          "torque": 1023
+        },
+        "servo_43": {
+          "speed": 174,
+          "torque": 1023
+        },
+        "servo_21": {
+          "speed": 174,
+          "torque": 294
+        },
+        "servo_22": {
+          "speed": 174,
+          "torque": 294
+        },
+        "servo_23": {
+          "speed": 174,
+          "torque": 294
+        }
+      }
+    }
+  ],
+  "on_end": "on",
+  "loop": true,
+  "smooth_playback": true
+}

@@ -48,3 +48,11 @@ DYNAMIXEL_SPEED = TopicConfig(
     "dynamixel_control_node", "speed",
 )
 DYNAMIXEL_TOPICS = (DYNAMIXEL_TEMPERATURE, DYNAMIXEL_VOLTAGE, DYNAMIXEL_SPEED)
+
+SIMULATION_STATUS = TopicConfig(
+    "/saprog/simulation/status", "std_msgs/msg/String", "saprog_simulation", "simulation_node",
+)
+
+LEG_TEST_STATUS = TopicConfig(
+    "/saprog/leg_test/status", "std_msgs/msg/String", "saprog_leg_test", "leg_test_node",
+)

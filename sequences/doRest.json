@@ -3,19 +3,6 @@
   "schema_version": 2,
   "steps": [
     {
-      "snapshot": "stand.json",
-      "motion": {
-        "speed": 119,
-        "torque": 323
-      },
-      "overrides": {},
-      "control_mode": "Global Control",
-      "duration": {
-        "mode": "until_reached",
-        "seconds": 1.0
-      }
-    },
-    {
       "snapshot": "newStand.json",
       "motion": {
         "speed": 178,
@@ -43,5 +30,6 @@
     }
   ],
   "on_end": "on",
-  "loop": false
+  "loop": false,
+  "smooth_playback": false
 }

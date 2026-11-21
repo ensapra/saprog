@@ -33,19 +33,22 @@ def joint_bounds(ids, zeros, directions, lower, upper):
 
 
 def to_radians(value, bounds, unit):
-    """Validate a radian target against its joint limits."""
+    """Validate a radian target and clamp it to its joint limits."""
     if unit != "radians":
         raise ValueError("Snapshot targets must use radians")
-    low, high = bounds
     try:
         finite = math.isfinite(value)
     except OverflowError:
         finite = False
     if not finite:
         raise ValueError("Target must be finite")
-    if not low <= value <= high:
-        raise ValueError(f"Radian target must be between {low:.6g} and {high:.6g}")
-    return value
+    return clamp_to_bounds(value, bounds)
+
+
+def clamp_to_bounds(value, bounds):
+    """Return a value constrained to a pair of inclusive bounds."""
+    low, high = bounds
+    return max(low, min(high, value))
 
 
 def validate_snapshot(document, expected_names=None, bounds=None):

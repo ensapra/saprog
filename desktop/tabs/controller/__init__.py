@@ -313,7 +313,9 @@ class ControllerTab(QWidget):
                     if kind == "snapshot":
                         self.playback.snapshot(path, self.speed.value(), self.torque.value())
                     else:
-                        self.playback.start(key, path, repeat=kind == "sequence")
+                        self.playback.start(
+                            key, path, repeat=kind == "sequence",
+                        )
             except (OSError, RuntimeError, ValueError, TypeError, KeyError) as error:
                 self._stop(f"Controller action failed: {error}")
 

@@ -1,218 +1,240 @@
-# Operation and file contracts
+# Operation and file formats
 
 ## Start and connect
 
-Runtime requires Linux/WSL, ROS 2 Jazzy, `colcon`, `flock`, Tk and the package's
-[ROS dependencies](../src/saprog/package.xml). Run from the workspace:
+From the repository root, install [desktop dependencies](../desktop/requirements.txt)
+and launch:
 
 ```sh
-bash ./launch_home.sh
+python -m pip install -r desktop/requirements.txt
+python desktop
 ```
 
-Desktop entry-point compatibility: `startup.py` is the canonical ROS/Tk
-bootstrap, and app implementations live under `saprog_desktop/apps/` or
-`saprog_desktop/views/`. Executable names and root scripts in
-`src/saprog/scripts/` remain forwarding shims for one compatibility cycle so
-installed and external launchers keep working.
+The Qt shell and document editor do not require ROS. The desktop's hardware
+worker currently requires Windows and WSL. It starts a separate Python process
+inside Ubuntu-24.04 by default, sources ROS Jazzy, and uses the
+[ros2 workspace](../ros2/). Set SAPROG_WSL_DISTRO in the desktop environment to
+choose another distribution; ROS_DISTRO selects another installed ROS setup.
 
-Home builds all packages before opening; a failed build prevents launching stale
-applications. It starts the shared servo controller and independent IMU backend.
-Tool launchers reuse installed executables; restart Home after source changes.
-Home closes its owned backends on exit; the servo controller also stops after the
-last launched tool closes. Tools launched from Home reuse the controller PID and
-leave its lifetime with Home. Direct window launchers own their controller and
-stop it when their window exits. Standalone IMU launch owns its separate backend;
-closing the monitor alone does not stop it. Home owns the Robot view renderer and
-its state processes, which stop with Home or when **Stop view** is used. The
-launcher checks that Home's controller PID is still the controller launcher
-from this workspace; this prevents a recycled PID from being reused. It sends
-TERM and allows owned child processes up to two seconds to exit before KILL.
-Repeated termination signals are ignored during cleanup so owned processes get
-the same bounded shutdown path.
-The `verify` mode checks ROS/workspace setup without starting hardware.
+ROS and the dependencies declared by the [servo](../ros2/saprog_dynamixel/package.xml)
+and [IMU](../ros2/saprog_imu/package.xml) packages must be installed in WSL.
+Requests reuse existing publishers. If a provider is absent, the bridge checks
+its package with colcon build, then launches it. Build/install/log outputs are
+created under ros2. Closing the desktop stops backend processes it owns.
 
-```sh
-bash ./tabs/launch_snapshot_creator.sh
-bash ./tabs/launch_snapshot_player.sh
-bash ./tabs/launch_timeline.sh
-bash ./tabs/launch_static_animator.sh
+The Statistics and Static Animator pages request telemetry when constructed, so
+hardware startup may begin while another tab is selected. Opening the desktop
+is not a promise that the serial ports stay unused until a movement button is
+pressed. Startup itself does not enable servo torque.
+
+For WSL serial devices, install usbipd-win on Windows, run usbipd list, and bind
+the intended device from Administrator PowerShell. See [USB setup](../README.md#usb-setup).
+The retained [servo helper](../scripts/ensure_usb.bash) uses device_name from the
+installed servo config and attaches only when that character device is missing.
+The [IMU helper](../scripts/ensure_imu_usb.bash) selects the attached sensor's
+serial port. Both use [usb_attach.bash](../scripts/usb_attach.bash).
+
+| Selection | Override | Default hardware ID |
+| --- | --- | --- |
+| Servo adapter | SAPROG_USB_BUSID or SAPROG_USB_HARDWARE_ID | 0403:6014 |
+| IMU | SAPROG_IMU_USB_BUSID or SAPROG_IMU_USB_HARDWARE_ID | 1B4F:9D0F |
+
+An explicit SAPROG_IMU_DEVICE in the WSL environment skips automatic IMU
+attachment. The helpers still require suitable Linux device permissions.
+Gamepads stay on the desktop host and are read by pygame.
+
+## Statistics
+
+The telemetry graph selects temperature, voltage or speed for individual servos
+or all servos. It retains up to five minutes of samples and supports a 1-to-300
+second display window. Temperature is in degrees Celsius, voltage in volts and
+speed is the signed raw AX register magnitude. The IMU widget shows acceleration,
+angular velocity, magnetic field and estimated orientation; see [IMU](imu.md).
+
+## Static Animator
+
+Creator fields and the Keyframes browser share speed and torque-strength
+controls. Load copies a saved pose into target fields; Play sends the pose.
+A servo's move button sends its target using the shared settings. Targets are
+radians, and available measured bounds are applied when targets are loaded,
+saved or sent. Motion Recorder captures and imports are clamped before entering
+the timeline.
+
+Entering the page requests current EEPROM angle limits through the existing
+serial-port owner. A complete valid report updates the page's bounds and saves
+[measured_servo_limits.json](../urdf/config/measured_servo_limits.json), preserving
+existing model metadata. The read does not move servos or write EEPROM. On a
+failed or timed-out read, cached bounds remain; leave and re-enter to retry.
+If persistence fails after a valid read, fresh bounds remain active in this page.
+
+Puppet Mode disables a servo's torque, cancels its queued movement and tracks
+its measured position into the target field. That servo cannot be commanded by
+Static Animator while Puppet Mode is active. Leaving Puppet Mode keeps torque
+off; a later movement command enables it after writing the new goal. This is a
+Static Animator control, not a global lock against other command senders.
+
+Save targets writes all target fields as a named snapshot into the Keyframes
+folder. It checks finite numeric values; loading, saving or sending a pose
+clamps targets to available servo limits. Existing files require overwrite
+confirmation. Release all torque cancels queued commands and requests torque-off
+for all configured servos. A transmitted movement cannot be recalled.
+
+## TimeLine
+
+The TimeLine tab edits documents locally. Add snapshots and wait steps, reorder,
+duplicate or remove steps, and choose Global Control, Leg Control or Custom
+Control for transition speed and torque. Fixed-duration transitions use seconds;
+until-reached transitions need joint-state feedback during execution.
+
+The editor saves loop, on_end and smooth playback settings and can play the current timeline.
+Smooth timed playback is saved with the timeline and applies in the Timeline,
+Motion Recorder and Controller. For consecutive poses with a fixed duration, it
+estimates each joint's speed from the distance between commanded poses and the
+current step's duration, capped by that step's saved speed. The first pose,
+steps after a wait, newly introduced joints and arrival-based steps use their
+saved speeds. Timing is approximate: command latency, servo load and speed
+limits can prevent the robot from reaching a pose within its allotted time.
+New, load and closing the host window guard unsaved edits. Source browsers can point to different folders;
+the opened document retains its own snapshot reference base.
+
+## Motion Recorder
+
+Select a leg and use **Copy selected leg** to copy its targets from every pose.
+Select the destination leg, enter a pose offset, and use **Paste to selected leg**.
+A positive offset shifts the copied poses later and wraps around the pose list;
+wait steps are left unchanged. Every source pose must contain all three leg targets.
+During playback, the active pose or wait is marked in the table.
+
+New starts a timeline; Load opens an existing timeline from the sequence folder.
+Pose and wait steps appear in order, with each leg's servo values in its own
+column. **Play selected step** plays only that step once, using its motion,
+mirroring and duration settings. Double-click a pose or use **Edit selected pose**
+to open its targets in the existing Static Animator tab or focus its detached
+window. Use **Apply pose to Motion Recorder** to update
+that step within measured bounds, then save the recorder timeline to keep the
+changes. **Finish editing** or loading another keyframe ends recorder editing.
+Remove selected leg data clears only the selected leg from a pose; Delete entire
+selected step removes that pose or wait. The first recording fixes the loop
+length, and deleting a pose shortens that loop. Play the shortened loop to
+record another leg over it. Save updates the loaded timeline, while Save as
+writes a separate file; waits, mirroring, per-step motion settings, durations,
+loop and on_end settings are preserved.
+
+## Controller
+
+The [Controller tab](../desktop/tabs/controller/__init__.py) detects USB/Bluetooth
+gamepads through pygame on the desktop host. Select a device, choose snapshot
+and sequence folders, then assign an action and optional JSON file to each input.
+Buttons, D-pad directions and positive/negative axis directions are separate
+inputs. An axis activates at an absolute value of at least 0.6. Active inputs
+highlight. Refresh controllers rescans devices; Refresh files reloads available
+JSON files recursively. Source folders and mappings are stored with QSettings;
+mappings are keyed by controller GUID, so devices of the same type can share one.
+
+| Action | Behavior |
+| --- | --- |
+| Torque on/off | Runs on a new press; torque-off also stops controller playback |
+| Snapshot | Sends once per press, using the tab's snapshot speed and torque |
+| Sequence (one shot) | Runs once per press and continues after release |
+| Sequence (hold to repeat) | Repeats while held and stops when its input is released |
+
+Both sequence modes use saved speed/torque, waits and transition durations;
+they ignore the file's loop and on_end fields. The latest mapped press takes
+control. A simultaneous torque-off press takes priority over other mapped
+presses. Inputs already held at selection need release before they can trigger.
+
+Disconnect, device selection, mapping or source-folder changes, Stop playback,
+and any shared release-all request stop controller execution and cancel its
+unpublished commands. Refreshing unchanged folders does not stop a sequence.
+Stopping does not disable torque by itself or undo an already transmitted move.
+
+[Playback](../desktop/tabs/controller/playback.py) waits for publication results
+before sending another motion group. Until-reached transitions require three
+fresh complete samples within 0.1 radians for every target; sample timestamps
+must be newer than the final motion group's publication and no more than 2.5
+seconds old when received by the bridge. Publication and telemetry timestamps
+are compared using the WSL ROS clock, so Windows clock drift does not delay
+arrival detection. Publication or
+arrival waits time out after 30 seconds. A publication result confirms sending,
+not physical arrival or backend acceptance. The controller loads stored measured
+bounds when its playback object is created; restart the desktop to reload a
+limit file changed later.
+
+The bridge drains telemetry bursts within a bounded processing window, checking
+desktop commands between windows. Stop clears playback state immediately,
+cancels unpublished commands, and ignores late results; manual commands can be
+sent immediately with their own speed and torque settings. An already published
+movement may finish unless a new manual target or torque request overrides it.
+
+## Simulation
+
+The Simulation tab loads a selected URDF into Gazebo with gravity and a ground
+plane. Start is explicit; the tab initially requests no ROS provider. Defaults
+are a headless server, 0.5× simulation speed and a 4 ms physics step. An optional
+viewer can be opened and closed while physics continues. Pause, Resume, Reset
+and Stop affect only this simulation. Joints move freely under gravity with the
+URDF's native mimic constraints. See the [simulation guide](../ros2/saprog_simulation/README.md)
+for requirements, timing, physics settings and command isolation.
+
+## Snapshot format
+
+[validate_snapshot](../desktop/documents/snapshot_units.py) accepts schema 1 with
+implicit radians or schema 2 with units explicitly set to radians. A pose can
+contain a subset of the known servo names. Values must be finite numbers;
+booleans and other units are rejected.
+
+```json
+{
+  "schema_version": 1,
+  "name": "Example pose",
+  "positions": {"servo_11": 0.1}
+}
 ```
 
-Home includes a **Static Animator** tab with **Creator / Player** and **Timeline**
-tabs. Creator and Player are visible together in an equal, adjustable side-by-side
-split.
-They share movement speed and torque strength settings. Selecting a pose
-loads its values into the Creator without sending commands; use **Play selected
-pose** to move the robot. The Timeline has its own tab. The standalone Static
-Animator launcher uses the same layout, and the individual launchers above
-remain available. Static Animator accepts the same `--directory PATH` option as
-the snapshot tools.
+Creator saves schema 1. This example describes the format, not a validated pose
+for a connected robot. Servo conversion uses direction * (raw - zero) *
+(300 degrees in radians / 1023). Hardware configuration is in
+[saprog.yaml](../ros2/saprog_dynamixel/config/saprog.yaml).
 
-Home and standalone Static Animator share one view assembly. Closing either asks
-Timeline to resolve unsaved edits and any active action first. If cancellation or
-the terminal action result is unknown, the window and its registered ROS nodes
-remain alive until the backend reports a terminal result. Home stops its owned
-backend processes only after that safe close path completes. Closing the IMU
-display does not call reset or clear-zero; calibration and zero are backend-owned
-while that backend remains running.
+## Timeline format
 
-Under WSL USB devices are shared with usbipd-win. The IMU helper requests the
-one-time share through Windows UAC when needed; approve the administrator prompt.
-If that prompt is unavailable or denied, run `usbipd bind --busid 1-2` in
-elevated Windows PowerShell, using its current BUSID.
-Servo launchers attach hardware ID `0403:6014` by default; override with
-`SAPROG_USB_BUSID` or `SAPROG_USB_HARDWARE_ID`. The configured `device_name` must
-appear as a character device before ROS starts. Closing the app does not detach USB.
-The IMU launch attaches hardware ID `1B4F:9D0F` under WSL; override with
-`SAPROG_IMU_USB_BUSID` or `SAPROG_IMU_USB_HARDWARE_ID`. Its helper selects the
-matching serial tty and emits its path on stdout. On native Linux no USB attach
-is attempted; pass `device:=/dev/tty...` when automatic detection is unsuitable.
+[timeline_storage.py](../desktop/documents/timeline_storage.py) saves schema 2
+with references to snapshot files:
 
-New `*.sh` files in [tabs/](../tabs/) appear in Home; use
-[_launch_window.bash](../tabs/_launch_window.bash) with `window EXECUTABLE` for
-shared setup/readiness/cleanup. The IMU display is embedded in Home. The Robot
-tab embeds the accelerated RViz2 renderer in its dark viewport; it requires
-Linux/WSL, Tk on X11, a working OpenGL display, and the RViz/Qt/X11 dependencies
-declared by the package. Select the Robot tab before starting the view. Drag in
-the viewport to orbit; resizing Home resizes the render surface, and hiding the
-tab hides it with the parent window. Use **Stop view** to stop its renderer and
-live robot-state processes. Closing Home stops them as well. Unsupported display
-backends and renderer startup errors appear in the tab instead of opening a
-separate desktop window.
-
-## Snapshots and torque
-
-The Home window's **Controller** tab can bind gamepad buttons to snapshot and
-sequence files. The tab shows every available physical button and D-pad
-direction, with a dropdown for each action. Controller input uses SDL through
-`python3-pygame`. Under WSL,
-When running under WSL, Home polls the controller through native Windows Pygame
-instead of requiring a WSL `/dev/input` or `xpad` device. Leave the controller
-shared but unattached in Windows. Approve a Windows USB sharing prompt if one
-is shown. WSL takes exclusive access only to devices explicitly attached with
-`usbipd`. The default hardware ID is
-`2E24:1125`; override it with `SAPROG_CONTROLLER_USB_HARDWARE_ID` or set
-`SAPROG_CONTROLLER_USB_BUSID` to the intended BUSID when multiple devices match.
-Mappings are saved in the user's Saprog configuration directory. The Home /
-middle button mapping toggles all-joint torque using the latest fresh torque
-state reported by `/saprog/joint_states`; it waits for every configured joint
-to report a known state before acting.
-The **Release all joints** mapping is independent of active playback and torque
-requests. Pressing it cancels an active timeline or snapshot playback and starts
-torque-off requests for every configured joint.
-
-Creator edits radian targets; **Save targets** saves all typed values without
-moving or needing fresh telemetry. Each servo shows its live position and torque
-state. **Fix** sends its typed target and enables torque in the same position
-command; torque stays on. **Release** disables torque. The button follows
-reported torque state, not command publication. A changed target while torque is
-on shows **Move**; after sending, the button returns to **Release**. Released
-servos update the target when physically moved, except while that entry has
-focus. Fix/Release show progress immediately and wait for hardware confirmation.
-Layout: front-left 31..33,
-front-right 11..13, back-left 41..43, back-right 21..23.
-
-Player automatically discovers JSON snapshots; **Refresh** reloads names and
-**Browse** selects external files. Files are re-read/validated at playback.
-Both tools default to [snapshots/](../snapshots/); `--directory PATH` overrides it.
-
-- Speed 1..1023 and torque strength 0..1023 apply to subsequent moves; zero strength
-  is rejected before GUI movement. Fix uses these slider settings. Player persists
-  strength in `saprog/snapshot_player.json` under `$XDG_CONFIG_HOME`/`~/.config`
-  (Windows: `%APPDATA%`). Windows keep independent slider settings.
-- Pose playback sends one synchronized command and immediately unlocks controls for further commands. It does not wait for arrival telemetry or automatically release torque. Use the manual torque-release controls when needed; command publication does not confirm physical arrival.
-- **Release all joints** stays available during playback and pending torque operations. It discards queued pose commands and retries torque-off requests, including when only some joint services are available. Unavailable services are reported; already transmitted motion cannot be undone.
-- Torque operations require acknowledgements; missing responses report unknown
-  state. Closing a snapshot window does not change torque.
-- Schema 1 saves `schema_version: 1`, `name` and `positions` keyed by joint
-  names such as `servo_11`, with radian values.
-  Schema 2 remains readable with explicit `units` of `radians`.
-  Other units are rejected; all targets must be finite and match
-  the configured joint set. Overwrites ask first; writes replace JSON atomically.
-
-## Timelines
-
-Timeline edits transition/snapshot pairs and independent wait rows. Reorder,
-duplicate or remove whole entries. Global, Leg and Custom controls set speed and
-strength (1..1023); expanding groups copies values, combining them averages values.
-Legacy torque-off transitions are rejected.
-
-**Until reached** advances on fresh complete arrival telemetry, without the
-snapshot player's stable dwell. Each such move has a 5-second arrival timeout;
-if the joints do not all arrive, playback fails and aborts, and torque is disabled
-on all configured joints. **X seconds** advances after a finite non-negative
-duration, including zero, regardless of arrival; duration starts after command
-transmission. Wait rows send no commands. Speed controls servo travel separately.
-
-The [ROS action](../src/saprog/action/PlayTimeline.action) validates the whole
-sequence, applies per-joint settings and sends synchronized position packets.
-Monotonic worker scheduling aborts on wakeup lateness over 20 ms or bus acquisition
-over 250 ms; this is not hard real-time. An in-flight transaction or preparation
-can still delay execution. **Stop** requests cancellation; transmitted commands
-can finish. Cancellation is rejected once the final torque operation begins.
-
-**Loop timeline** repeats until stopped and skips the end action. Successful full
-non-looping playback applies **After timeline: Torque on/off** and verifies it;
-failure/cancellation skips it. Torque on holds freshly read positions using
-controller defaults. **Test selected step** runs once without an end action.
-
-Saved schema-2 timelines contain snapshot paths, not copies. Paths are relative
-to the snapshot directory; external choices retain absolute paths. Changing a
-snapshot changes future playback. Keep referenced files available and save
-timelines outside the snapshot directory. Offline editing works without hardware.
-Legacy embedded-pose migration currently has the ambiguity tracked in
-[#3](https://github.com/ensapra/saprog/issues/3).
-
-## Hardware diagnostics and monitoring
-
-Servo telemetry targets 20 complete sweeps per second (`poll_rate`), subject to
-USB/bus response times. Each timer callback reads one servo's position, torque,
-and temperature in one transaction, allowing commands between servo reads.
-Missing replies still incur SDK timeouts; they are omitted from that sweep.
-Creator keeps only the latest telemetry message. Temperature publication stays
-at one sweep per second to avoid flooding desktop callbacks.
-
-FTDI adapters should use a 1 ms driver latency timer instead of the 16 ms default.
-Install the reconnect rule once on Linux/WSL (then reconnect the adapter):
-
-```sh
-sudo install -m 644 scripts/99-saprog-serial.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
+```json
+{
+  "kind": "saprog_timeline",
+  "schema_version": 2,
+  "steps": [
+    {
+      "snapshot": "example.json",
+      "control_mode": "Global Control",
+      "motion": {"speed": 512, "torque": 512},
+      "overrides": {},
+      "duration": {"mode": "seconds", "seconds": 1.0}
+    },
+    {"kind": "wait", "seconds": 0.5}
+  ],
+  "on_end": "on",
+  "loop": false,
+  "smooth_playback": false
+}
 ```
 
-The current setting is visible in
-`/sys/bus/usb-serial/devices/ttyUSB0/latency_timer` (use the actual adapter name).
-Restart Home after building these backend/configuration changes; an already
-running backend retains its old polling behavior. This setup does not alter
-servo EEPROM or change torque at startup.
+Relative references resolve against the selected snapshot directory, not the
+sequence file's folder. Relative paths escaping that directory are rejected;
+absolute references are accepted. Keep referenced files available when moving a
+sequence. If the browser's snapshot folder differs from the open document's
+reference base at save time, the editor writes absolute references to preserve
+the original targets.
 
-Limits are read from servo CW/CCW registers at startup and when Creator/Player
-opens, via `/saprog/refresh_limits`. They stay in memory; incomplete reads prevent
-position commands. With the controller stopped, [read_servo_limits.py](../scripts/read_servo_limits.py)
-inspects limits without changing hardware/configuration.
+Speed and torque are integers from 1 through 1023 in sequence transitions.
+Per-servo overrides use the same pair. Wait durations are finite and nonnegative.
+Transition duration mode is seconds or until_reached; omission defaults to
+until_reached. Documents must contain at least one step.
+The optional smooth_playback field is a boolean and defaults to false for older timelines.
 
-Set `status_return_level` to match EEPROM (1 or 2); the application does not change
-it. At level 1, writes are transmit-only and are not followed by register
-readbacks; the bus caches requested settings after successful transmission.
-At level 2, writes use status acknowledgements, with a register-read fallback
-when an acknowledgement times out. `verify_goal_registers` optionally
-reads synchronized goals for diagnostics. Reading a goal confirms acceptance,
-not arrival. Check power, cabling, IDs, baud rate and competing port owners on
-failure.
-
-`/saprog/position_command` uses `JointState`: positions in radians, optional equal
-speeds in rad/s (0.111 rpm per AX unit), and effort as raw torque limits.
-Timeline actions support different per-joint speeds. `/saprog/joint_states`
-publishes positions and observed torque state; `/saprog/temperatures` identifies
-each servo through `header.frame_id` and reports Celsius.
-
-Home's temperature graph retains five minutes, flags stale readings after 2.5 s,
-and leaves gaps for missing data. Select traces and zoom from 1..300 seconds.
-The Robot tab embeds RViz2 using live servo and IMU data. Select the tab, start
-the view, then drag in the viewport to orbit; resizing Home resizes the render
-surface. It requires Linux/WSL with Tk on X11 or XWayland and a working OpenGL
-display. There is no separate-window fallback; unsupported display backends and
-startup errors appear in the tab. Stop the view before restarting it; closing
-Home also stops its renderer and state processes. IMU mounting/reference limits
-are explained in [imu.md](imu.md). Experimental gait notes remain beside the
-[walk-cycle snapshots](../snapshots/walk_cycle/README.md).
+Schema-1 timelines with embedded snapshots are migrated in memory by matching
+snapshot name, joint set and positions against files in the selected directory.
+Migration fails if there is no matching pose. Loading does not rewrite the source
+file; saving writes schema 2 through atomic replacement.

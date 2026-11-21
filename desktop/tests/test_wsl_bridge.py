@@ -151,12 +151,42 @@ class TopicTests(unittest.TestCase):
             with patch.object(subscriptions.time, "monotonic", return_value=100):
                 receive({"temperature": 42})
                 self.assertEqual(self.topics.topic_status("/temperature", 1), "Connected")
-            emit.assert_called_with("message", topic="/temperature", data={"temperature": 42})
+            emit.assert_called_with(
+                "message", topic="/temperature", data={"temperature": 42},
+                received_at_ns=self.node.get_clock().now().nanoseconds,
+            )
             with patch.object(subscriptions.time, "monotonic", return_value=103):
                 self.assertEqual(self.topics.topic_status("/temperature", 1), "Stale IMU data")
 
 
 class NodeProcessesTests(unittest.TestCase):
+    def test_relaunch_reuses_successful_build_and_reports_process_exit(self):
+        manager = processes.NodeProcesses("/workspace", threading.Event(), Mock())
+        request = {"topic": "/topic", "package": "pkg", "executable": "node"}
+        key = ("pkg", "node")
+        node = Mock()
+        node.count_publishers.return_value = 0
+        first, second = Mock(), Mock()
+        first.poll.return_value = 1
+        second.poll.return_value = None
+        with patch.object(processes, "ensure_executable") as build, patch.object(
+            processes, "launch_node", side_effect=[first, second],
+        ) as launch, patch.object(processes, "emit"), patch.object(
+            processes.time, "monotonic", return_value=100,
+        ):
+            manager._build_and_launch(key, "/topic", request)
+            manager.collect_results()
+            manager.start_time = 0
+            with patch.object(processes.threading, "Thread") as thread:
+                manager.ensure_provider(request, node, Mock())
+                thread.assert_called_once()
+            manager._build_and_launch(key, "/topic", request)
+            manager.collect_results()
+        build.assert_called_once()
+        self.assertEqual(launch.call_count, 2)
+        self.assertTrue(any("exited with code 1" in call.args[1]
+                            for call in manager.set_status.call_args_list))
+
     def test_shutdown_joins_builds_and_stops_late_and_registered_processes(self):
         shutdown = threading.Event()
         manager = processes.NodeProcesses("/workspace", shutdown, Mock())
@@ -192,6 +222,27 @@ class NodeProcessesTests(unittest.TestCase):
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_telemetry_bursts_are_drained_without_waiting_per_callback(self):
+        executor = Mock()
+        callbacks = list(range(60))
+        processed = []
+
+        def spin_once(*, timeout_sec):
+            self.assertEqual(timeout_sec, 0)
+            if callbacks:
+                processed.append(callbacks.pop())
+
+        executor.spin_once.side_effect = spin_once
+        runtime.spin_ready_callbacks(executor, clock=lambda: 100)
+        self.assertEqual(len(processed), 60)
+        # Sustained traffic is bounded so input/cancel processing gets a turn.
+        self.assertEqual(executor.spin_once.call_count, 100)
+
+    def test_slow_callbacks_yield_to_command_processing_after_time_budget(self):
+        executor = Mock()
+        runtime.spin_ready_callbacks(executor, clock=iter((100, 100.003, 100.006)).__next__)
+        self.assertEqual(executor.spin_once.call_count, 2)
+
     def test_dispatch_routes_topics_and_commands_and_reports_invalid_input(self):
         robot, topics = Mock(), Mock()
         robot.handle.return_value = True
@@ -211,6 +262,7 @@ class RuntimeTests(unittest.TestCase):
             "rclpy": ros,
             "rclpy.executors": SimpleNamespace(SingleThreadedExecutor=Mock()),
             "sensor_msgs.msg": SimpleNamespace(JointState=Mock()),
+            "std_msgs.msg": SimpleNamespace(String=Mock()),
             "std_srvs.srv": SimpleNamespace(SetBool=Mock(), Trigger=Mock()),
         }), patch.object(runtime, "CommandReader") as reader, patch.object(
             runtime, "NodeProcesses",

@@ -12,9 +12,11 @@ checkout. Source code and configuration take precedence when behavior changes.
 - [IMU](imu.md): serial input, topics, estimation and limitations.
 - [DYNAMIXEL](../ros2/saprog_dynamixel/README.md): servo configuration and ROS interfaces.
 - [Robot description](../urdf/README.md): model assets, joint mapping and approximations.
+- [Simulation](../ros2/saprog_simulation/README.md): Gazebo tab, gravity and performance settings.
+- [Single-leg test](../ros2/saprog_leg_test/README.md): physical crank linkage, loaded sweeps and calibration.
 - [Testing](testing.md): current suites and their scope.
 
 The desktop ROS worker currently supports Windows with WSL. The Qt shell and
 local document editing can run without ROS; the ROS executables can also be
-started directly in Linux. There is no current desktop robot-view or simulation
-tab, ROS timeline action, or IMU calibration/zeroing service.
+started directly in Linux. The Simulation tab uses Gazebo Harmonic through WSL.
+There is no ROS timeline action or IMU calibration/zeroing service.

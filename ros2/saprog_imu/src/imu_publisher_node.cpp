@@ -17,7 +17,7 @@ ImuPublisherNode::ImuPublisherNode()
   frame_id_(declare_parameter<std::string>("frame_id", "imu_link")),
   baud_rate_(declare_parameter<int>("baud_rate", 115200)),
   serial_reader_(device_, baud_rate_),
-  orientation_estimator_(declare_parameter<bool>("use_magnetometer", false)),
+  orientation_estimator_(declare_parameter<bool>("use_magnetometer", true)),
   publisher_(*this)
 {
   timer_ = create_wall_timer(std::chrono::milliseconds(5), [this]() { poll_serial(); });

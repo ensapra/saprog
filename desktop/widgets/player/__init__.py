@@ -3,6 +3,7 @@
 import json
 import math
 
+from documents.snapshot_units import clamp_to_bounds
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
@@ -24,6 +25,7 @@ class StaticAnimatorWidget(QWidget):
         self._state_token = None
         self._pending_commands = {}
         self._limits_command = None
+        self._pose_edit = None
         self._limits_timer = QTimer(self)
         self._limits_timer.setSingleShot(True)
         self._limits_timer.setInterval(35000)
@@ -42,6 +44,7 @@ class StaticAnimatorWidget(QWidget):
         self.keyframes_view.load_requested.connect(self._load_keyframe)
         self.keyframes_view.play_requested.connect(self._play_keyframe)
         self.creator_view.save_requested.connect(self._save_keyframe)
+        self.creator_view.finish_edit_button.clicked.connect(self._finish_pose_edit)
         self.creator_view.release_all_torque_requested.connect(self._release_all_torque)
         self.creator_view.move_requested.connect(self._move_servo)
         self.creator_view.puppet_mode_requested.connect(self._puppet_mode_changed)
@@ -118,8 +121,27 @@ class StaticAnimatorWidget(QWidget):
         except (OSError, json.JSONDecodeError, ValueError) as error:
             self.keyframes_view.status_label.setText(f"Could not load keyframe: {error}")
             return
+        self._finish_pose_edit()
         self.keyframes_view.status_label.setText(f"Loaded {count} servo targets")
         self.load_requested.emit(path)
+
+    def edit_pose(self, name, positions, apply_changes):
+        """Edit an in-memory recorder pose using this existing animator."""
+        self._pose_edit = (tuple(positions), apply_changes)
+        for servo, field in self.creator_view.target_inputs.items():
+            self.creator_view.set_puppet_mode(servo, False)
+            field.setText(repr(positions[servo]) if servo in positions else "")
+        self.creator_view.name_input.setText(name)
+        self.creator_view.name_input.setReadOnly(True)
+        self.creator_view.save_button.setText("Apply pose to Motion Recorder")
+        self.creator_view.finish_edit_button.show()
+        self.keyframes_view.status_label.setText(f"Editing {name} from Motion Recorder")
+
+    def _finish_pose_edit(self):
+        self._pose_edit = None
+        self.creator_view.name_input.setReadOnly(False)
+        self.creator_view.save_button.setText("Save targets")
+        self.creator_view.finish_edit_button.hide()
 
     def _move_servo(self, servo):
         if self.creator_view.puppet_buttons[servo].isChecked():
@@ -197,11 +219,9 @@ class StaticAnimatorWidget(QWidget):
             self.keyframes_view.status_label.setText(f"Target for {servo} must be finite")
             return None
         limits = self.creator_view.servo_limits.get(servo)
-        if limits and not limits[0] <= value <= limits[1]:
-            self.keyframes_view.status_label.setText(
-                f"Target for {servo} must be between {limits[0]:.2f} and {limits[1]:.2f} radians"
-            )
-            return None
+        if limits:
+            value = clamp_to_bounds(value, limits)
+            field.setText(repr(value))
         return value
 
     def _send_positions(self, joints, positions, status):
@@ -272,6 +292,17 @@ class StaticAnimatorWidget(QWidget):
         )
 
     def _save_keyframe(self):
+        if self._pose_edit is not None:
+            joints, apply_changes = self._pose_edit
+            try:
+                apply_changes(self.creator_view.target_positions(joints))
+            except ValueError as error:
+                self.keyframes_view.status_label.setText(f"Could not apply pose: {error}")
+                return
+            self.keyframes_view.status_label.setText(
+                "Pose updated in Motion Recorder. Save the timeline to keep these changes."
+            )
+            return
         try:
             path = self.creator_view.save_targets(self.keyframes_view.directory)
         except (OSError, ValueError) as error:

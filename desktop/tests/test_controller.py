@@ -1,6 +1,7 @@
 """Offscreen controller tests: no physical gamepad, ROS, WSL or robot required."""
 
 import json
+import math
 import os
 import sys
 import tempfile
@@ -16,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PySide6.QtCore import QEvent, QObject, QSettings, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 from ros_manager import RosDataManager  # noqa: E402
+from ros_manager.ros_worker import RosWorker  # noqa: E402
 from ros_manager.wsl_bridge import cancel_pending_commands, publish_position_command  # noqa: E402
 from tabs.controller import ControllerTab  # noqa: E402
 from tabs.controller.devices import ControllerMonitor  # noqa: E402
@@ -33,6 +35,7 @@ def dispose(obj):
 
 class FakeManager(QObject):
     command_result = Signal(str, bool, str)
+    position_published = Signal(str, object)
     message_received = Signal(str, object)
     torque_release_requested = Signal()
 
@@ -67,6 +70,8 @@ class FakeManager(QObject):
         self.cancelled.extend(ids)
 
     def acknowledge(self, success=True):
+        if success and self.commands[-1][1] == "position":
+            self.position_published.emit(self.commands[-1][0], time.time_ns())
         self.command_result.emit(self.commands[-1][0], success, "result")
 
 
@@ -163,6 +168,51 @@ class ControllerTest(unittest.TestCase):
         self.assertIn("1", self.manager.cancelled)
         self.assertIsNone(self.playback.owner)
 
+    def test_smooth_timed_playback_scales_speed_and_handles_loop_boundary(self):
+        other = self.snapshots / "other.json"
+        other.write_text(json.dumps({
+            "schema_version": 1, "name": "other", "positions": {"servo_11": 0.1},
+        }), encoding="utf-8")
+        self.write_sequence([self.motion, dict(self.motion, snapshot="other.json")])
+        self.playback.start("button:0", self.sequence, smooth=True)
+        self.assertEqual(self.manager.commands[-1][2][2], 100)
+        self.manager.acknowledge()
+        self.now += 0.25
+        self.playback.tick()
+        expected = min(100, max(1, math.ceil(
+            0.1 / 0.25 / self.playback.SPEED_UNIT_RADIANS
+        )))
+        self.assertEqual(self.manager.commands[-1][2][2], expected)
+        self.assertEqual(self.manager.commands[-1][2][3], 700)
+        self.manager.acknowledge()
+        self.now += 0.25
+        self.playback.tick()
+        self.assertEqual(self.manager.commands[-1][2][2], expected)
+
+    def test_controller_uses_saved_smooth_setting(self):
+        document = json.loads(self.sequence.read_text(encoding="utf-8"))
+        document["smooth_playback"] = True
+        self.sequence.write_text(json.dumps(document), encoding="utf-8")
+        self.playback.start("button:0", self.sequence)
+        self.assertTrue(self.playback.smooth)
+
+    def test_smooth_mode_falls_back_after_wait_and_for_arrival_steps(self):
+        self.write_sequence([
+            self.motion, {"kind": "wait", "seconds": 0.1},
+            self.motion, dict(self.motion, duration={"mode": "until_reached"}),
+        ])
+        self.playback.start("button:0", self.sequence, repeat=False, smooth=True)
+        self.manager.acknowledge()
+        self.now += 0.25
+        self.playback.tick()
+        self.now += 0.1
+        self.playback.tick()
+        self.assertEqual(self.manager.commands[-1][2][2], 100)
+        self.manager.acknowledge()
+        self.now += 0.25
+        self.playback.tick()
+        self.assertEqual(self.manager.commands[-1][2][2], 100)
+
     def test_release_before_ack_cannot_schedule_later_steps(self):
         self.playback.start("button:0", self.sequence)
         self.playback.release("button:0")
@@ -227,6 +277,7 @@ class ControllerTest(unittest.TestCase):
             for offset in (1, 2, 3):
                 timestamp = stamp + offset
                 self.playback.observe(self.playback.STATE_TOPIC, {
+                    "_ros_received_at_ns": timestamp + 1000,
                     "header": {"stamp": {"sec": timestamp // 1_000_000_000,
                                           "nanosec": timestamp % 1_000_000_000}},
                     "name": ["servo_11"], "position": [0.0],
@@ -311,6 +362,7 @@ class ControllerTest(unittest.TestCase):
 
         def sample(timestamp, position=0.0, names=None):
             return {
+                "_ros_received_at_ns": timestamp + 1000,
                 "header": {"stamp": {"sec": timestamp // 1_000_000_000,
                                       "nanosec": timestamp % 1_000_000_000}},
                 "name": names or ["servo_11"], "position": [position],
@@ -326,6 +378,84 @@ class ControllerTest(unittest.TestCase):
             self.assertEqual(self.playback.phase, "wait")
         self.playback.tick()
         self.assertEqual(len(self.manager.commands), 2)
+
+    def test_arrival_uses_ros_clock_and_controller_tolerance(self):
+        self.write_sequence([dict(self.motion, duration={"mode": "until_reached"})])
+        for windows_offset in (-600_000_000_000, 600_000_000_000):
+            with self.subTest(windows_offset=windows_offset):
+                self.playback.start("button:0", self.sequence, repeat=False)
+                command_id = self.manager.commands[-1][0]
+                ros_stamp = 10_000_000_000
+                self.manager.position_published.emit(command_id, ros_stamp)
+                self.manager.command_result.emit(command_id, True, "Published")
+                with patch("tabs.controller.playback.time.time_ns", return_value=ros_stamp + windows_offset):
+                    for offset in (1, 2, 3):
+                        stamp = ros_stamp + offset
+                        self.playback.observe(self.playback.STATE_TOPIC, {
+                            "_ros_received_at_ns": stamp + 1000,
+                            "header": {"stamp": {"sec": stamp // 1_000_000_000,
+                                                  "nanosec": stamp % 1_000_000_000}},
+                            "name": ["servo_11"], "position": [0.06],
+                        })
+                self.playback.tick()
+                self.assertIsNone(self.playback.owner)
+
+    def test_arrival_rejects_stale_duplicate_and_out_of_tolerance_samples(self):
+        self.write_sequence([dict(self.motion, duration={"mode": "until_reached"})])
+        self.playback.start("button:0", self.sequence)
+        self.manager.acknowledge()
+        barrier = self.playback.sent_at
+
+        def observe(stamp, position=0.0, age=1000):
+            self.playback.observe(self.playback.STATE_TOPIC, {
+                "_ros_received_at_ns": stamp + age,
+                "header": {"stamp": {"sec": stamp // 1_000_000_000,
+                                      "nanosec": stamp % 1_000_000_000}},
+                "name": ["servo_11"], "position": [position],
+            })
+
+        observe(barrier - 1)
+        observe(barrier + 1, age=3_000_000_000)
+        observe(barrier + 2, age=-1)
+        self.assertEqual(self.playback.stable_samples, 0)
+        observe(barrier + 3)
+        observe(barrier + 3)
+        self.assertEqual(self.playback.stable_samples, 1)
+        observe(barrier + 4, position=0.11)
+        self.assertEqual(self.playback.stable_samples, 0)
+        self.assertEqual(self.playback.phase, "arrival")
+
+    def test_stop_returns_manual_control_in_every_phase_and_ignores_late_events(self):
+        manager = RosDataManager()
+        self.addCleanup(dispose, manager)
+        playback = ControllerPlayback(manager, self.snapshots, clock=lambda: self.now)
+        self.addCleanup(dispose, playback)
+        self.addCleanup(playback.close)
+        with patch.object(manager, "_ensure_worker_locked"):
+            for phase in ("publishing", "wait", "arrival", "initial_wait"):
+                with self.subTest(phase=phase):
+                    step = dict(self.motion, duration={"mode": "until_reached"}) if phase == "arrival" else self.motion
+                    steps = [{"kind": "wait", "seconds": 100}, step] if phase == "initial_wait" else [step]
+                    playback.start_steps("timeline", steps, repeat=True)
+                    sent = manager._drain_commands() if phase in ("wait", "arrival") else []
+                    for command in sent:
+                        manager.position_published.emit(command["id"], 1)
+                        manager.command_result.emit(command["id"], True, "Published")
+                    pending = set(playback.pending)
+                    playback.stop("Timeline stopped")
+                    manual_id = manager.publish_joint_command(["servo_11"], [0.1], 512, 1023)
+                    for command_id in pending | {cmd["id"] for cmd in sent}:
+                        manager.position_published.emit(command_id, 2)
+                        manager.command_result.emit(command_id, True, "Late result")
+                    self.now += 101
+                    playback.tick()
+                    commands = manager._drain_commands()
+                    positions = [cmd for cmd in commands if cmd["op"] == "publish_position"]
+                    self.assertEqual([cmd["id"] for cmd in positions], [manual_id])
+                    self.assertEqual(positions[0]["speed"], 512)
+                    self.assertFalse(playback.timer.isActive())
+                    self.assertIsNone(playback.owner)
+                    self.assertEqual(playback.targets, {})
 
     def test_failed_ack_or_timeout_stops_loop(self):
         self.playback.start("button:0", self.sequence)
@@ -601,6 +731,9 @@ class PublisherMatchingTest(unittest.TestCase):
         self.node.create_publisher.return_value = self.publisher
         # Graph discovery may already report a subscriber before writer matching.
         self.node.count_subscribers.return_value = 1
+        self.node.get_clock.return_value.now.return_value.to_msg.return_value = SimpleNamespace(
+            sec=12, nanosec=345,
+        )
         self.command = {
             "id": "first-pose", "_queued_at": 100, "joints": ["servo_11"],
             "positions": [0.1], "speed": 100, "torque": 700,
@@ -629,6 +762,7 @@ class PublisherMatchingTest(unittest.TestCase):
             self.publisher.publish.assert_called_once()
             self.assertEqual(self.publisher.publish.call_args.args[0].position, [0.1])
             self.assertTrue(emit.call_args.kwargs["success"])
+            self.assertEqual(emit.call_args.kwargs["published_at_ns"], 12_000_000_345)
 
     def test_unmatched_publisher_times_out_without_publishing(self):
         with patch("ros_manager.wsl_bridge.commands.emit") as emit, patch(
@@ -640,6 +774,43 @@ class PublisherMatchingTest(unittest.TestCase):
         self.assertTrue(completed)
         self.publisher.publish.assert_not_called()
         self.assertFalse(emit.call_args.kwargs["success"])
+
+
+class WorkerProtocolTest(unittest.TestCase):
+    def test_ros_publication_barrier_is_forwarded_before_acknowledgement(self):
+        callbacks = Mock()
+        worker = RosWorker(
+            Mock(), Mock(), callbacks.message, Mock(), callbacks.result, Mock(),
+            on_position_published=callbacks.published,
+        )
+        worker._handle_event({
+            "event": "command_result", "id": "pose", "success": True,
+            "message": "Published", "published_at_ns": 12_000_000_345,
+        })
+        self.assertEqual([call[0] for call in callbacks.mock_calls], ["published", "result"])
+        callbacks.published.assert_called_once_with("pose", 12_000_000_345)
+
+        data = {"name": ["servo_11"], "position": [0.0]}
+        worker._handle_event({
+            "event": "message", "topic": "/saprog/joint_states", "data": data,
+            "received_at_ns": 12_000_000_999,
+        })
+        callbacks.message.assert_called_once_with(
+            "/saprog/joint_states", {**data, "_ros_received_at_ns": 12_000_000_999},
+        )
+        self.assertNotIn("_ros_received_at_ns", data)
+
+    def test_failed_publication_does_not_set_an_arrival_barrier(self):
+        published, result = Mock(), Mock()
+        worker = RosWorker(
+            Mock(), Mock(), Mock(), Mock(), result, Mock(), on_position_published=published,
+        )
+        worker._handle_event({
+            "event": "command_result", "id": "pose", "success": False,
+            "message": "Cancelled", "published_at_ns": 12_000_000_345,
+        })
+        published.assert_not_called()
+        result.assert_called_once_with("pose", False, "Cancelled")
 
 
 class DiscoveryTest(unittest.TestCase):

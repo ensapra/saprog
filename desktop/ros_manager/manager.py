@@ -28,6 +28,7 @@ class RosDataManager(QObject):
     message_received = Signal(str, object)
     status_changed = Signal(str, str)
     command_result = Signal(str, bool, str)
+    position_published = Signal(str, object)
     torque_release_requested = Signal()
 
     def __init__(self, workspace: Path | None = None, parent=None):
@@ -111,6 +112,18 @@ class RosDataManager(QObject):
         """Read the current EEPROM limits through the servo port owner."""
         return self._queue_command({"op": "refresh_servo_limits"})
 
+    def simulation_command(self, action, **options):
+        """Send only to the Gazebo supervisor, never to hardware endpoints."""
+        if action not in {"start", "stop", "pause", "resume", "reset", "show_viewer", "hide_viewer"}:
+            raise ValueError("Unknown simulation action")
+        return self._queue_command({"op": "simulation", "payload": {**options, "action": action}})
+
+    def leg_test_command(self, action, **options):
+        """Queue an isolated linkage-rig command, with no hardware publication."""
+        if action not in {"start", "stop", "pause", "resume", "reset", "target", "sweep", "stop_sweep"}:
+            raise ValueError("Unknown single-leg test action")
+        return self._queue_command({"op": "leg_test", "payload": {**options, "action": action}})
+
     def set_servo_torque(self, joint, enabled):
         """Queue a per-servo torque enable or disable service request."""
         if not isinstance(joint, str) or not re.fullmatch(r"servo_\d+", joint):
@@ -190,6 +203,7 @@ class RosDataManager(QObject):
                 self._emit_status,
                 self.command_result.emit,
                 self._launcher,
+                on_position_published=self.position_published.emit,
             )
             self._worker.start()
 

@@ -10,6 +10,37 @@ MOTION_STEP = 0
 WAIT_STEP = 1
 UNTIL_REACHED = 0
 FIXED_SECONDS = 1
+MIRROR_MODES = ("None", "Horizontal", "Vertical", "Horizontal + Vertical")
+
+
+def mirror_mode(step):
+    mode = step.get("mirror", "None")
+    if mode not in MIRROR_MODES:
+        raise ValueError("Mirror mode must be None, Horizontal, Vertical, or Horizontal + Vertical")
+    return mode
+
+
+def mirrored_positions(positions, mode, *, inverse=False):
+    """Reflect pose targets by exchanging corresponding legs across an axis."""
+    if mode not in MIRROR_MODES:
+        raise ValueError("Unknown snapshot mirror mode")
+    result = dict(positions)
+    legs = {
+        "front_left": ("servo_31", "servo_32", "servo_33"),
+        "front_right": ("servo_11", "servo_12", "servo_13"),
+        "back_left": ("servo_41", "servo_42", "servo_43"),
+        "back_right": ("servo_21", "servo_22", "servo_23"),
+    }
+    pairs = []
+    if mode in ("Horizontal", "Horizontal + Vertical"):
+        pairs.extend((("front_left", "front_right"), ("back_left", "back_right")))
+    if mode in ("Vertical", "Horizontal + Vertical"):
+        pairs.extend((("front_left", "back_left"), ("front_right", "back_right")))
+    for first, second in reversed(pairs) if inverse else pairs:
+        for left, right in zip(legs[first], legs[second]):
+            if left in result and right in result:
+                result[left], result[right] = result[right], result[left]
+    return result
 
 
 def wait_seconds(step):
@@ -108,6 +139,8 @@ def validate_timeline(document, joints=None, bounds=None, snapshot_resolver=None
     lifecycle_settings(document)
     if type(document.get("loop", False)) is not bool:
         raise ValueError("Loop must be true or false")
+    if type(document.get("smooth_playback", False)) is not bool:
+        raise ValueError("Smooth playback must be true or false")
     steps = document.get("steps")
     if not isinstance(steps, list) or not steps:
         raise ValueError("Add at least one snapshot or wait")
@@ -127,4 +160,5 @@ def validate_timeline(document, joints=None, bounds=None, snapshot_resolver=None
         _, positions = validate_snapshot(snapshot, joints, bounds)
         motion_settings(step, list(positions))
         transition_duration(step)
+        mirror_mode(step)
     return copy.deepcopy(steps)

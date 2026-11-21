@@ -19,10 +19,11 @@ class TopicSubscriptions:
             emit("status", topic=topic, status=status)
 
     def topic_status(self, topic, publishers):
+        source = "simulation" if topic.startswith("/saprog/simulation/") else "IMU"
         last_message = self.last_message_at.get(topic)
         if last_message is not None:
-            return "Stale IMU data" if time.monotonic() - last_message > 2.0 else "Connected"
-        return "Waiting for IMU data" if publishers > 0 else "Subscribed; waiting for publisher"
+            return f"Stale {source} data" if time.monotonic() - last_message > 2.0 else "Connected"
+        return f"Waiting for {source} data" if publishers > 0 else "Subscribed; waiting for publisher"
 
     def handle(self, command):
         op = command.get("op")
@@ -62,7 +63,10 @@ class TopicSubscriptions:
 
         def receive(message, topic=request["topic"]):
             self.last_message_at[topic] = time.monotonic()
-            emit("message", topic=topic, data=dict(message_to_ordereddict(message)))
+            emit(
+                "message", topic=topic, data=dict(message_to_ordereddict(message)),
+                received_at_ns=self.node.get_clock().now().nanoseconds,
+            )
 
         # Temperatures arrive as one burst of per-servo messages per sweep.
         # The sensor-data profile keeps only five, dropping early servo IDs

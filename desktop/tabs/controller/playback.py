@@ -6,12 +6,16 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from documents.snapshot_units import validate_snapshot
-from documents.timeline_domain import motion_settings, transition_duration
+from documents.snapshot_units import clamp_to_bounds, validate_snapshot
+from documents.timeline_domain import (
+    mirror_mode,
+    mirrored_positions,
+    motion_settings,
+    transition_duration,
+)
 from documents.timeline_storage import (
     load_snapshot_reference,
     load_timeline,
-    resolve_timeline_steps,
 )
 from PySide6.QtCore import QObject, QTimer, Signal
 from widgets.servo_layout import SERVO_NAMES
@@ -38,7 +42,11 @@ class ControllerPlayback(QObject):
     """
 
     status_changed = Signal(str)
+    step_ready = Signal(int)
+    step_changed = Signal(int)
     STATE_TOPIC = "/saprog/joint_states"
+    ARRIVAL_TOLERANCE = 0.1  # Radians; allow for servo settling error under load.
+    SPEED_UNIT_RADIANS = 0.111 * 2 * math.pi / 60
 
     def __init__(self, ros_manager, snapshot_directory, parent=None, *, clock=time.monotonic):
         super().__init__(parent)
@@ -48,6 +56,7 @@ class ControllerPlayback(QObject):
         self.bounds = measured_bounds()
         self.owner = None
         self.repeat = True
+        self.smooth = False
         self.steps = []
         self.index = -1
         self.phase = "idle"
@@ -57,12 +66,14 @@ class ControllerPlayback(QObject):
         self.deadline = 0
         self.stable_samples = 0
         self.last_stamp = 0
+        self.sent_at = None
         self.token = None
         self.timer = QTimer(self)
         self.timer.setInterval(30)
         self.timer.timeout.connect(self.tick)
         if self.manager is not None:
             self.manager.command_result.connect(self.command_result)
+            self.manager.position_published.connect(self.position_published)
             self.manager.message_received.connect(self.observe)
             self.manager.torque_release_requested.connect(self._torque_release_requested)
 
@@ -108,25 +119,51 @@ class ControllerPlayback(QObject):
             self.pending.add(self.manager.release_all_torque())
         self.status_changed.emit(f"Requesting torque {'on' if enabled else 'off'} for all servos")
 
-    def start(self, owner, path, *, repeat=True):
+    def start(self, owner, path, *, repeat=True, smooth=None):
         document = load_timeline(path, self.snapshot_directory, bounds=self.bounds)
-        steps = resolve_timeline_steps(
-            document["steps"],
-            lambda reference: self._snapshot(
-                Path(reference) if Path(reference).is_absolute()
-                else self.snapshot_directory / reference
-            ),
-        )
+        if smooth is None:
+            smooth = document.get("smooth_playback", False)
+        self.start_steps(owner, document["steps"], repeat=repeat, smooth=smooth)
+
+    def start_steps(self, owner, steps, *, repeat=False, smooth=False):
+        """Play already edited timeline steps without requiring a saved file."""
+        resolved = []
+        for step in steps:
+            if step.get("kind") == "wait":
+                resolved.append(dict(step))
+                continue
+            reference = step.get("snapshot")
+            path = Path(reference)
+            if not path.is_absolute():
+                path = self.snapshot_directory / path
+            candidate = dict(step)
+            candidate["snapshot"] = self._snapshot(path)
+            candidate["snapshot"]["positions"] = mirrored_positions(
+                candidate["snapshot"]["positions"], mirror_mode(step),
+            )
+            if self.bounds:
+                candidate["snapshot"]["positions"] = {
+                    joint: clamp_to_bounds(value, self.bounds[joint])
+                    if joint in self.bounds else value
+                    for joint, value in candidate["snapshot"]["positions"].items()
+                }
+            resolved.append(candidate)
+        if not resolved:
+            raise ValueError("Timeline has no steps to play")
         self.stop()
         self._require_manager()
-        self.owner, self.steps, self.index = owner, steps, -1
+        self.owner, self.steps, self.index = owner, resolved, -1
         self.repeat = repeat
+        self.smooth = smooth
         self.status_changed.emit(
-            f"Repeating {Path(path).stem} while held" if repeat
-            else f"Playing {Path(path).stem} once"
+            "Repeating timeline" if repeat else "Playing timeline once"
         )
         self.timer.start()
-        self._advance()
+        try:
+            self._advance()
+        except (OSError, RuntimeError, ValueError, TypeError, KeyError):
+            self.stop()
+            raise
 
     def release(self, owner):
         if self.owner == owner and self.repeat:
@@ -139,6 +176,10 @@ class ControllerPlayback(QObject):
         self.pending = set()
         self.groups = []
         self.steps = []
+        self.targets = {}
+        self.sent_at = None
+        self.last_stamp = 0
+        self.stable_samples = 0
         self.timer.stop()
         if pending and self.manager is not None:
             self.manager.cancel_commands(pending)
@@ -148,6 +189,7 @@ class ControllerPlayback(QObject):
     def _advance(self):
         if self.owner is None:
             return
+        previous = self.steps[self.index] if self.index >= 0 else None
         self.index += 1
         if self.index >= len(self.steps):
             if not self.repeat:
@@ -158,13 +200,27 @@ class ControllerPlayback(QObject):
         if step.get("kind") == "wait":
             self.phase = "wait"
             self.deadline = self.clock() + step["seconds"]
+            self.step_changed.emit(self.index)
             return
         self.targets = step["snapshot"]["positions"]
         groups = defaultdict(dict)
+        duration = transition_duration(step)
+        previous_positions = (
+            previous["snapshot"]["positions"]
+            if previous and previous.get("kind") != "wait" else {}
+        )
         for joint, pair in motion_settings(step, self.targets).items():
-            groups[(pair["speed"], pair["torque"])][joint] = self.targets[joint]
+            speed = pair["speed"]
+            if (self.smooth and previous_positions and joint in previous_positions
+                    and duration["mode"] == "seconds" and duration["seconds"] > 0):
+                delta = abs(self.targets[joint] - previous_positions[joint])
+                speed = min(speed, max(1, math.ceil(
+                    delta / duration["seconds"] / self.SPEED_UNIT_RADIANS
+                )))
+            groups[(speed, pair["torque"])][joint] = self.targets[joint]
         self.groups = list(groups.items())
         self.phase = "publishing"
+        self.sent_at = None
         self.deadline = self.clock() + 30
         self._send_group()
 
@@ -195,10 +251,16 @@ class ControllerPlayback(QObject):
                 duration["seconds"] if self.phase == "wait" else 30
             )
             self.stable_samples = 0
-            # Never let a buffered pre-command telemetry sample complete a step.
-            self.sent_at = time.time_ns()
+            self.step_changed.emit(self.index)
+            self.step_ready.emit(self.index)
         except (RuntimeError, ValueError, TypeError) as error:
             self.stop(f"Sequence failed: {error}")
+
+    def position_published(self, command_id, stamp):
+        if self.owner is not None and command_id in self.pending:
+            # Both this barrier and telemetry stamps belong to the WSL ROS
+            # clock. Windows wall time can drift from it after suspend/resume.
+            self.sent_at = stamp
 
     def observe(self, topic, message):
         if self.phase != "arrival" or topic != self.STATE_TOPIC or not isinstance(message, dict):
@@ -206,14 +268,16 @@ class ControllerPlayback(QObject):
         try:
             stamp_data = message["header"]["stamp"]
             stamp = int(stamp_data["sec"]) * 1_000_000_000 + int(stamp_data["nanosec"])
-            age = time.time_ns() - stamp
+            if self.sent_at is None:
+                return
+            age = message["_ros_received_at_ns"] - stamp
             if stamp <= max(self.last_stamp, self.sent_at) or not 0 <= age <= 2_500_000_000:
                 return
             self.last_stamp = stamp
             positions = dict(zip(message["name"], message["position"]))
             reached = all(
                 joint in positions and math.isfinite(positions[joint])
-                and abs(positions[joint] - value) <= 0.025
+                and abs(positions[joint] - value) <= self.ARRIVAL_TOLERANCE
                 for joint, value in self.targets.items()
             )
         except (KeyError, TypeError, ValueError, OverflowError):

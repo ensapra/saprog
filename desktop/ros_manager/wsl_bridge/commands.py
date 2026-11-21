@@ -37,7 +37,10 @@ def publish_position_command(node, publisher, command, message_type):
     message.velocity = [speed] * len(message.name)
     message.effort = [float(command["torque"])] * len(message.name)
     publisher.publish(message)
-    emit("command_result", id=command["id"], success=True, message="Position command published")
+    emit(
+        "command_result", id=command["id"], success=True, message="Position command published",
+        published_at_ns=message.header.stamp.sec * 1_000_000_000 + message.header.stamp.nanosec,
+    )
     return publisher, True
 
 
