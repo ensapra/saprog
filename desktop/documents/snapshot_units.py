@@ -78,7 +78,7 @@ def validate_snapshot(document, expected_names=None, bounds=None):
         expected_names = list(expected_names)
     if set(positions) != set(expected_names):
         raise ValueError("Snapshot joint set does not match the configured robot")
-    if bounds is None:
+    if not bounds:
         bounds = {joint: (-math.inf, math.inf) for joint in expected_names}
     result = {}
     for joint in expected_names:

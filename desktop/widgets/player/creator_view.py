@@ -32,25 +32,6 @@ from widgets.servo_layout import LEG_LAYOUT
 from .snapshot_loader import load_keyframe
 
 
-def _load_servo_limits():
-    """Read the repository's last measured per-servo radian limits."""
-    path = Path(__file__).resolve().parents[3] / "urdf" / "config" / "measured_servo_limits.json"
-    try:
-        with path.open("r", encoding="utf-8") as stream:
-            servos = json.load(stream).get("servos", ())
-    except (OSError, json.JSONDecodeError, AttributeError):
-        return {}
-
-    limits = {}
-    for item in servos:
-        try:
-            name = f"servo_{int(item['servo_id'])}"
-            limits[name] = (float(item["lower_radians"]), float(item["upper_radians"]))
-        except (KeyError, TypeError, ValueError, OverflowError):
-            continue
-    return limits
-
-
 def _truncated_rotation(value):
     """Format radians truncated toward zero to two decimal places."""
     return f"{Decimal(str(value)).quantize(Decimal('0.01'), rounding=ROUND_DOWN):.2f}"
@@ -113,7 +94,7 @@ class CreatorView(QWidget):
         self.puppet_buttons = {}
         self._puppet_pending = set()
         self._ros_available = False
-        self.servo_limits = _load_servo_limits()
+        self.servo_limits = {}
         for name, servos, row, column in LEG_LAYOUT:
             group = QGroupBox(name)
             servo_layout = QVBoxLayout(group)
@@ -296,7 +277,7 @@ class CreatorView(QWidget):
 
     def set_servo_limits(self, limits):
         """Use freshly measured bounds for both labels and target validation."""
-        self.servo_limits = dict(limits)
+        self.servo_limits = limits
         for servo, (minimum, maximum) in self.limit_labels.items():
             lower, upper = limits.get(servo, (None, None))
             minimum.setText(_truncated_rotation(lower) if lower is not None else "—")

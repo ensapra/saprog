@@ -96,6 +96,7 @@ class GazeboSession:
                 step_size=options.get("step_size", 0.004),
                 real_time_factor=options.get("real_time_factor", 0.5),
                 spawn_height=options.get("spawn_height", 0.3),
+                servo_bounds=options.get("servo_bounds"),
             )
             self.log_file = open(Path(self.directory.name) / "gazebo.log", "w", encoding="utf-8")
             self._load_transport()

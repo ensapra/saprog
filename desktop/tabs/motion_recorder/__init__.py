@@ -274,6 +274,10 @@ class MotionRecorderTab(QWidget):
             self.status.setText("ROS manager is unavailable.")
         self._selection_changed()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.playback.limits.refresh()
+
     def _selected_joints(self):
         """Return the configured servos for the selected leg."""
         return tuple(self.leg_picker.currentData() or ())

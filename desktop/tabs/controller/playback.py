@@ -1,6 +1,5 @@
 """Button-owned timeline playback, with all hardware commands sent via ros_manager."""
 
-import json
 import math
 import time
 from collections import defaultdict
@@ -18,19 +17,8 @@ from documents.timeline_storage import (
     load_timeline,
 )
 from PySide6.QtCore import QObject, QTimer, Signal
+from servo_limits import get_servo_limits
 from widgets.servo_layout import SERVO_NAMES
-
-
-def measured_bounds():
-    path = Path(__file__).resolve().parents[3] / "urdf/config/measured_servo_limits.json"
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-        return {
-            f"servo_{item['servo_id']}": (item["lower_radians"], item["upper_radians"])
-            for item in document["servos"]
-        }
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
 
 
 class ControllerPlayback(QObject):
@@ -53,7 +41,8 @@ class ControllerPlayback(QObject):
         self.manager = ros_manager
         self.snapshot_directory = Path(snapshot_directory)
         self.clock = clock
-        self.bounds = measured_bounds()
+        self.limits = get_servo_limits(ros_manager)
+        self.limits.changed.connect(self._limits_changed)
         self.owner = None
         self.repeat = True
         self.smooth = False
@@ -81,6 +70,14 @@ class ControllerPlayback(QObject):
         if self.owner is not None or self.pending:
             self.stop("Controller playback stopped: all torque release requested")
 
+    @property
+    def bounds(self):
+        return self.limits.bounds
+
+    def _limits_changed(self, _bounds):
+        if self.owner is not None or self.pending:
+            self.stop("Playback stopped because hardware limits changed; start again with current limits")
+
     def _require_manager(self):
         if self.manager is None:
             raise ValueError("ROS manager is unavailable")
@@ -92,12 +89,13 @@ class ControllerPlayback(QObject):
 
     def _snapshot(self, path):
         snapshot = load_snapshot_reference(
-            str(Path(path).resolve()), self.snapshot_directory, bounds=self.bounds,
+            str(Path(path).resolve()), self.snapshot_directory,
         )
         positions = snapshot["positions"]
         if set(positions) - set(SERVO_NAMES):
             raise ValueError("Snapshot contains unknown servos")
-        validate_snapshot(snapshot, bounds=self.bounds)
+        self.limits.require(positions)
+        snapshot["positions"] = validate_snapshot(snapshot, bounds=self.bounds)[1]
         return snapshot
 
     def snapshot(self, path, speed=512, torque=1023):

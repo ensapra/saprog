@@ -23,7 +23,7 @@ built and launched from [ros2](../ros2/).
 | Motion Recorder | Record a fixed-length loop, then layer other-leg recordings over it |
 | Controller | Native pygame gamepad detection, per-GUID mappings and snapshot/sequence execution |
 | Simulation | On-demand Gazebo URDF import, gravity, pause/reset and optional viewer |
-| Single Leg Test | Physical crank/rod/knee loop, editable geometry, loaded servo sweeps and live plots |
+| Single Leg Test | Single-leg URDF meshes, live servo mapping, recorded sequences and vertical foot-path tuning |
 
 Drag tabs to reorder them. Double-click a tab to detach it; closing the detached
 window returns it to the main window. See [operation](../docs/operation.md) for
@@ -33,8 +33,8 @@ for ROS topics and hardware configuration.
 
 See the [simulation guide](../ros2/saprog_simulation/README.md) for the lightweight
 defaults, Gazebo dependencies and isolated simulation controls.
-See the [single-leg guide](../ros2/saprog_leg_test/README.md) for the MuJoCo
-runtime setup, geometry calibration and dedicated test node.
+See the [single-leg guide](../docs/single-leg-test.md) for servo/URDF
+calibration, vertical-motion parameters and sequence export.
 
 ## Adding a tab
 

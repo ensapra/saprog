@@ -5,10 +5,21 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
-    QCheckBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget,
+    QCheckBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 from ros_manager.config import SIMULATION_STATUS
+from servo_limits import get_servo_limits
+from widgets.servo_layout import SERVO_NAMES
 
 TAB_TITLE = "Simulation"
 TAB_ORDER = 50
@@ -19,6 +30,7 @@ class SimulationTab(QWidget):
     def __init__(self, ros_manager=None, parent=None):
         super().__init__(parent)
         self.manager = ros_manager
+        self.limits = get_servo_limits(ros_manager)
         self.token = None
         self.pending = None
         self.state = {"running": False, "busy": False, "viewer": False, "paused": False}
@@ -89,6 +101,17 @@ class SimulationTab(QWidget):
             self.manager.status_changed.connect(self.provider_status)
             self.manager.command_result.connect(self.command_result)
         self.update_controls()
+        self.limits.status_changed.connect(self.status.setText)
+        self.limits.changed.connect(self.limits_changed)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.limits.refresh()
+
+    def limits_changed(self, _bounds):
+        if self.manager is not None and (self.state.get("running") or self.pending is not None):
+            self.manager.simulation_command("stop")
+        self.update_controls()
 
     @staticmethod
     def _number(lower, upper, value, step, suffix, decimals):
@@ -117,10 +140,16 @@ class SimulationTab(QWidget):
         if not path.is_file():
             self.status.setText("Choose an existing URDF file.")
             return
+        try:
+            bounds = self.limits.require(SERVO_NAMES)
+        except ValueError as error:
+            self.status.setText(str(error))
+            return
         self.send(
             "start", urdf_path=str(path.resolve()), real_time_factor=self.speed.value(),
             step_size=self.step_size.value() / 1000, spawn_height=self.spawn_height.value(),
             viewer=self.viewer_on_start.isChecked(), paused=self.start_paused.isChecked(),
+            servo_bounds=dict(bounds),
         )
 
     def pause(self):

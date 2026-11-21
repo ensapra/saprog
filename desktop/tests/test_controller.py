@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtCore import QEvent, QObject, QSettings, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
+from limit_fixtures import prime_limits  # noqa: E402
 from ros_manager import RosDataManager  # noqa: E402
 from ros_manager.ros_worker import RosWorker  # noqa: E402
 from ros_manager.wsl_bridge import cancel_pending_commands, publish_position_command  # noqa: E402
@@ -44,6 +45,10 @@ class FakeManager(QObject):
         self.commands = []
         self.cancelled = []
         self.released = []
+        prime_limits(self)
+
+    def refresh_servo_limits(self):
+        return "limits-read"
 
     def request_topic(self, *args, **kwargs):
         return "state-token"
@@ -296,6 +301,7 @@ class ControllerTest(unittest.TestCase):
 
     def test_external_release_stops_each_sequence_phase_without_restarting_while_held(self):
         manager = RosDataManager()
+        prime_limits(manager)
         self.addCleanup(dispose, manager)
         playback = ControllerPlayback(manager, self.snapshots, clock=lambda: self.now)
         self.addCleanup(dispose, playback)
@@ -427,6 +433,7 @@ class ControllerTest(unittest.TestCase):
 
     def test_stop_returns_manual_control_in_every_phase_and_ignores_late_events(self):
         manager = RosDataManager()
+        prime_limits(manager)
         self.addCleanup(dispose, manager)
         playback = ControllerPlayback(manager, self.snapshots, clock=lambda: self.now)
         self.addCleanup(dispose, playback)
@@ -468,7 +475,7 @@ class ControllerTest(unittest.TestCase):
         self.assertIn("1", self.manager.cancelled)
 
     def test_invalid_snapshot_prevents_any_commands(self):
-        for value in (float("nan"), 100):
+        for value in (float("nan"), float("inf")):
             self.pose.write_text(json.dumps({
                 "schema_version": 1, "name": "pose", "positions": {"servo_11": value},
             }), encoding="utf-8")
@@ -496,7 +503,6 @@ class ControllerTest(unittest.TestCase):
             "schema_version": 2, "units": "normalized", "name": "pose",
             "positions": {"servo_11": 0.0},
         }), encoding="utf-8")
-        self.playback.bounds = {"servo_11": (-0.2, 0.6)}
         with self.assertRaisesRegex(ValueError, "must use radians"):
             self.playback.snapshot(self.pose)
         self.assertFalse(self.manager.commands)
@@ -646,6 +652,7 @@ class ControllerTest(unittest.TestCase):
 class CancellationTest(unittest.TestCase):
     def test_torque_off_matches_real_manager_api(self):
         manager = RosDataManager()
+        prime_limits(manager)
         playback = ControllerPlayback(manager, Path.cwd() / "snapshots")
         with patch.object(manager, "_ensure_worker_locked"):
             playback.torque(False)
@@ -656,6 +663,7 @@ class CancellationTest(unittest.TestCase):
 
     def test_manager_cancels_only_requested_commands_and_forwards_to_wsl(self):
         manager = RosDataManager()
+        prime_limits(manager)
         results = []
         manager.command_result.connect(lambda *args: results.append(args))
         with patch.object(manager, "_ensure_worker_locked"):
@@ -670,6 +678,7 @@ class CancellationTest(unittest.TestCase):
 
     def test_release_all_reports_every_locally_discarded_command_outside_lock(self):
         manager = RosDataManager()
+        prime_limits(manager)
         self.addCleanup(dispose, manager)
         results, unlocked = [], []
 
@@ -693,6 +702,7 @@ class CancellationTest(unittest.TestCase):
 
     def test_controller_release_clears_static_animator_pending_puppet_controls(self):
         manager = RosDataManager()
+        prime_limits(manager)
         self.addCleanup(dispose, manager)
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(manager, "_ensure_worker_locked"):

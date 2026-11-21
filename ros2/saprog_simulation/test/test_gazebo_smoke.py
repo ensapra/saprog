@@ -14,6 +14,11 @@ sys.path.insert(0, str(PACKAGE))
 from saprog_simulation.session import GazeboSession  # noqa: E402
 
 
+def synthetic_bounds():
+    """Explicit test input; production gets its limits from the shared EEPROM read."""
+    return {f"servo_{leg}{joint}": [-.25, 1.] for leg in (1, 2, 3, 4) for joint in (1, 2, 3)}
+
+
 @unittest.skipUnless(
     os.environ.get("SAPROG_RUN_GAZEBO_TESTS") == "1" and shutil.which("gz") and sys.platform == "linux",
     "Enable live Gazebo tests in a sourced ROS Jazzy Linux environment",
@@ -24,7 +29,8 @@ class GazeboSmokeTests(unittest.TestCase):
         self.addCleanup(session.stop)
         urdf = PACKAGE.parents[1] / "urdf/urdf/URDF.urdf"
         started = time.monotonic()
-        session.start({"urdf_path": str(urdf), "paused": True, "spawn_height": 0.6})
+        session.start({"urdf_path": str(urdf), "paused": True, "spawn_height": 0.6,
+                       "servo_bounds": synthetic_bounds()})
         self.assertTrue(session.status()["running"])
         self.assertEqual(len(session.joints), 12)
         session.pause(False)
@@ -60,9 +66,8 @@ class GazeboSmokeTests(unittest.TestCase):
     def test_ros_node_command_results_and_shutdown(self):
         import rclpy
         from rclpy.executors import SingleThreadedExecutor
-        from std_msgs.msg import String
-
         from saprog_simulation.node import PREFIX, SimulationNode
+        from std_msgs.msg import String
 
         rclpy.init()
         node = SimulationNode()
@@ -98,7 +103,8 @@ class GazeboSmokeTests(unittest.TestCase):
             wait_for(lambda: publisher.get_subscription_count() > 0)
             self.assertFalse(node.session.status()["running"])
             urdf = PACKAGE.parents[1] / "urdf/urdf/URDF.urdf"
-            self.assertTrue(request("start", urdf_path=str(urdf), paused=True)["success"])
+            self.assertTrue(request("start", urdf_path=str(urdf), paused=True,
+                                    servo_bounds=synthetic_bounds())["success"])
             wait_for(lambda: any(state.get("running") for state in states))
             self.assertFalse(request("unknown")["success"])
             self.assertTrue(request("resume")["success"])

@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtCore import QObject, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
+from limit_fixtures import prime_limits  # noqa: E402
 from widgets.player import StaticAnimatorWidget  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +27,7 @@ class FakeManager(QObject):
         super().__init__()
         self.commands = []
         self.cancelled = []
+        prime_limits(self)
 
     def request_topic(self, *args, **kwargs):
         return "state-token"
@@ -105,19 +107,17 @@ class PlayerTest(unittest.TestCase):
             for name in self.view.target_inputs
         ]})
 
-    def test_entering_animator_reads_limits_updates_labels_and_persists(self):
-        from widgets.player.servo_limits import TICK_RADIANS
+    def test_entering_animator_reads_shared_limits_and_updates_labels(self):
+        from documents.snapshot_units import AX_TICK_RADIANS as TICK_RADIANS
 
         self.widget.show()
         self.app.processEvents()
         self.assertEqual(self.manager.commands[-1][1], "limits")
         self.widget.refresh_servo_limits()
         self.assertEqual(len(self.manager.commands), 1)
-        with patch("widgets.player.save_report") as save:
-            self.manager.command_result.emit(
-                self.manager.commands[-1][0], True, self.limits_response(),
-            )
-        save.assert_called_once()
+        self.manager.command_result.emit(
+            self.manager.commands[-1][0], True, self.limits_response(),
+        )
         lower, upper = self.view.servo_limits["servo_11"]
         self.assertAlmostEqual(lower, -88 * TICK_RADIANS)
         self.assertAlmostEqual(upper, 112 * TICK_RADIANS)
@@ -132,36 +132,30 @@ class PlayerTest(unittest.TestCase):
         self.assertEqual(len(self.manager.commands), 3)
         self.assertEqual(self.manager.commands[-1][1], "limits")
 
-    def test_failed_or_incomplete_limit_read_preserves_cached_bounds(self):
-        previous = dict(self.view.servo_limits)
+    def test_failed_or_incomplete_limit_read_clears_limits(self):
         for success, message in ((False, "servo_11 disconnected"), (True, '{"servos":[]}')):
             self.widget.refresh_servo_limits()
-            with patch("widgets.player.save_report") as save:
-                self.manager.command_result.emit(self.manager.commands[-1][0], success, message)
-            save.assert_not_called()
-            self.assertEqual(self.view.servo_limits, previous)
-            self.assertIn("using stored values", self.widget.keyframes_view.status_label.text())
+            self.manager.command_result.emit(self.manager.commands[-1][0], success, message)
+            self.assertFalse(self.view.servo_limits)
+            self.assertIn("EEPROM", self.widget.keyframes_view.status_label.text())
 
     def test_limit_timeout_ignores_late_read_and_can_retry(self):
-        previous = dict(self.view.servo_limits)
         self.widget.refresh_servo_limits()
         command_id = self.manager.commands[-1][0]
-        self.widget._limits_timed_out()
+        self.widget.limits.timed_out()
         self.assertIn(command_id, self.manager.cancelled)
-        with patch("widgets.player.save_report") as save:
-            self.manager.command_result.emit(command_id, True, self.limits_response())
-        save.assert_not_called()
-        self.assertEqual(self.view.servo_limits, previous)
+        self.manager.command_result.emit(command_id, True, self.limits_response())
+        self.assertFalse(self.view.servo_limits)
         self.widget.refresh_servo_limits()
-        self.assertIsNotNone(self.widget._limits_command)
+        self.assertIsNotNone(self.widget.limits.pending)
 
-    def test_save_failure_still_uses_fresh_limits_in_memory(self):
+    def test_limit_refresh_never_writes_a_disk_cache(self):
         self.widget.refresh_servo_limits()
-        with patch("widgets.player.save_report", side_effect=OSError("read only")):
+        with patch("builtins.open", side_effect=AssertionError("Unexpected disk cache write")):
             self.manager.command_result.emit(
                 self.manager.commands[-1][0], True, self.limits_response(),
             )
-        self.assertIn("could not save", self.widget.keyframes_view.status_label.text())
+        self.assertIn("from hardware", self.widget.keyframes_view.status_label.text())
         self.assertLess(self.view.servo_limits["servo_11"][1], 0.6)
 
     def test_entering_puppet_cancels_queued_motion_and_ignores_late_results(self):

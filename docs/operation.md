@@ -60,12 +60,15 @@ radians, and available measured bounds are applied when targets are loaded,
 saved or sent. Motion Recorder captures and imports are clamped before entering
 the timeline.
 
-Entering the page requests current EEPROM angle limits through the existing
-serial-port owner. A complete valid report updates the page's bounds and saves
-[measured_servo_limits.json](../urdf/config/measured_servo_limits.json), preserving
-existing model metadata. The read does not move servos or write EEPROM. On a
-failed or timed-out read, cached bounds remain; leave and re-enter to retry.
-If persistence fails after a valid read, fresh bounds remain active in this page.
+Entering any motion page requests current EEPROM angle limits through the existing
+serial-port owner, using the shared [limits service](../desktop/servo_limits/).
+A complete valid report updates every consumer immediately. Bounds are read-only
+and kept in memory for the current manager session; there is no limit file or
+editable override. Concurrent requests share one hardware read. The read does not
+move servos or write EEPROM. A failed, incomplete or timed-out report, or a ROS
+disconnect, invalidates the limits. Re-enter a motion page to retry. Hardware
+position commands and single-leg path generation require valid live bounds.
+Offline document editing and manual URDF inspection remain available.
 
 Puppet Mode disables a servo's torque, cancels its queued movement and tracks
 its measured position into the target field. That servo cannot be commanded by
@@ -156,9 +159,10 @@ seconds old when received by the bridge. Publication and telemetry timestamps
 are compared using the WSL ROS clock, so Windows clock drift does not delay
 arrival detection. Publication or
 arrival waits time out after 30 seconds. A publication result confirms sending,
-not physical arrival or backend acceptance. The controller loads stored measured
-bounds when its playback object is created; restart the desktop to reload a
-limit file changed later.
+not physical arrival or backend acceptance. Controller, TimeLine and Motion
+Recorder use the same live bounds as Static Animator. A changed or invalidated
+report stops active playback and cancels unpublished positions; start again after
+a successful hardware read. No desktop restart is needed to receive new limits.
 
 The bridge drains telemetry bursts within a bounded processing window, checking
 desktop commands between windows. Stop clears playback state immediately,

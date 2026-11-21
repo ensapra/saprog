@@ -207,6 +207,7 @@ class TimeLineTab(QWidget):
     def showEvent(self, event):
         """Update the file choices whenever this tab becomes visible."""
         super().showEvent(event)
+        self.playback.limits.refresh()
         self.refresh_sources()
         window = self.window()
         # Detached tabs return to their owner on close; guard the owning workspace,

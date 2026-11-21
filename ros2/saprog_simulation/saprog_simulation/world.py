@@ -50,7 +50,42 @@ def child(parent, tag, text=None, **attributes):
     return element
 
 
-def prepare_world(urdf_path, directory, *, step_size=0.004, real_time_factor=0.5, spawn_height=0.3):
+def apply_servo_bounds(source, bounds):
+    """Use the shared desktop's live EEPROM report, never saved URDF angle stops."""
+    joints = {joint.get("name"): joint for joint in source.findall("joint")}
+    ranges = {}
+    for name, joint in joints.items():
+        if joint.get("type") not in ("revolute", "continuous") or joint.find("mimic") is not None:
+            continue
+        match = re.search(r"(?:^|_)(\d+)$", name)
+        if match is None:
+            continue
+        alias = f"servo_{match[1]}"
+        if not isinstance(bounds, dict) or alias not in bounds:
+            raise ValueError(f"Current EEPROM limits are required for {alias}")
+        pair = bounds[alias]
+        if (not isinstance(pair, (list, tuple)) or len(pair) != 2
+                or any(type(v) not in (int, float) or not math.isfinite(v) for v in pair)
+                or pair[0] >= pair[1]):
+            raise ValueError(f"Invalid live bounds for {alias}")
+        ranges[name] = pair
+    for name, joint in joints.items():
+        mimic = joint.find("mimic")
+        if mimic is not None and mimic.get("joint") in ranges:
+            gain, offset = float(mimic.get("multiplier", "1")), float(mimic.get("offset", "0"))
+            ranges[name] = sorted(gain*v+offset for v in ranges[mimic.get("joint")])
+    for name, (lower, upper) in ranges.items():
+        joint = joints[name]
+        joint.set("type", "revolute")
+        limit = joint.find("limit")
+        if limit is None:
+            limit = ET.SubElement(joint, "limit", effort="2", velocity="3")
+        limit.set("lower", str(lower))
+        limit.set("upper", str(upper))
+
+
+def prepare_world(urdf_path, directory, *, step_size=0.004, real_time_factor=0.5, spawn_height=0.3,
+                  servo_bounds=None):
     """Convert with installed SDFormat, preserving geometry, inertia and mimic joints."""
     step_size = finite_number(step_size, "Physics step", 0.001, 0.01)
     real_time_factor = finite_number(real_time_factor, "Simulation speed", 0.1, 4.0)
@@ -59,6 +94,7 @@ def prepare_world(urdf_path, directory, *, step_size=0.004, real_time_factor=0.5
     source = ET.parse(urdf_path).getroot()
     if source.tag != "robot":
         raise ValueError("Choose a URDF robot document")
+    apply_servo_bounds(source, servo_bounds)
     for mesh in source.iter("mesh"):
         mesh.set("filename", resolve_mesh(mesh.attrib["filename"], urdf_path))
     prepared = Path(directory) / "robot.urdf"

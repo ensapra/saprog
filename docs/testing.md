@@ -17,16 +17,15 @@ controllers and ROS endpoints; ROS and physical devices are not required.
 | --- | --- |
 | [test_controller.py](../desktop/tests/test_controller.py) | Input discovery, mappings, sequence ownership, timing, torque release and publication readiness |
 | [test_player.py](../desktop/tests/test_player.py) | Snapshot load/save, movement commands, Puppet Mode and limit refresh |
-| [test_servo_limits.py](../desktop/tests/test_servo_limits.py) | Complete hardware reports, metadata preservation and bridge service results |
+| [test_servo_limits.py](../desktop/tests/test_servo_limits.py) | Shared read-only live reports, refresh deduplication, failure invalidation, consumer updates and bridge routing |
 | [test_timeline_editor.py](../desktop/tests/test_timeline_editor.py) | Document migration, references, edits, atomic saves and window close handling |
 | [test_ros_launcher.py](../desktop/tests/test_ros_launcher.py) | Launch shell, USB preflight and parameter-file behavior with stub commands |
 | [test_wsl_bridge.py](../desktop/tests/test_wsl_bridge.py) | Protocol, subscriptions, command dispatch and owned-process cleanup |
 | [test_simulation.py](../desktop/tests/test_simulation.py) | Lazy Gazebo startup, UI controls, isolated command/results, path conversion and world generation |
-| [test_leg_test.py](../desktop/tests/test_leg_test.py) | Four-bar closure, loaded MuJoCo sweeps, lifecycle, Qt controls and isolated node routing |
+| [test_leg_urdf.py](../desktop/tests/test_leg_urdf.py) | Single-leg mesh extraction, servo-name mapping, stale feedback, four-leg vertical IK, local preview, tuning and timeline export |
 
-The single-leg physics tests additionally require `mujoco>=3.2,<4`; without it
-those tests skip. See the [single-leg guide](../ros2/saprog_leg_test/README.md)
-for the separate ROS runtime environment and calibration limitations.
+See the [single-leg guide](single-leg-test.md) for URDF preview and calibration
+limitations.
 
 Launcher tests require Bash and skip when it is unavailable. On Windows they
 look for Git Bash at C:/Program Files/Git/bin/bash.exe.

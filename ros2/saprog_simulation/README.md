@@ -27,7 +27,9 @@ Gazebo. The selected URDF path is sent by the desktop and translated with
 
 ## Controls
 
-- **Start:** import the URDF, load a ground plane and enable `0 0 -9.81` gravity.
+- **Start:** use the shared current EEPROM limits, import the URDF, load a ground
+  plane and enable `0 0 -9.81` gravity. Entering the tab refreshes limits using the
+  same process as Static Animator. A successful hardware read is required.
 - **Pause / Resume:** control the physics clock. Gravity stays configured.
 - **Reset:** restart the owned server with the same URDF and settings, clearing
   body motion. The current pause/viewer choices persist.
@@ -53,9 +55,13 @@ constraints with that engine. Raising step size reduces work but can destabilize
 small, stiff mechanisms; lower it if contact or joint motion becomes unstable.
 Lowering simulation speed reduces CPU demand without changing the physics step.
 
-The supplied meshes, collision geometry, masses, inertia, joint axes, limits and
-mimic relationships are retained. Only a temporary copy has mesh URIs resolved
-and gravity enabled. The source URDF is never saved.
+The supplied meshes, collision geometry, masses, inertia, joint axes and mimic
+relationships are retained. Current hardware limits arrive as `servo_bounds` in
+the start payload; a temporary copy receives those motor stops and the derived
+mimic ranges. Saved URDF angle limits are not used as a fallback. Only that copy
+has mesh URIs resolved and gravity enabled. The source URDF is never saved.
+A changed or invalidated hardware report stops the desktop-owned simulation so
+its next start imports the new limits.
 The checked-in `saprog_description` package can be resolved directly from the
 URDF's parent package directory. Other package meshes use the ament index.
 

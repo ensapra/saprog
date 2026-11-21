@@ -20,7 +20,7 @@ visualizations belong in [widgets](../desktop/widgets/).
 | IMU labels and orientation drawing | [imu_visualizer](../desktop/widgets/imu_visualizer/) |
 | Snapshot composition and ROS commands | [player](../desktop/widgets/player/__init__.py) |
 | Target fields, Puppet Mode and snapshot saving | [creator_view](../desktop/widgets/player/creator_view.py) |
-| Hardware-limit validation and persistence | [servo_limits](../desktop/widgets/player/servo_limits.py) |
+| Shared live hardware limits and EEPROM report validation | [servo_limits](../desktop/servo_limits/) |
 | Offline timeline document and editor | [timeline](../desktop/tabs/timeline/) |
 | Controller discovery and input polling | [devices](../desktop/tabs/controller/devices.py) |
 | Mappings and press/release routing | [Controller tab](../desktop/tabs/controller/__init__.py) |
@@ -28,6 +28,14 @@ visualizations belong in [widgets](../desktop/widgets/).
 | Gazebo startup and physics controls | [Simulation tab](../desktop/tabs/simulation/) |
 
 ## Shared documents
+
+Each ROS manager owns one [ServoLimits](../desktop/servo_limits/service.py) object.
+All motion consumers receive its read-only, live mapping. The service deduplicates
+EEPROM reads, validates all configured servos, converts directions/encoder zeros
+through the document unit helpers, handles timeouts and invalidates failed reads.
+It performs no persistence. The manager enforces these same bounds at the position
+publication boundary, and the simulation supervisor receives them in its start
+payload to build temporary joint stops. URDFs and tuning files are not limit sources.
 
 [documents](../desktop/documents/) imports neither ROS nor Qt.
 [snapshot_units.py](../desktop/documents/snapshot_units.py) validates radian poses

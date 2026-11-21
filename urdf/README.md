@@ -24,22 +24,29 @@ Desktop and hardware messages use servo_N names; the model uses these names:
 | Front left | 31, 32, 33 | front_left_31, front_left_32, front_left_joint_33 |
 | Back left | 41, 42, 43 | back_left_41, back_left_42, back_left_joint_43 |
 
-There is no current desktop joint-state-to-model bridge. The four crank joints
-use logical servo radians, -X axes and limits of approximately
-0.2661499153 to 0.8803420274 radians. Their origin rotations include the calibrated
-reference offset. Each corresponding leg joint mimics its crank with multiplier
-2.4 and offset approximately -2.1128208658 radians, with limits about
--1.4740610691 to 0. This is a kinematic approximation; mimic tags do not enforce a
+The desktop **Single Leg Test** maps received `servo_N` radians to one selected
+leg, renders its meshes and exposes mapping/foot-path calibration. Its default
+[front_right.urdf](urdf/front_right.urdf) contains just the front-right branch
+and an empty fixed base. Other legs are extracted from the full description.
+See the [single-leg guide](../docs/single-leg-test.md).
+The four crank joints use logical servo radians and -X axes. Their origin
+rotations include the calibrated reference offset. Each corresponding leg joint
+mimics its crank with multiplier 2.4 and offset approximately -2.1128208658 radians.
+Servo and mimic joints are continuous in the saved geometry: old angle stops
+were removed. Gazebo receives current EEPROM bounds in its start payload and
+adds motor stops and derived mimic ranges only to its temporary import copy.
+This is a kinematic approximation; mimic tags do not enforce a
 closed mechanical linkage or establish valid contact dynamics.
 
-## Measured servo data
+## Live servo limits
 
-[measured_servo_limits.json](config/measured_servo_limits.json) stores raw encoder
-limits, zero positions, directions, converted radians and model metadata. The
-Static Animator reads fresh EEPROM limits through the ROS bus owner and updates
-this file while preserving the model fields. It does not regenerate the URDF.
-The JSON and URDF therefore need separate review after calibration changes.
-The source and timestamp in the JSON describe the last stored measurement.
+The old `config/measured_servo_limits.json` cache was removed. Limits are read
+from servo EEPROM through the existing serial-port owner and shared in memory by
+the desktop [limits service](../desktop/servo_limits/). Static Animator, controller
+and timeline playback, Motion Recorder, Single Leg Test and Gazebo all consume
+that same report. Failed reads invalidate it. Limits are not written to geometry,
+tuning files or another cache. Encoder zeros and directions remain in the hardware
+[configuration](../ros2/saprog_dynamixel/config/saprog.yaml).
 
 The [launch directory](launch/) contains ROS 1 exporter XML using old package
 names and ROS 1 nodes. Those files are not installed by the current CMake package

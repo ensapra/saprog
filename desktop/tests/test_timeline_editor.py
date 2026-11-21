@@ -13,6 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtTest import QTest
+from limit_fixtures import prime_limits
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
@@ -216,6 +217,7 @@ class TimelineUiTest(TimelineFixture):
         self.widget = TimeLineTab(
             snapshot_directory=self.snapshots, sequence_directory=self.sequences
         )
+        prime_limits(self.widget.playback.limits)
         self.addCleanup(self.widget.deleteLater)
 
     def click(self, text):
@@ -293,7 +295,7 @@ class TimelineUiTest(TimelineFixture):
         other = self.root / "other"
         other.mkdir()
         other_pose = copy.deepcopy(self.pose)
-        other_pose["positions"]["servo_11"] = 1.5
+        other_pose["positions"]["servo_11"] = 100
         (other / "pose.json").write_text(json.dumps(other_pose), encoding="utf-8")
         self.widget.source_controls[1][1].setText(str(other))
         self.widget.refresh_sources()
@@ -306,7 +308,7 @@ class TimelineUiTest(TimelineFixture):
         self.assertTrue(self.widget.save_timeline(self.target))
         self.document.load(self.target)
         self.assertEqual(self.document.snapshot(0)["positions"]["servo_11"], 0.1)
-        self.assertEqual(self.document.snapshot(1)["positions"]["servo_11"], 1.5)
+        self.assertEqual(self.document.snapshot(1)["positions"]["servo_11"], 100)
         self.assertTrue(self.widget.load_timeline(self.target))
         self.assertEqual(self.widget.document.snapshot(0)["positions"]["servo_11"], 0.1)
         self.assertAlmostEqual(

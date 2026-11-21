@@ -13,7 +13,7 @@ checkout. Source code and configuration take precedence when behavior changes.
 - [DYNAMIXEL](../ros2/saprog_dynamixel/README.md): servo configuration and ROS interfaces.
 - [Robot description](../urdf/README.md): model assets, joint mapping and approximations.
 - [Simulation](../ros2/saprog_simulation/README.md): Gazebo tab, gravity and performance settings.
-- [Single-leg test](../ros2/saprog_leg_test/README.md): physical crank linkage, loaded sweeps and calibration.
+- [Single-leg test](single-leg-test.md): URDF calibration, sequence preview and vertical motion.
 - [Testing](testing.md): current suites and their scope.
 
 The desktop ROS worker currently supports Windows with WSL. The Qt shell and

@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "ros2/saprog_simulation"))
 
 from PySide6.QtCore import QEvent, QObject, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
+from limit_fixtures import prime_limits  # noqa: E402
 from ros_manager import RosDataManager  # noqa: E402
 from ros_manager.config import SIMULATION_STATUS  # noqa: E402
 from ros_manager.wsl_bridge.simulation import SimulationCommands  # noqa: E402
@@ -36,6 +37,9 @@ class FakeManager(QObject):
         self.request_topic = Mock(return_value="simulation-token")
         self.simulation_command = Mock(return_value="simulation-command")
         self.release = Mock()
+        self.refresh_servo_limits = Mock(return_value="limits-read")
+        self.cancel_commands = Mock()
+        prime_limits(self)
 
 
 class SimulationTabTests(unittest.TestCase):
@@ -161,7 +165,9 @@ class WorldTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.object(
             world.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=converted),
         ):
-            path, joints = world.prepare_world(source, directory)
+            from limit_fixtures import fixture_bounds
+
+            path, joints = world.prepare_world(source, directory, servo_bounds=fixture_bounds())
             tree = ET.parse(path)
             self.assertEqual(tree.findtext("world/gravity"), "0 0 -9.81")
             self.assertEqual(tree.findtext("world/physics/max_step_size"), "0.004")
@@ -171,8 +177,21 @@ class WorldTests(unittest.TestCase):
             self.assertEqual(len(tree.findall(".//mimic")), 4)
             self.assertEqual(tree.findall(".//sensor"), [])
             self.assertEqual(joints["servo_13"]["name"], "front_right_joint_13")
+            prepared = ET.parse(Path(directory) / "robot.urdf")
+            motor = prepared.find("joint[@name='front_right_joint_13']/limit")
+            knee = prepared.find("joint[@name='front_right_leg']/limit")
+            low, high = fixture_bounds()["servo_13"]
+            self.assertAlmostEqual(float(motor.get("lower")), low)
+            self.assertAlmostEqual(float(motor.get("upper")), high)
+            self.assertAlmostEqual(float(knee.get("lower")), 2.4*low-2.112820865757358)
             self.assertIn("bullet-featherstone", path.read_text())
         self.assertEqual(source.read_bytes(), original)
+
+    def test_no_saved_limits_fallback_before_gazebo_conversion(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(world.subprocess, "run") as convert:
+            with self.assertRaisesRegex(ValueError, "Current EEPROM limits"):
+                world.prepare_world(ROOT / "urdf/urdf/URDF.urdf", directory)
+            convert.assert_not_called()
 
     def test_invalid_performance_settings_are_rejected_before_conversion(self):
         for options in ({"step_size": float("nan")}, {"real_time_factor": 0}, {"spawn_height": -1}):

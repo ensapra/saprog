@@ -13,11 +13,9 @@ from .simulation import SimulationCommands
 from .subscriptions import TopicSubscriptions
 
 
-def dispatch_command(line, commands, topics, simulation=None, leg_test=None):
+def dispatch_command(line, commands, topics, simulation=None):
     try:
         command = json.loads(line)
-        if leg_test is not None and leg_test.handle(command):
-            return
         if simulation is not None and simulation.handle(command):
             return
         if not commands.handle(command):
@@ -51,7 +49,6 @@ def run(workspace):
     topics = TopicSubscriptions(node)
     commands = RobotCommands(node, JointState, SetBool, Trigger)
     simulation = SimulationCommands(node, String)
-    leg_test = SimulationCommands(node, String, operation="leg_test", namespace="/saprog/leg_test")
     processes = NodeProcesses(workspace, shutdown_event, topics.set_status)
     reader = CommandReader(shutdown_event)
     reader.start()
@@ -63,7 +60,7 @@ def run(workspace):
                 line = reader.queue.get(timeout=0.01)
                 if line is None:
                     break
-                dispatch_command(line, commands, topics, simulation, leg_test)
+                dispatch_command(line, commands, topics, simulation)
                 while True:
                     try:
                         line = reader.queue.get_nowait()
@@ -71,7 +68,7 @@ def run(workspace):
                         break
                     if line is None:
                         return
-                    dispatch_command(line, commands, topics, simulation, leg_test)
+                    dispatch_command(line, commands, topics, simulation)
             except queue.Empty:
                 pass
 
@@ -79,7 +76,6 @@ def run(workspace):
                 processes.ensure_provider(request, node, topics.topic_status)
             commands.process_pending()
             simulation.process_pending()
-            leg_test.process_pending()
             spin_ready_callbacks(executor)
     finally:
         processes.close()

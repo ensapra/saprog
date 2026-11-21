@@ -171,6 +171,7 @@ class ControllerTab(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self.playback.limits.refresh()
         self.refresh_files()
 
     def _devices_changed(self, devices):

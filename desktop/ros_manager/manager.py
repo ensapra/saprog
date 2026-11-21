@@ -47,6 +47,17 @@ class RosDataManager(QObject):
         self._commands = queue.Queue()
         self._command_lock = threading.Lock()
         self._worker: RosWorker | None = None
+        self._pending_positions = set()
+        self.command_result.connect(self._position_finished)
+        self.servo_limits.changed.connect(self._limits_updated)
+
+    def _position_finished(self, command_id, _success, _message):
+        self._pending_positions.discard(command_id)
+
+    def _limits_updated(self, _bounds):
+        pending, self._pending_positions = self._pending_positions, set()
+        if pending:
+            self.cancel_commands(pending)
 
     def request_topic(
         self,
@@ -94,35 +105,45 @@ class RosDataManager(QObject):
         speed, torque = int(speed), int(torque)
         if not joints or len(joints) != len(positions):
             raise ValueError("Position commands need matching joint names and positions")
+        if len(set(joints)) != len(joints):
+            raise ValueError("Position commands cannot repeat a servo")
         if any(not re.fullmatch(r"servo_\d+", joint) for joint in joints):
             raise ValueError("Position commands need servo_N joint names")
         if not all(math.isfinite(value) for value in positions):
             raise ValueError("Position command values must be finite")
         if not 1 <= speed <= 1023 or not 0 <= torque <= 1023:
             raise ValueError("Speed must be 1–1023 and torque strength 0–1023")
-        return self._queue_command({
+        # Enforce the same live limits even for callers outside the desktop tabs.
+        positions = list(self.servo_limits.clamp(dict(zip(joints, positions))).values())
+        command_id = self._queue_command({
             "op": "publish_position",
             "joints": joints,
             "positions": positions,
             "speed": speed,
             "torque": torque,
         })
+        self._pending_positions.add(command_id)
+        return command_id
 
     def refresh_servo_limits(self):
-        """Read the current EEPROM limits through the servo port owner."""
+        """Refresh the shared, validated EEPROM report for every consumer."""
+        return self.servo_limits.refresh()
+
+    def _read_servo_limits(self):
+        """Transport operation used only by the shared limits process."""
         return self._queue_command({"op": "refresh_servo_limits"})
+
+    @property
+    def servo_limits(self):
+        from servo_limits import get_servo_limits
+
+        return get_servo_limits(self)
 
     def simulation_command(self, action, **options):
         """Send only to the Gazebo supervisor, never to hardware endpoints."""
         if action not in {"start", "stop", "pause", "resume", "reset", "show_viewer", "hide_viewer"}:
             raise ValueError("Unknown simulation action")
         return self._queue_command({"op": "simulation", "payload": {**options, "action": action}})
-
-    def leg_test_command(self, action, **options):
-        """Queue an isolated linkage-rig command, with no hardware publication."""
-        if action not in {"start", "stop", "pause", "resume", "reset", "target", "sweep", "stop_sweep"}:
-            raise ValueError("Unknown single-leg test action")
-        return self._queue_command({"op": "leg_test", "payload": {**options, "action": action}})
 
     def set_servo_torque(self, joint, enabled):
         """Queue a per-servo torque enable or disable service request."""
@@ -231,6 +252,9 @@ class RosDataManager(QObject):
 
     def close(self, timeout: float = 5.0) -> None:
         """Stop the ROS worker and the node processes it launched."""
+        limits = vars(self).get("_servo_limits_service")
+        if limits is not None:
+            limits.close()
         with self._lock:
             worker = self._worker
             self._requests.clear()

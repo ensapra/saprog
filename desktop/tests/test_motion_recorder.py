@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from documents.timeline_domain import mirrored_positions
 from documents.timeline_storage import load_snapshot_reference, load_timeline
+from limit_fixtures import prime_limits
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
@@ -31,6 +32,10 @@ class FakeManager(QObject):
         super().__init__()
         self.commands = []
         self.cancelled = []
+        prime_limits(self)
+
+    def refresh_servo_limits(self):
+        return "limits-read"
 
     def request_topic(self, *args, **kwargs):
         return "state-token"
@@ -438,7 +443,7 @@ class MotionRecorderTest(unittest.TestCase):
         self.assertIn("servo_21", self.widget.frames[0]["positions"])
 
     def test_captured_feedback_is_clamped_in_recorded_poses(self):
-        self.receive_pose(2)
+        self.receive_pose(100)
         self.assertTrue(self.widget.capture_pose())
         positions = self.widget.frames[0]["positions"]
         for joint in ("servo_11", "servo_12", "servo_13"):
@@ -466,7 +471,7 @@ class MotionRecorderTest(unittest.TestCase):
 
     def make_workspace(self):
         window = WorkspaceMainWindow()
-        animator = StaticAnimatorWidget(directory=str(self.snapshots))
+        animator = StaticAnimatorWidget(directory=str(self.snapshots), ros_manager=self.manager)
         window.add_tab(animator, "Static Animator")
         window.add_tab(self.widget, "Motion Recorder")
         window.tabs.setCurrentWidget(self.widget)
