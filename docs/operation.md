@@ -43,6 +43,13 @@ An explicit SAPROG_IMU_DEVICE in the WSL environment skips automatic IMU
 attachment. The helpers still require suitable Linux device permissions.
 Gamepads stay on the desktop host and are read by pygame.
 
+If both hardware nodes exit during startup, check that the Windows **USBIP Device
+Host** (`usbipd`) service is running. A stopped service prevents shared adapters
+from attaching to WSL. Start it from Administrator PowerShell with
+`Start-Service usbipd`. The desktop log includes the last lines of failed node
+output, including USB preflight errors. Failed launches retry after 5, 10, 20,
+40, then 60 seconds; the delay resets after a node has run for 30 seconds.
+
 ## Statistics
 
 The telemetry graph selects temperature, voltage or speed for individual servos

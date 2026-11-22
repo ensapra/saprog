@@ -104,10 +104,11 @@
     <limit effort="2" velocity="3" />
   </joint>
   <joint name="front_right_joint_13" type="continuous">
-    <origin xyz="-0.0678 -8.3898639056e-05 -0.0035641491397" rpy="4.0219273345989 0 0" />
+    <!-- Right crank: reverse logical angle direction about the existing 0.55 rad pose. -->
+    <origin xyz="-0.0678 -8.3898639056e-05 -0.0035641491397" rpy="2.9219273345989 0 0" />
     <parent link="front_right_12_link" />
     <child link="front_right_joint_13_link" />
-    <axis xyz="-1 0 0" />
+    <axis xyz="1 0 0" />
     <limit effort="2" velocity="3" />
   </joint>
   <joint name="front_right_leg" type="continuous">
@@ -116,6 +117,6 @@
     <child link="front_right_leg_link" />
     <limit effort="2" velocity="3" />
     <axis xyz="0 0 1" />
-    <mimic joint="front_right_joint_13" multiplier="2.4" offset="-2.112820865757358" />
+    <mimic joint="front_right_joint_13" multiplier="-2.4" offset="0.527179134242642" />
   </joint>
 </robot>

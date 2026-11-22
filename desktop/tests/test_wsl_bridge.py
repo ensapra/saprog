@@ -173,11 +173,14 @@ class NodeProcessesTests(unittest.TestCase):
             processes, "launch_node", side_effect=[first, second],
         ) as launch, patch.object(processes, "emit"), patch.object(
             processes.time, "monotonic", return_value=100,
-        ):
+        ) as clock:
             manager._build_and_launch(key, "/topic", request)
             manager.collect_results()
             manager.start_time = 0
             with patch.object(processes.threading, "Thread") as thread:
+                manager.ensure_provider(request, node, Mock())
+                thread.assert_not_called()
+                clock.return_value = 105
                 manager.ensure_provider(request, node, Mock())
                 thread.assert_called_once()
             manager._build_and_launch(key, "/topic", request)
@@ -186,6 +189,89 @@ class NodeProcessesTests(unittest.TestCase):
         self.assertEqual(launch.call_count, 2)
         self.assertTrue(any("exited with code 1" in call.args[1]
                             for call in manager.set_status.call_args_list))
+
+    def test_failure_backoff_is_shared_by_topics_and_capped(self):
+        manager = processes.NodeProcesses("/workspace", threading.Event(), Mock())
+        manager.start_time = 0
+        key = ("pkg", "node")
+        node = Mock()
+        node.count_publishers.return_value = 0
+        request = {"topic": "/other", "package": "pkg", "executable": "node"}
+        with patch.object(processes.time, "monotonic", return_value=100), patch.object(
+            processes.threading, "Thread",
+        ) as thread:
+            for delay in (5, 10, 20, 40, 60, 60):
+                manager._record_failure(key, "/topic", "USB unavailable")
+                self.assertEqual(manager.retry_at[key], 100 + delay)
+                manager.ensure_provider(request, node, Mock())
+                self.assertEqual(manager.set_status.call_args.args, (
+                    "/other", f"USB unavailable; retrying in {delay} seconds",
+                ))
+            thread.assert_not_called()
+
+    def test_output_is_drained_and_exit_status_includes_failure_reason(self):
+        process = subprocess.Popen(
+            [sys.executable, "-c",
+             "import sys; print('output\\n' * 40000); "
+             "print('USB service is stopped', file=sys.stderr); sys.exit(1)"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        self.addCleanup(lambda: process.kill() if process.poll() is None else None)
+        process.saprog_output = processes.NodeOutput(process.stdout)
+        self.assertEqual(process.wait(timeout=10), 1)
+        manager = processes.NodeProcesses("/workspace", threading.Event(), Mock())
+        manager.start_time = 0
+        manager.processes[("pkg", "node")] = process
+        node = Mock()
+        node.count_publishers.return_value = 0
+        with patch.object(processes.time, "monotonic", return_value=100):
+            manager.ensure_provider(
+                {"topic": "/topic", "package": "pkg", "executable": "node"}, node, Mock(),
+            )
+        status = manager.set_status.call_args.args[1]
+        self.assertIn("USB service is stopped", status)
+        self.assertIn("retrying in 5 seconds", status)
+        self.assertLessEqual(len(process.saprog_output.lines), 20)
+
+    def test_build_errors_wait_before_retrying(self):
+        manager = processes.NodeProcesses("/workspace", threading.Event(), Mock())
+        manager.start_time = 0
+        key = ("pkg", "node")
+        manager.build_results.put((key, "/topic", None, RuntimeError("build failed")))
+        node = Mock()
+        node.count_publishers.return_value = 0
+        with patch.object(processes.time, "monotonic", return_value=100), patch.object(
+            processes.threading, "Thread",
+        ) as thread:
+            manager.collect_results()
+            manager.ensure_provider(
+                {"topic": "/topic", "package": "pkg", "executable": "node"}, node, Mock(),
+            )
+            thread.assert_not_called()
+        self.assertIn("build failed", manager.set_status.call_args.args[1])
+
+    def test_backoff_resets_after_running_not_after_a_long_build(self):
+        manager = processes.NodeProcesses("/workspace", threading.Event(), Mock())
+        manager.start_time = 0
+        key = ("pkg", "node")
+        manager.failures[key] = 5
+        manager.last_attempt[key] = 1
+        process = Mock()
+        process.poll.return_value = None
+        manager.build_results.put((key, "/topic", process, None))
+        node = Mock()
+        node.count_publishers.return_value = 0
+        request = {"topic": "/topic", "package": "pkg", "executable": "node"}
+        with patch.object(processes.time, "monotonic", return_value=100) as clock:
+            manager.collect_results()
+            manager.ensure_provider(request, node, Mock())
+            self.assertEqual(manager.failures[key], 5)
+            clock.return_value = 130
+            manager.ensure_provider(request, node, Mock())
+            self.assertNotIn(key, manager.failures)
+            process.poll.return_value = 1
+            manager.ensure_provider(request, node, Mock())
+            self.assertIn("retrying in 5 seconds", manager.set_status.call_args.args[1])
 
     def test_shutdown_joins_builds_and_stops_late_and_registered_processes(self):
         shutdown = threading.Event()

@@ -101,11 +101,40 @@ class KinematicsTests(unittest.TestCase):
         _, angles = model.transforms(pose)
         self.assertEqual(angles["front_right_11"], -.12)
         self.assertEqual(angles["front_right_joint_13"], .76)
-        self.assertAlmostEqual(angles["front_right_leg"], 2.4*.76-2.112820865757358)
+        self.assertAlmostEqual(angles["front_right_leg"], -2.4*.76+.527179134242642)
         model.mappings[2].gain, model.mappings[2].offset = -1, .9
         _, angles = model.transforms(pose)
         self.assertAlmostEqual(angles["front_right_joint_13"], .14)
-        self.assertAlmostEqual(angles["front_right_leg"], 2.4*.14-2.112820865757358)
+        self.assertAlmostEqual(angles["front_right_leg"], -2.4*.14+.527179134242642)
+
+    def test_crank_direction_and_reference_pose_for_both_sides(self):
+        reference = .55
+        for leg, ids in LEGS.items():
+            with self.subTest(leg=leg):
+                model = SingleLegModel(DESCRIPTION / "urdf/URDF.urdf", leg)
+                crank = next(j for j in model.joints if j.get("name") == model.mappings[2].joint)
+                right = leg.endswith("right")
+                np.testing.assert_array_equal(
+                    vector(crank.find("axis").get("xyz")), [1 if right else -1, 0, 0])
+                self.assertEqual(model.multiplier, -2.4 if right else 2.4)
+                old_roll = (4.0219273345989 if leg.startswith("front")
+                            else .8803420273988994)
+                for angle in (.2, reference, .8):
+                    pose = {f"servo_{ids[0]}": 0., f"servo_{ids[1]}": .55,
+                            f"servo_{ids[2]}": angle}
+                    angles = model.joint_angles(pose)
+                    # Right-side motion retraces the original geometry in reverse,
+                    # preserving the crank and knee alignment at the reference pose.
+                    original_angle = 2*reference-angle if right else angle
+                    expected = rotation((1, 0, 0), old_roll-original_angle)
+                    actual = origin(crank.find("origin"))[:3, :3] @ rotation(
+                        vector(crank.find("axis").get("xyz")), angle)
+                    # Left joints also have a fixed yaw, which is unchanged.
+                    yaw = vector(crank.find("origin").get("rpy"))[2]
+                    expected = rotation((0, 0, 1), yaw) @ expected
+                    np.testing.assert_allclose(actual, expected, atol=1e-12)
+                    self.assertAlmostEqual(
+                        angles[f"{leg}_leg"], 2.4*original_angle-2.112820865757358)
 
     def test_vertical_cycle_for_every_leg_holds_xy_within_point_one_mm(self):
         for leg in LEGS:

@@ -68,8 +68,8 @@ The preview requests telemetry and sends no position or torque commands.
 | --- | --- |
 | Per-joint gain / offset | 1 / 0 rad; align the received angles to the model |
 | Per-servo lower / upper | Read-only current EEPROM limits, shared with Static Animator |
-| Knee / crank gain | 2.4, from the URDF mimic relation |
-| Knee offset | -2.112820865757358 rad, from the URDF |
+| Knee / crank gain | -2.4 for right legs (13/23); 2.4 for left legs (33/43), from the URDF |
+| Knee offset | 0.527179134242642 rad for right legs; -2.112820865757358 rad for left legs |
 | Foot local X/Y/Z | Estimated mesh tip; replace with measured contact point |
 | Centre X/Y/Z | Capture from the current foot; coordinates are in the fixed base frame |
 | Stroke / period | 10 mm total / 4 s per cycle |

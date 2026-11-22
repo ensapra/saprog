@@ -183,7 +183,8 @@ class WorldTests(unittest.TestCase):
             low, high = fixture_bounds()["servo_13"]
             self.assertAlmostEqual(float(motor.get("lower")), low)
             self.assertAlmostEqual(float(motor.get("upper")), high)
-            self.assertAlmostEqual(float(knee.get("lower")), 2.4*low-2.112820865757358)
+            self.assertAlmostEqual(float(knee.get("lower")), -2.4*high+.527179134242642)
+            self.assertAlmostEqual(float(knee.get("upper")), -2.4*low+.527179134242642)
             self.assertIn("bullet-featherstone", path.read_text())
         self.assertEqual(source.read_bytes(), original)
 

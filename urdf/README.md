@@ -29,9 +29,12 @@ leg, renders its meshes and exposes mapping/foot-path calibration. Its default
 [front_right.urdf](urdf/front_right.urdf) contains just the front-right branch
 and an empty fixed base. Other legs are extracted from the full description.
 See the [single-leg guide](../docs/single-leg-test.md).
-The four crank joints use logical servo radians and -X axes. Their origin
-rotations include the calibrated reference offset. Each corresponding leg joint
-mimics its crank with multiplier 2.4 and offset approximately -2.1128208658 radians.
+The four crank joints use logical servo radians. Right-side cranks (13 and 23)
+use +X axes and knee mimic multiplier -2.4 with offset 0.527179134242642 radians:
+increasing servo radians folds the leg. Their origin rotations preserve the
+existing 0.55 rad preview pose while reversing motion around it. This reference
+is a pose calibration, not a travel limit. Left-side cranks (33 and 43) retain
+their -X axes and knee mimic multiplier 2.4 with offset -2.112820865757358 radians.
 Servo and mimic joints are continuous in the saved geometry: old angle stops
 were removed. Gazebo receives current EEPROM bounds in its start payload and
 adds motor stops and derived mimic ranges only to its temporary import copy.

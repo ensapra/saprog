@@ -7,8 +7,30 @@ import signal
 import subprocess
 import threading
 import time
+from collections import deque
 
 from .protocol import emit
+
+
+class NodeOutput:
+    """Drain node output without blocking it, retaining a bounded diagnostic tail."""
+
+    def __init__(self, stream):
+        self.lines = deque(maxlen=20)
+        self.lock = threading.Lock()
+        self.thread = threading.Thread(target=self._read, args=(stream,), daemon=True)
+        self.thread.start()
+
+    def _read(self, stream):
+        with stream:
+            for line in stream:
+                with self.lock:
+                    self.lines.append(line.rstrip()[-1500:])
+
+    def tail(self):
+        self.thread.join(timeout=0.2)
+        with self.lock:
+            return "\n".join(self.lines).strip()[-1500:]
 
 
 def ros_shell(workspace, command):
@@ -95,14 +117,19 @@ def launch_node(workspace, package, executable):
         f"exec {run_command} --ros-args --params-file \"$share_dir/config/saprog.yaml\"; "
         f"else exec {run_command}; fi"
     )
-    return subprocess.Popen(
+    process = subprocess.Popen(
         ros_shell(workspace, command),
         cwd=workspace,
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
         start_new_session=True,
     )
+    process.saprog_output = NodeOutput(process.stdout)
+    return process
 
 
 def stop_processes(processes):
@@ -146,7 +173,11 @@ class NodeProcesses:
         self.shutdown_event = shutdown_event
         self.set_status = set_status
         self.processes = {}
+        self.started_at = {}
         self.last_attempt = {}
+        self.failures = {}
+        self.retry_at = {}
+        self.failure_status = {}
         self.build_results = queue.Queue()
         self.build_jobs = {}
         self.built_packages = set()
@@ -161,9 +192,10 @@ class NodeProcesses:
                 break
             self.build_jobs.pop(key, None)
             if error is not None:
-                self.set_status(topic, f"Could not start {key[0]}: {error}")
+                self._record_failure(key, topic, f"Could not start {key[0]}: {error}")
             elif process is not None:
                 self.processes[key] = process
+                self.started_at[key] = time.monotonic()
                 self.set_status(topic, f"Started {key[1]}")
 
     def ensure_provider(self, request, node, topic_status):
@@ -174,6 +206,8 @@ class NodeProcesses:
         process = self.processes.get(key)
         publishers = node.count_publishers(topic)
         if process is not None and process.poll() is None:
+            if time.monotonic() - self.started_at.get(key, time.monotonic()) >= 30.0:
+                self.failures.pop(key, None)
             self.set_status(
                 topic,
                 topic_status(topic, publishers) if publishers > 0
@@ -183,9 +217,18 @@ class NodeProcesses:
         if process is not None:
             exit_code = process.poll()
             self.processes.pop(key, None)
-            self.set_status(topic, f"{key[1]} exited with code {exit_code}; retrying")
+            self.started_at.pop(key, None)
+            output = getattr(process, "saprog_output", None)
+            details = output.tail() if isinstance(output, NodeOutput) else ""
+            reason = f"{key[1]} exited with code {exit_code}"
+            if details:
+                reason += f": {details}"
+            self._record_failure(key, topic, reason)
         if publishers > 0:
             self.set_status(topic, topic_status(topic, publishers))
+            return
+        if time.monotonic() < self.retry_at.get(key, 0.0):
+            self.set_status(topic, self.failure_status[key])
             return
         if time.monotonic() - self.last_attempt.get(key, 0.0) < 5.0:
             return
@@ -201,6 +244,14 @@ class NodeProcesses:
             )
             self.build_jobs[key] = build_thread
             build_thread.start()
+
+    def _record_failure(self, key, topic, reason):
+        failures = min(self.failures.get(key, 0) + 1, 5)
+        self.failures[key] = failures
+        delay = min(5 * 2 ** (failures - 1), 60)
+        self.retry_at[key] = time.monotonic() + delay
+        self.failure_status[key] = f"{reason}; retrying in {delay} seconds"
+        self.set_status(topic, self.failure_status[key])
 
     def _build_and_launch(self, key, topic, request):
         try:
