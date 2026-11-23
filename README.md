@@ -2,6 +2,16 @@
 
 Qt for Python desktop tools and ROS 2 Jazzy backends for a 12-servo quadruped.
 
+![Saprog quadruped development setup](docs/images/saprog-development-setup.jpg)
+
+*The Saprog quadruped during development, with the desktop tools and robot
+hardware connected on the workbench.*
+
+Saprog brings together a desktop control application, ROS 2 hardware nodes and
+a Gazebo simulation for developing and operating a small quadruped robot. The
+repository includes both the software needed to control the physical servos
+and the models and tools needed to test behavior in simulation.
+
 ## Launch the desktop
 
 Install the desktop dependencies and run from the repository root:
@@ -73,3 +83,11 @@ python -m unittest discover -s desktop/tests
 
 See the [documentation index](docs/README.md) for operation, file formats and
 development guides, and [testing](docs/testing.md) for suite coverage.
+
+## AI assistance disclaimer
+
+Parts of this project and its documentation may have been created or refined
+with assistance from AI tools. AI-generated content can be incomplete or
+incorrect and does not replace engineering review, testing or safety checks.
+Verify all software, wiring, servo limits and robot behavior before operating
+the hardware.
