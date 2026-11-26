@@ -16,6 +16,12 @@ ROOT = Path(__file__).resolve().parents[3]
 DESCRIPTION = ROOT / "urdf"
 LEGS = {"front_right": (11, 12, 13), "back_right": (21, 22, 23),
         "front_left": (31, 32, 33), "back_left": (41, 42, 43)}
+# Centers of the circular feet in the bundled STL coordinates (metres),
+# measured from their 20 mm outer rings and halfway through their thickness.
+FOOT_CENTERS = {
+    (DESCRIPTION / "meshes/right_leg.stl").resolve(): (-.055406063, -.182898101, -.0505),
+    (DESCRIPTION / "meshes/left_leg.stl").resolve(): (-.050663402, -.184828217, .1675),
+}
 
 
 def vector(text, default="0 0 0"):
@@ -142,20 +148,26 @@ class SingleLegModel:
         for name, servo_id in zip(names, ids):
             servo = f"servo_{servo_id}"
             self.mappings.append(Mapping(name, servo, 1., 0.))
+        self.foot_link = self.knee.find("child").get("link")
+        foot_centers = []
         self.visuals = []
         for name, link in self.links.items():
             for visual in link.findall("visual"):
                 mesh = visual.find("geometry/mesh")
                 if mesh is None:
                     continue
-                triangles = stl_triangles(mesh_path(mesh.get("filename"), self.path))
-                triangles *= vector(mesh.get("scale"), "1 1 1")
+                path = mesh_path(mesh.get("filename"), self.path).resolve()
+                triangles = stl_triangles(path)
+                scale = vector(mesh.get("scale"), "1 1 1")
+                triangles *= scale
                 transform = origin(visual.find("origin"))
                 triangles = triangles @ transform[:3, :3].T + transform[:3, 3]
+                if name == self.foot_link and path in FOOT_CENTERS:
+                    center = np.array(FOOT_CENTERS[path]) * scale
+                    foot_centers.append(transform[:3, :3] @ center + transform[:3, 3])
                 color = visual.find("material/color")
                 rgba = [float(c) for c in color.get("rgba").split()] if color is not None else [.6]*3
                 self.visuals.append((name, triangles, rgba[:3]))
-        self.foot_link = self.knee.find("child").get("link")
         self._foot_chain = []
         by_child = {frame[2]: frame for frame in self._frames}
         ancestor = self.foot_link
@@ -166,9 +178,13 @@ class SingleLegModel:
         foot_mesh = [t.reshape(-1, 3) for name, t, _ in self.visuals if name == self.foot_link]
         if not foot_mesh:
             raise ValueError("Lower leg needs an STL visual to estimate the foot point")
-        vertices = np.concatenate(foot_mesh)
-        distances = np.linalg.norm(vertices, axis=1)
-        self.foot = vertices[distances >= np.quantile(distances, .99)].mean(axis=0)
+        if foot_centers:
+            self.foot = np.mean(foot_centers, axis=0)
+        else:
+            # Unknown meshes retain the tip estimate and manual XYZ calibration.
+            vertices = np.concatenate(foot_mesh)
+            distances = np.linalg.norm(vertices, axis=1)
+            self.foot = vertices[distances >= np.quantile(distances, .99)].mean(axis=0)
         self.validate()
 
     def validate(self):
@@ -229,7 +245,7 @@ class SingleLegModel:
                 jacobian[:, 2] += derivative*self.multiplier*self.mappings[2].gain
         return point, jacobian
 
-    def solve(self, target, seed, tolerance=0.0001):
+    def solve(self, target, seed, tolerance=0.0001, *, max_iterations=160, fixed=None):
         """Damped numerical IK, all three servos with the URDF knee coupling."""
         target = np.asarray(target, dtype=float)
         if target.shape != (3,) or not np.isfinite(target).all():
@@ -239,29 +255,76 @@ class SingleLegModel:
             raise ValueError("Current EEPROM limits are required before solving a foot path")
         low = np.array([self.bounds[m.servo][0] for m in self.mappings])
         high = np.array([self.bounds[m.servo][1] for m in self.mappings])
+        fixed = fixed or {}
+        indices = {m.servo: i for i, m in enumerate(self.mappings)}
+        for servo, value in fixed.items():
+            if (servo not in indices or not math.isfinite(value) or
+                    not low[indices[servo]] <= value <= high[indices[servo]]):
+                raise ValueError("Fixed servo position must be inside current EEPROM limits")
+            low[indices[servo]] = high[indices[servo]] = value
+        locked = low == high
         def values(q):
             return {m.servo: float(v) for m, v in zip(self.mappings, q)}
         q = np.clip(q, low, high)
-        for _ in range(160):
+        for _ in range(max_iterations):
             pose = values(q)
             point, jac = self.foot_kinematics(pose)
+            jac[:, locked] = 0
             error = target - point
             if np.linalg.norm(error) <= tolerance and self.in_limits(pose):
                 return pose
             delta = jac.T @ np.linalg.solve(jac @ jac.T + np.eye(3) * 1e-7, error)
             q = np.clip(q + np.clip(delta, -.12, .12), low, high)
-        raise ValueError("Foot path is unreachable within calibrated limits; reduce stroke or move the centre")
+        raise ValueError("Foot target is unreachable within calibrated limits; move the target closer to the current pose")
 
-    def vertical_cycle(self, center, stroke, seed, samples=81):
-        if not math.isfinite(stroke) or stroke <= 0:
-            raise ValueError("Stroke must be positive and finite")
-        poses, targets, current = [], [], dict(seed)
-        for phase in np.linspace(0, 2 * math.pi, samples):
-            target = np.array(center, dtype=float) + [0, 0, stroke / 2 * math.sin(phase)]
-            current = self.solve(target, current)
-            poses.append(current)
-            targets.append(target)
-        return poses, targets
+    def cartesian_jog(self, displacement, seed, *, target=None, max_joint_step=None, fixed=None):
+        """Take the reachable part of a Cartesian increment; EEPROM bounds block motion.
+
+        Shorten the requested step along its direction instead of clipping individual
+        servos (which would bend a vertical/horizontal foot path). Rejected motion is
+        never accumulated, so reversing the stick works immediately at a limit.
+        """
+        displacement = np.asarray(displacement, dtype=float)
+        if displacement.shape != (3,) or not np.isfinite(displacement).all():
+            raise ValueError("Foot motion must contain three finite coordinates")
+        if not self.in_limits(seed):
+            raise ValueError("Jogging requires a pose inside current EEPROM limits")
+        point, jacobian = self.foot_kinematics(seed)
+        fixed = fixed or {}
+        if any(servo not in seed or abs(seed[servo]-value) > 1e-12 for servo, value in fixed.items()):
+            raise ValueError("Jog seed must match the fixed servo positions")
+        for index, mapping in enumerate(self.mappings):
+            if mapping.servo in fixed:
+                jacobian[:, index] = 0
+        target = point if target is None else np.asarray(target, dtype=float)
+        if target.shape != (3,) or not np.isfinite(target).all():
+            raise ValueError("Foot target must contain three finite coordinates")
+        if max_joint_step is not None and (not math.isfinite(max_joint_step) or max_joint_step <= 0):
+            raise ValueError("Servo motion per tick must be positive and finite")
+        delta = jacobian.T @ np.linalg.solve(
+            jacobian @ jacobian.T + np.eye(3)*1e-9, target+displacement-point)
+        fraction = 1.
+        for mapping, change in zip(self.mappings, delta):
+            if abs(change) < 1e-12:
+                continue
+            low, high = self.bounds[mapping.servo]
+            available = high-seed[mapping.servo] if change > 0 else seed[mapping.servo]-low
+            fraction = min(fraction, max(0., available/abs(change)))
+            if max_joint_step is not None:
+                fraction = min(fraction, max_joint_step/abs(change))
+        for _ in range(10):
+            if fraction < 1e-6:
+                break
+            proposed = target + displacement*fraction
+            try:
+                pose = self.solve(proposed, seed, tolerance=1e-6, max_iterations=24, fixed=fixed)
+                if (max_joint_step is None or
+                        max(abs(pose[s]-seed[s]) for s in pose) <= max_joint_step+1e-9):
+                    return pose, proposed
+            except ValueError:
+                pass
+            fraction *= .5
+        return dict(seed), target.copy()
 
     def export_urdf(self, path):
         tree = ET.Element("robot", name="saprog_" + self.leg)

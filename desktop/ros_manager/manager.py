@@ -80,16 +80,20 @@ class RosDataManager(QObject):
             raise ValueError("package and executable are required")
 
         request = TopicRequest(topic, message_type, NodeRequirement(package, executable))
-        _LOGGER.info(
-            "Node requested: %s/%s (topic: %s, type: %s)",
-            package, executable, topic, message_type,
-        )
         with self._lock:
             if any(
                 existing.topic == topic and existing != request
                 for existing in self._requests.values()
             ):
                 raise ValueError(f"Topic {topic} was already requested with a different type or provider")
+            shared = request in self._requests.values()
+            if shared:
+                _LOGGER.debug("Sharing existing ROS topic subscription: %s", topic)
+            else:
+                _LOGGER.info(
+                    "ROS topic requested: %s (type: %s, provider: %s/%s)",
+                    topic, message_type, package, executable,
+                )
             token = uuid.uuid4().hex
             self._requests[token] = request
             self._ensure_worker_locked()
@@ -99,10 +103,11 @@ class RosDataManager(QObject):
         return token
 
     def publish_joint_command(self, joints, positions, speed, torque):
-        """Queue a position command with AX speed and torque settings."""
+        """Queue a position command with a shared or per-joint AX speed."""
         joints = list(joints)
         positions = [float(value) for value in positions]
-        speed, torque = int(speed), int(torque)
+        speed = [int(value) for value in speed] if isinstance(speed, (tuple, list)) else int(speed)
+        torque = int(torque)
         if not joints or len(joints) != len(positions):
             raise ValueError("Position commands need matching joint names and positions")
         if len(set(joints)) != len(joints):
@@ -111,7 +116,10 @@ class RosDataManager(QObject):
             raise ValueError("Position commands need servo_N joint names")
         if not all(math.isfinite(value) for value in positions):
             raise ValueError("Position command values must be finite")
-        if not 1 <= speed <= 1023 or not 0 <= torque <= 1023:
+        speeds = speed if isinstance(speed, list) else [speed] * len(joints)
+        if len(speeds) != len(joints):
+            raise ValueError("Per-joint speeds must match the joint names")
+        if any(not 1 <= value <= 1023 for value in speeds) or not 0 <= torque <= 1023:
             raise ValueError("Speed must be 1–1023 and torque strength 0–1023")
         # Enforce the same live limits even for callers outside the desktop tabs.
         positions = list(self.servo_limits.clamp(dict(zip(joints, positions))).values())

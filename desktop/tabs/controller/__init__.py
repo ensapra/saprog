@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from controller_input import ControllerMonitor
 from PySide6.QtCore import QSettings, QTimer
 from PySide6.QtWidgets import (
     QApplication,
@@ -18,8 +19,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from widgets.controller_selector import ControllerSelector
 
-from .devices import ControllerMonitor
 from .playback import ControllerPlayback
 
 TAB_TITLE = "Controller"
@@ -68,17 +69,10 @@ class ControllerTab(QWidget):
         )
         hint.setWordWrap(True)
         outer.addWidget(hint)
-        devices = QHBoxLayout()
-        devices.addWidget(QLabel("Controller"))
-        self.device_combo = QComboBox()
-        self.device_combo.setAccessibleName("Controller selection")
-        self.device_combo.addItem("No controller detected", None)
-        self.device_combo.currentIndexChanged.connect(self._select_device)
-        devices.addWidget(self.device_combo, 1)
-        refresh = QPushButton("Refresh controllers")
-        refresh.clicked.connect(self.monitor.refresh)
-        devices.addWidget(refresh)
-        outer.addLayout(devices)
+        self.controller_selector = ControllerSelector(self.monitor, self.settings, self)
+        self.device_combo = self.controller_selector.combo
+        self.controller_selector.selection_requested.connect(self._select_device)
+        outer.addWidget(self.controller_selector)
         sources = QGridLayout()
         self.folders = {}
         for row, (kind, folder) in enumerate((
@@ -133,7 +127,6 @@ class ControllerTab(QWidget):
         note.setWordWrap(True)
         note.setObjectName("compactStatus")
         outer.addWidget(note)
-        self.monitor.devices_changed.connect(self._devices_changed)
         self.monitor.selected_changed.connect(self._selected_changed)
         self.monitor.inputs_changed.connect(self._inputs_changed)
         self.monitor.status_changed.connect(self.device_status.setText)
@@ -143,7 +136,7 @@ class ControllerTab(QWidget):
         app = QApplication.instance()
         if app is not None:
             app.aboutToQuit.connect(self.shutdown)
-        QTimer.singleShot(0, lambda: self.monitor.start() if not self._closed else None)
+        QTimer.singleShot(0, lambda: self.controller_selector.detect() if not self._closed else None)
 
     def _browse(self, kind):
         folder = QFileDialog.getExistingDirectory(
@@ -174,25 +167,6 @@ class ControllerTab(QWidget):
         self.playback.limits.refresh()
         self.refresh_files()
 
-    def _devices_changed(self, devices):
-        previous = self.device_combo.currentData()
-        self.device_combo.blockSignals(True)
-        self.device_combo.clear()
-        self.device_combo.addItem("Select a controller" if devices else "No controller detected", None)
-        for device in devices:
-            self.device_combo.addItem(f"{device['name']} ({device['id']})", device["id"])
-        index = self.device_combo.findData(previous) if previous is not None else -1
-        if index < 0:
-            preferred = self.settings.value("device_guid", "")
-            preferred_device = next((item for item in devices if item["guid"] == preferred), None)
-            index = self.device_combo.findData(preferred_device["id"]) if preferred_device else (
-                1 if devices else 0
-            )
-        self.device_combo.setCurrentIndex(index)
-        self.device_combo.blockSignals(False)
-        if previous != self.device_combo.currentData():
-            self._select_device()
-
     def _select_device(self, _index=None):
         self._stop("Controller selection changed")
         self.monitor.select(self.device_combo.currentData())
@@ -205,7 +179,6 @@ class ControllerTab(QWidget):
         if device:
             if not isinstance(self.profiles.get(self.profile), dict):
                 self.profiles[self.profile] = {}
-            self.settings.setValue("device_guid", self.profile)
         self._build_rows(device["controls"] if device else [])
 
     def _build_rows(self, controls):

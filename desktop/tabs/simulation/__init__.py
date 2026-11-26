@@ -18,8 +18,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from ros_manager.config import SIMULATION_STATUS
-from servo_limits import get_servo_limits
-from widgets.servo_layout import SERVO_NAMES
 
 TAB_TITLE = "Simulation"
 TAB_ORDER = 50
@@ -30,7 +28,6 @@ class SimulationTab(QWidget):
     def __init__(self, ros_manager=None, parent=None):
         super().__init__(parent)
         self.manager = ros_manager
-        self.limits = get_servo_limits(ros_manager)
         self.token = None
         self.pending = None
         self.state = {"running": False, "busy": False, "viewer": False, "paused": False}
@@ -55,6 +52,19 @@ class SimulationTab(QWidget):
         path_row.addWidget(self.urdf_path, 1)
         path_row.addWidget(browse)
         form.addRow("URDF", path_row)
+        self.profile_path = QLineEdit(str(
+            ROOT / "ros2/saprog_simulation/profiles/offline-baseline.json"
+        ))
+        self.profile_path.setAccessibleName("Simulation bounds profile")
+        profile_browse = QPushButton("Browse…")
+        profile_browse.clicked.connect(self.browse_profile)
+        profile_row = QHBoxLayout()
+        profile_row.addWidget(self.profile_path, 1)
+        profile_row.addWidget(profile_browse)
+        form.addRow("Simulation bounds profile", profile_row)
+        self.bounds_source = QLabel("Offline simulation bounds; independent of live EEPROM limits.")
+        self.bounds_source.setWordWrap(True)
+        form.addRow(self.bounds_source)
         self.speed = self._number(0.1, 4.0, 0.5, 0.1, "×", 1)
         self.speed.setToolTip("0.5× runs in slow motion and reduces physics work per wall-clock second.")
         form.addRow("Simulation speed", self.speed)
@@ -101,17 +111,6 @@ class SimulationTab(QWidget):
             self.manager.status_changed.connect(self.provider_status)
             self.manager.command_result.connect(self.command_result)
         self.update_controls()
-        self.limits.status_changed.connect(self.status.setText)
-        self.limits.changed.connect(self.limits_changed)
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.limits.refresh()
-
-    def limits_changed(self, _bounds):
-        if self.manager is not None and (self.state.get("running") or self.pending is not None):
-            self.manager.simulation_command("stop")
-        self.update_controls()
 
     @staticmethod
     def _number(lower, upper, value, step, suffix, decimals):
@@ -135,21 +134,33 @@ class SimulationTab(QWidget):
         if path:
             self.urdf_path.setText(path)
 
+    def browse_profile(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Simulation bounds profile", self.profile_path.text(), "JSON (*.json)",
+        )
+        if path:
+            self.profile_path.setText(path)
+
     def start(self):
         path = Path(self.urdf_path.text()).expanduser()
         if not path.is_file():
             self.status.setText("Choose an existing URDF file.")
             return
         try:
-            bounds = self.limits.require(SERVO_NAMES)
-        except ValueError as error:
+            profile = json.loads(Path(self.profile_path.text()).expanduser().read_text(encoding="utf-8"))
+            if not isinstance(profile, dict):
+                raise ValueError("Simulation bounds profile must be an object")
+        except (OSError, UnicodeError, ValueError) as error:
             self.status.setText(str(error))
             return
+        self.bounds_source.setText(
+            f"Simulation only: {profile.get('name', '')} — {profile.get('provenance', '')}"
+        )
         self.send(
             "start", urdf_path=str(path.resolve()), real_time_factor=self.speed.value(),
             step_size=self.step_size.value() / 1000, spawn_height=self.spawn_height.value(),
             viewer=self.viewer_on_start.isChecked(), paused=self.start_paused.isChecked(),
-            servo_bounds=dict(bounds),
+            bounds_profile=profile,
         )
 
     def pause(self):

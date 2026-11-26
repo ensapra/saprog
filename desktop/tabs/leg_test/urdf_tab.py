@@ -1,19 +1,18 @@
-"""Servo-to-URDF calibration, recorded pose preview and Cartesian vertical IK."""
+"""Servo-to-URDF calibration, recorded previews and Cartesian foot control."""
 
 import copy
 import json
 import math
 import time
-import uuid
 import xml.etree.ElementTree as ET
 from bisect import bisect_right
 from pathlib import Path
 
 import numpy as np
 from documents.snapshot_files import write_json_atomic
-from documents.timeline_storage import load_snapshot_reference, save_timeline
 from PySide6.QtCore import QSignalBlocker, Qt, QTimer
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -32,13 +31,14 @@ from servo_limits import get_servo_limits
 from widgets.servo_layout import SERVO_NAMES
 from widgets.urdf_leg_view import UrdfLegView
 
+from .joystick_panel import JoystickPanel
 from .urdf_model import DESCRIPTION, LEGS, ROOT, SingleLegModel, sequence_frames
 
 STATE_TOPIC = "/saprog/joint_states"
 
 
 class SingleLegTestTab(QWidget):
-    def __init__(self, ros_manager=None, parent=None):
+    def __init__(self, ros_manager=None, parent=None, *, joystick_monitor=None, joystick_settings=None):
         super().__init__(parent)
         self.manager, self.token = ros_manager, None
         self.limits = get_servo_limits(ros_manager)
@@ -50,11 +50,11 @@ class SingleLegTestTab(QWidget):
         self.frames = []
         self.mapping_fields = []
         layout = QVBoxLayout(self)
-        title = QLabel("Single leg: URDF calibration and vertical motion")
+        title = QLabel("Single leg: URDF calibration and foot control")
         title.setObjectName("title")
         layout.addWidget(title)
-        note = QLabel("Match live servo radians to CAD joints, inspect a recorded sequence, then tune a "
-                      "fixed-X/Y foot path. Previews run locally. Knee coupling and foot point need calibration.")
+        note = QLabel("Match live servo radians to CAD joints, preview a sequence, or move the foot with a "
+                      "controller stick. Joystick live control is enabled separately from local previews.")
         note.setWordWrap(True)
         layout.addWidget(note)
         row = QHBoxLayout()
@@ -94,23 +94,11 @@ class SingleLegTestTab(QWidget):
         self.button("Save tuning", self.save_tuning, row)
         self.button("Load tuning", self.load_tuning, row)
         self.settings_layout.addLayout(row)
-        motion = QGroupBox("Vertical foot path in fixed URDF base frame")
-        form = QFormLayout(motion)
-        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        self.center = [self.number(-1000, 1000, 0, " mm") for _ in range(3)]
-        for axis, field in zip("XYZ", self.center):
-            form.addRow(f"Centre {axis}", field)
-        self.stroke = self.number(.1, 200, 10, " mm")
-        self.period = self.number(.5, 120, 4, " s")
-        self.export_speed = self.number(1, 1023, 100, " AX", 0)
-        self.export_torque = self.number(1, 1023, 300, " AX", 0)
-        for label, field in (("Total up/down stroke", self.stroke), ("Cycle period", self.period),
-                             ("Export speed ceiling", self.export_speed), ("Export torque", self.export_torque)):
-            form.addRow(label, field)
-        self.settings_layout.addWidget(motion)
-        self.button("Use current foot as centre", self.capture_center, self.settings_layout)
-        self.button("Preview up / down", self.preview_vertical, self.settings_layout)
-        self.button("Export up/down sequence", self.export_vertical, self.settings_layout)
+        self.joystick = JoystickPanel(ros_manager, self, monitor=joystick_monitor, settings=joystick_settings)
+        self.joystick.start_requested.connect(self.start_joystick)
+        self.joystick.engine.pose_changed.connect(self.joystick_pose)
+        self.joystick.engine.active_changed.connect(self.joystick_active)
+        self.joystick.engine.status_changed.connect(self.status_message)
         self.settings_layout.addStretch()
         scroll.setWidget(panel)
         splitter.addWidget(scroll)
@@ -122,7 +110,13 @@ class SingleLegTestTab(QWidget):
         self.metrics.setWordWrap(True)
         right_layout.addWidget(self.metrics)
         splitter.addWidget(right)
-        splitter.setSizes([420, 750])
+        joystick_scroll = QScrollArea()
+        joystick_scroll.setWidgetResizable(True)
+        joystick_scroll.setAccessibleName("Joystick controls to the right of the leg view")
+        joystick_scroll.setWidget(self.joystick)
+        splitter.addWidget(joystick_scroll)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([320, 650, 380])
         row = QHBoxLayout()
         self.live_button = self.button("Connect live feedback", self.connect_live, row)
         self.button("Stop preview / disconnect", self.stop, row)
@@ -149,15 +143,45 @@ class SingleLegTestTab(QWidget):
         self.limits.changed.connect(self.limits_changed)
         self.limits.status_changed.connect(self.status.setText)
         self.load_model()
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.joystick.shutdown)
 
     def showEvent(self, event):
         super().showEvent(event)
         self.limits.refresh()
 
     def limits_changed(self, _bounds):
-        if self.mode in ("Vertical preview", "Sequence preview"):
+        if self.mode == "Sequence preview":
             self.stop()
         if self.model is not None:
+            self.refresh()
+
+    def status_message(self, message):
+        self.status.setText(message)
+
+    def start_joystick(self, hardware):
+        try:
+            model = self.calibrated_model()
+            seed = {m.servo: fields["pose"].value()
+                    for m, fields in zip(model.mappings, self.mapping_fields)}
+            self.stop()
+            self.model, self.values = model, seed
+            self.joystick.start(model, seed, hardware)
+            self.mode = "Joystick live (waiting for feedback)" if hardware else "Joystick preview"
+            self.refresh()
+        except (ValueError, RuntimeError, KeyError) as error:
+            self.status.setText(str(error))
+            self.joystick.status.setText(str(error))
+
+    def joystick_pose(self, values):
+        self.values = dict(values)
+        self.mode = "Joystick live feedback" if self.joystick.engine.hardware else "Joystick preview"
+        self.refresh()
+
+    def joystick_active(self, active):
+        if not active:
+            self.mode = "Manual"
             self.refresh()
 
     @staticmethod
@@ -197,9 +221,8 @@ class SingleLegTestTab(QWidget):
             self.build_mapping_form()
             self.populate_calibration()
             self.refresh()
-            self.capture_center()
             self.status.setText("Single leg loaded. Servo feedback is already in calibrated radians; "
-                                "start with gain 1 and offset 0. Foot point is estimated from the mesh tip.")
+                                "start with gain 1 and offset 0. Adjust the tracked foot point with Foot X/Y/Z.")
         except (OSError, ValueError, KeyError, TypeError, ET.ParseError) as error:
             self.status.setText(str(error))
 
@@ -260,7 +283,7 @@ class SingleLegTestTab(QWidget):
             self.stop()
             self.model, self.values = model, values
             self.refresh()
-            self.status.setText("Calibration applied. Use current foot as centre before generating a new path.")
+            self.status.setText("Calibration applied. Preview the stick movement before controlling the real leg.")
         except ValueError as error:
             self.status.setText(str(error))
 
@@ -285,9 +308,6 @@ class SingleLegTestTab(QWidget):
         limit_status = (" | EEPROM limits unavailable" if not self.limits.available else
                         " | OUTSIDE hardware limits" if not self.model.in_limits(self.values) else "")
         rows.append(f"Source: {self.mode}" + limit_status)
-        if self.mode == "Vertical preview" and len(self.view.target_path):
-            lateral_error = np.linalg.norm(point[:2] - self.view.target_path[0][:2]*1000)
-            rows.append(f"Horizontal deviation from requested vertical line: {lateral_error:.3f} mm")
         self.metrics.setText("\n".join(rows))
         for mapping, fields in zip(self.model.mappings, self.mapping_fields):
             bounds = self.limits.bounds.get(mapping.servo)
@@ -300,12 +320,8 @@ class SingleLegTestTab(QWidget):
         self.view.trail.clear()
         self.view.update()
 
-    def capture_center(self):
-        if self.model is not None:
-            for field, value in zip(self.center, self.model.foot_position(self.values)*1000):
-                field.setValue(float(value))
-
     def stop(self):
+        self.joystick.engine.stop()
         self.timer.stop()
         if self.token is not None:
             self.manager.release(self.token)
@@ -315,7 +331,6 @@ class SingleLegTestTab(QWidget):
         self._displayed_revision = -1
         self.mode = "Manual"
         self.live_button.setText("Connect live feedback")
-        self.view.target_path = []
         self.refresh()
         self.status.setText("Stopped. Manual pose preview.")
 
@@ -371,27 +386,6 @@ class SingleLegTestTab(QWidget):
             self.status.setText("Recorded servo targets, interpolated using saved durations. "
                                 "Speed/torque dynamics are not simulated; live data is disconnected.")
         except (OSError, ValueError, KeyError, TypeError) as error:
-            self.status.setText(str(error))
-
-    def prepare_vertical(self):
-        model = self.calibrated_model()
-        self.limits.require(m.servo for m in model.mappings)
-        seed = {m.servo: fields["pose"].value() for m, fields in zip(model.mappings, self.mapping_fields)}
-        center = [f.value()/1000 for f in self.center]
-        poses, targets = model.vertical_cycle(center, self.stroke.value()/1000, seed)
-        return model, poses, targets
-
-    def preview_vertical(self):
-        try:
-            model, poses, targets = self.prepare_vertical()
-            self.stop()
-            self.model, self.values = model, poses[0]
-            self.begin_preview([(self.period.value()/(len(poses)-1), pose) for pose in poses[1:]],
-                               True, "Vertical preview")
-            self.view.target_path = targets
-            self.status.setText("Full vertical cycle solved within limits. Fixed X/Y; 0.1 mm waypoint tolerance. "
-                                "Servo interpolation can add small errors between waypoints.")
-        except (ValueError, KeyError, np.linalg.LinAlgError) as error:
             self.status.setText(str(error))
 
     def begin_preview(self, frames, loop, mode):
@@ -453,40 +447,12 @@ class SingleLegTestTab(QWidget):
             except (OSError, ValueError) as error:
                 self.status.setText(str(error))
 
-    def export_vertical(self):
-        try:
-            model, poses, _ = self.prepare_vertical()
-            path, _ = QFileDialog.getSaveFileName(self, "Export vertical sequence",
-                       str(ROOT / "sequences" / (model.leg + "_vertical.json")), "JSON (*.json)")
-            if not path:
-                return
-            directory = ROOT / "snapshots/recordings" / ("vertical_" + uuid.uuid4().hex[:12])
-            directory.mkdir(parents=True)
-            steps = []
-            # Omit the duplicate last centre pose: one loop is exactly the requested period.
-            poses = poses[:-1]
-            for index, pose in enumerate(poses):
-                snapshot = directory / f"pose_{index:04d}.json"
-                write_json_atomic(snapshot, {"schema_version": 1, "name": snapshot.stem, "positions": pose})
-                steps.append({"snapshot": snapshot.relative_to(ROOT / "snapshots").as_posix(),
-                              "motion": {"speed": int(self.export_speed.value()), "torque": int(self.export_torque.value())},
-                              "duration": {"mode": "seconds", "seconds": self.period.value()/len(poses)},
-                              "control_mode": "Leg Control", "overrides": {}})
-            save_timeline(path, steps, loop=True, smooth_playback=True,
-                          snapshot_resolver=lambda ref: load_snapshot_reference(ref, ROOT / "snapshots"))
-            self.status.setText(f"Exported {len(poses)} selected-leg poses to {path}. "
-                                "Review in TimeLine before hardware playback; actual motion depends on calibration and motor speed.")
-        except (OSError, ValueError, KeyError, np.linalg.LinAlgError) as error:
-            self.status.setText(str(error))
-
     def save_tuning(self):
         try:
             model = self.calibrated_model()
             data = {"version": 2, "urdf": str(model.path), "leg": model.leg,
                     "mappings": [vars(m) for m in model.mappings], "foot": model.foot.tolist(),
-                    "multiplier": model.multiplier, "knee_offset": model.knee_offset,
-                    "center": [f.value() for f in self.center], "stroke": self.stroke.value(),
-                    "period": self.period.value(), "speed": self.export_speed.value(), "torque": self.export_torque.value()}
+                    "multiplier": model.multiplier, "knee_offset": model.knee_offset}
             path, _ = QFileDialog.getSaveFileName(self, "Save leg tuning", "leg-tuning.json", "JSON (*.json)")
             if path:
                 write_json_atomic(path, data)
@@ -503,7 +469,7 @@ class SingleLegTestTab(QWidget):
             if data["version"] not in (1, 2):
                 raise ValueError("Unsupported leg tuning version")
             model = SingleLegModel(data["urdf"], data["leg"], self.limits.bounds)
-            if len(data["mappings"]) != 3 or len(data["foot"]) != 3 or len(data["center"]) != 3:
+            if len(data["mappings"]) != 3 or len(data["foot"]) != 3:
                 raise ValueError("Incomplete leg tuning")
             for mapping, saved in zip(model.mappings, data["mappings"]):
                 if saved["joint"] != mapping.joint or saved["servo"] not in SERVO_NAMES:
@@ -519,12 +485,6 @@ class SingleLegTestTab(QWidget):
             if (np.any(abs(model.foot) > 1) or abs(model.multiplier) > 10
                     or abs(model.knee_offset) > 10):
                 raise ValueError("Foot or knee calibration is outside the supported range")
-            updates = [(field, value) for field, value in zip(self.center, data["center"])]
-            updates += [(self.stroke, data["stroke"]), (self.period, data["period"]),
-                        (self.export_speed, data["speed"]), (self.export_torque, data["torque"])]
-            for field, value in updates:
-                if type(value) not in (int, float) or not math.isfinite(value) or not field.minimum() <= value <= field.maximum():
-                    raise ValueError("Tuning value is outside the supported range")
             self.stop()
             self.model = model
             self.values = {m.servo: .55 if i else 0. for i, m in enumerate(model.mappings)}
@@ -534,8 +494,6 @@ class SingleLegTestTab(QWidget):
             self.urdf_path.setText(str(model.path))
             self.build_mapping_form()
             self.populate_calibration()
-            for field, value in updates:
-                field.setValue(value)
             self.refresh()
             self.status.setText("Leg tuning loaded.")
         except (OSError, ValueError, TypeError, KeyError, ET.ParseError) as error:
@@ -543,4 +501,9 @@ class SingleLegTestTab(QWidget):
 
     def closeEvent(self, event):
         self.stop()
+        self.joystick.shutdown()
         super().closeEvent(event)
+
+    def hideEvent(self, event):
+        self.joystick.engine.stop("Joystick stopped: Single Leg Test is hidden")
+        super().hideEvent(event)

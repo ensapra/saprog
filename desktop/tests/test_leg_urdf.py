@@ -1,4 +1,4 @@
-"""URDF transforms, actual servo naming, vertical reachability and local previews."""
+"""URDF transforms, actual servo naming, Cartesian reachability and local previews."""
 
 # ruff: noqa: E402 -- configure Qt and the standalone desktop import path first.
 
@@ -17,7 +17,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "desktop"))
 
-from documents.timeline_storage import load_snapshot_reference, load_timeline
 from limit_fixtures import fixture_bounds, prime_limits
 from PySide6.QtCore import QEvent, QObject, Signal
 from PySide6.QtWidgets import QApplication
@@ -26,9 +25,11 @@ from tabs.leg_test.urdf_model import (
     DESCRIPTION,
     LEGS,
     SingleLegModel,
+    mesh_path,
     origin,
     rotation,
     sequence_frames,
+    stl_triangles,
     vector,
 )
 from tabs.leg_test.urdf_tab import STATE_TOPIC, SingleLegTestTab
@@ -40,6 +41,8 @@ class FakeManager(QObject):
     message_received = Signal(str, object)
     status_changed = Signal(str, str)
     command_result = Signal(str, bool, str)
+    position_published = Signal(str, object)
+    torque_release_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -52,6 +55,26 @@ class FakeManager(QObject):
 
 
 class KinematicsTests(unittest.TestCase):
+    def test_default_foot_is_center_of_circular_mesh_for_every_leg(self):
+        for leg in LEGS:
+            with self.subTest(leg=leg):
+                model = SingleLegModel(DESCRIPTION / "urdf/URDF.urdf", leg)
+                visual = model.links[model.foot_link].find("visual")
+                mesh = visual.find("geometry/mesh")
+                vertices = stl_triangles(mesh_path(mesh.get("filename"), model.path)).reshape(-1, 3)
+                distal = vertices[vertices[:, 1] < -.18]
+                ring_z = -.0535 if leg.endswith("right") else .1645
+                ring = distal[np.isclose(distal[:, 2], ring_z, atol=1e-8, rtol=0)]
+                self.assertGreater(len(ring), 40)
+                transform = origin(visual.find("origin"))
+                center = transform[:3, :3].T @ (model.foot - transform[:3, 3])
+                # The center must be 20 mm from every point on the outer circle,
+                # rather than lying on its rim, and midway through the foot.
+                np.testing.assert_allclose(np.linalg.norm(ring[:, :2] - center[:2], axis=1),
+                                           .02, atol=2e-8, rtol=0)
+                self.assertAlmostEqual(center[2], (distal[:, 2].min()+distal[:, 2].max())/2,
+                                       places=8)
+
     def test_cached_joint_frames_match_direct_urdf_evaluation_for_all_legs(self):
         for leg in LEGS:
             model = SingleLegModel(DESCRIPTION / "urdf/URDF.urdf", leg)
@@ -136,25 +159,11 @@ class KinematicsTests(unittest.TestCase):
                     self.assertAlmostEqual(
                         angles[f"{leg}_leg"], 2.4*original_angle-2.112820865757358)
 
-    def test_vertical_cycle_for_every_leg_holds_xy_within_point_one_mm(self):
-        for leg in LEGS:
-            with self.subTest(leg=leg):
-                model = SingleLegModel(DESCRIPTION / "urdf/URDF.urdf", leg, fixture_bounds())
-                seed = {m.servo: .55 if i else 0 for i, m in enumerate(model.mappings)}
-                center = model.foot_position(seed)
-                poses, targets = model.vertical_cycle(center, .01, seed)
-                actual = np.array([model.foot_position(p) for p in poses])
-                self.assertLess(np.max(np.linalg.norm(actual-targets, axis=1)), .0001)
-                self.assertTrue(all(model.in_limits(p) for p in poses))
-                self.assertGreater(np.ptp(actual[:, 2]), .0098)
-                self.assertLess(np.max(np.ptp(actual[:, :2], axis=0)), .0002)
-                self.assertTrue(any(abs(p[model.mappings[1].servo]-seed[model.mappings[1].servo]) > .005 for p in poses))
-
     def test_unreachable_motion_rejected(self):
         model = SingleLegModel(DESCRIPTION / "urdf/front_right.urdf", bounds=fixture_bounds())
         seed = {m.servo: .55 if i else 0 for i, m in enumerate(model.mappings)}
         with self.assertRaisesRegex(ValueError, "unreachable"):
-            model.vertical_cycle([2, 0, 0], .1, seed)
+            model.solve([2, 0, 0], seed)
 
     def test_referenced_sequence_uses_snapshot_positions_and_saved_durations(self):
         seed = {"servo_21": 0, "servo_22": .55, "servo_23": .55}
@@ -181,14 +190,12 @@ class UrdfTabTests(unittest.TestCase):
         self.manager.request_topic.assert_not_called()
         self.manager.publish_joint_command.assert_not_called()
 
-    def test_manual_servo_edit_updates_model_and_captured_center(self):
+    def test_manual_servo_edit_updates_model(self):
         initial = self.tab.model.foot_position(self.tab.values)
         self.tab.mapping_fields[1]["pose"].setValue(.75)
         self.assertEqual(self.tab.values["servo_12"], .75)
         current = self.tab.model.foot_position(self.tab.values)
         self.assertGreater(np.linalg.norm(current-initial), .001)
-        self.tab.capture_center()
-        np.testing.assert_allclose([f.value()/1000 for f in self.tab.center], current, atol=1e-8)
 
     def test_feedback_matches_names_handles_partial_frames_and_preserves_out_of_range(self):
         self.tab.connect_live()
@@ -263,39 +270,16 @@ class UrdfTabTests(unittest.TestCase):
         _APP.processEvents()
         self.assertFalse(self.tab.grab().isNull())
 
-    def test_vertical_preflight_rejects_invalid_path_without_starting_timer(self):
-        self.tab.center[0].setValue(1000)
-        self.tab.preview_vertical()
-        self.assertFalse(self.tab.timer.isActive())
-        self.assertIn("unreachable", self.tab.status.text())
-
-    def test_export_roundtrips_through_existing_timeline_loader_with_only_selected_servos(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            path = root / "vertical.json"
-            with patch("tabs.leg_test.urdf_tab.ROOT", root), patch(
-                "tabs.leg_test.urdf_tab.QFileDialog.getSaveFileName", return_value=(str(path), "")
-            ):
-                self.tab.export_vertical()
-            document = load_timeline(path, root / "snapshots")
-            self.assertEqual(len(document["steps"]), 80)
-            self.assertAlmostEqual(sum(s["duration"]["seconds"] for s in document["steps"]), 4.)
-            for step in document["steps"]:
-                pose = load_snapshot_reference(step["snapshot"], root / "snapshots")["positions"]
-                self.assertEqual(set(pose), {"servo_11", "servo_12", "servo_13"})
-                self.assertTrue(self.tab.model.in_limits(pose))
-            self.manager.publish_joint_command.assert_not_called()
-
     def test_tuning_roundtrips_and_invalid_load_is_transactional(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "tuning.json"
-            self.tab.stroke.setValue(8)
+            self.tab.knee_offset.setValue(.8)
             with patch("tabs.leg_test.urdf_tab.QFileDialog.getSaveFileName", return_value=(str(path), "")):
                 self.tab.save_tuning()
-            self.tab.stroke.setValue(12)
+            self.tab.knee_offset.setValue(1.2)
             with patch("tabs.leg_test.urdf_tab.QFileDialog.getOpenFileName", return_value=(str(path), "")):
                 self.tab.load_tuning()
-                self.assertEqual(self.tab.stroke.value(), 8)
+                self.assertEqual(self.tab.knee_offset.value(), .8)
                 data = json.loads(path.read_text())
                 data["mappings"][0]["gain"] = 0
                 path.write_text(json.dumps(data))
@@ -312,7 +296,9 @@ class UrdfTabTests(unittest.TestCase):
             saved = json.loads(path.read_text())
             self.assertEqual(saved["version"], 2)
             self.assertTrue(all("lower" not in row and "upper" not in row for row in saved["mappings"]))
+            self.assertFalse({"center", "stroke", "period", "speed", "torque"} & saved.keys())
             saved["version"] = 1
+            saved.update(center=[0, 0, 0], stroke=10, period=4, speed=100, torque=300)
             for row in saved["mappings"]:
                 row.update(lower=-100, upper=100)
             path.write_text(json.dumps(saved))

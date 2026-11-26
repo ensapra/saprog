@@ -1,4 +1,4 @@
-# Single-leg URDF and vertical motion
+# Single-leg URDF and joystick foot control
 
 The desktop **Single Leg Test** loads
 [front_right.urdf](../urdf/urdf/front_right.urdf), a single-leg extraction of
@@ -6,7 +6,7 @@ the repository robot with its CAD meshes. Selecting another leg extracts that
 branch from the full robot description. **Load URDF** accepts a matching
 single-leg file or the full robot. The URDF preview needs only the desktop
 dependencies. ROS and a successful EEPROM limit read are required for motion
-preview/export; manual model inspection is available offline.
+preview; manual model inspection is available offline.
 Meshes are simplified for display; the foot estimate and kinematic calculations
 use the original geometry. The view updates at up to 20 Hz during motion.
 Live telemetry bursts are combined into the latest complete fresh pose on each
@@ -46,34 +46,82 @@ The live metrics show both the received servo value and resulting joint angle.
 Manual **Servo pose / received** fields let you check the mapping without ROS.
 The preview requests telemetry and sends no position or torque commands.
 
-## Tune linear up/down motion
+## Control the foot with a joystick
+
+The **Joystick foot control** panel, to the right of the leg view, maps two analog
+stick axes to foot velocity.
+Left/right changes base X; up/down changes base Z. Base Y stays fixed.
+These directions follow the robot base, independent of the camera.
+The controlled point is the calibrated foot dot.
+
+1. Click **Detect controllers** and select your controller. The first two axes
+   are used by default; foot mappings are saved separately from the **Controller** tab.
+2. Set **Foot speed** (default 10 mm/s). If needed, open **Controller setup and
+   motor settings** to change axis assignments, reverse a direction, adjust the
+   15% dead zone, or set the live servo speed ceiling and torque. Move the stick
+   and use the axis readings there to identify its axes; the two axes must differ.
+   These settings are saved separately for each controller type.
+3. Click **Preview stick**, then center the stick once to begin. Small deflections
+   move slowly; full deflection reaches the selected speed. Diagonal speed is
+   capped to that same maximum. Holding the stick continues moving, even without
+   new axis-change events. Centering holds the target. Current EEPROM
+   limits are required even for preview.
+4. For hardware, choose a physical controller button under **Hold to move (live)**
+   and click **Control real leg**. The live **Controller buttons**
+   readings identify which generic button number is pressed on your controller.
+   The controller waits for fresh feedback from all three mapped servos and
+   captures the actual foot position, rather than moving toward the manual
+   preview pose. The status names the physical controller button to hold. Hold it
+   with the stick centered. Live control first moves the selected leg's x1 servo
+   (11/21/31/41) to **0 rad**, waits for feedback, then keeps its target fixed at zero
+   while the remaining two servos produce X/Z movement. Zero must be inside its
+   current EEPROM limits. Once x1 reaches zero, move the stick.
+   Releasing that button stops new targets; center the stick while holding it
+   again before resuming. Servo speed ceiling and torque apply only to live output.
+5. **Stop joystick**, changing the mapping or leg, hiding/closing the tab, controller
+   loss, stale feedback, a command failure or timeout, changed limits, another
+   control publishing a position, and **Release all torque** stop joystick output.
+   Unpublished owned commands are cancelled; a target already sent may finish.
+
+Each tick requests an incremental horizontal/vertical
+movement with the calibrated knee coupling. The current EEPROM servo limits and
+linkage reach determine how far the foot can move. A step approaching a limit is
+shortened along the requested direction; further outward motion is blocked while
+reversing the stick moves back immediately. Rejected motion is not accumulated.
+Live output starts at the measured pose, then integrates a continuous target so
+small stick movements accumulate across the servos' encoder resolution and
+position deadband. Only one command awaits publication at a time. Motion time
+while awaiting publication is retained, with catch-up capped at a quarter second.
+Live output gives each servo the speed needed for its joint increment, capped by
+the selected speed ceiling, instead of driving every small waypoint at the ceiling.
+The Windows bridge checks outgoing commands at least every 10 ms while idle to
+avoid adding a 100 ms wait between jog updates.
+The servo speed ceiling also scales each increment. If the servos fall behind
+the target, new increments pause rather than accumulating indefinitely; reversing
+the stick rebases to the measured pose and cancels unpublished movement in the old
+direction. Controller state is read directly on each motion tick, so a held stick or
+a delayed display update does not cause a stale-input stop. Disconnects and invalid
+readings still stop output. Feedback is rendered in live mode; preview renders
+the solved target pose. Physical straightness
+still depends on calibration and servo tracking. Existing button/sequence mappings
+in the **Controller** tab remain independent; avoid assigning those actions to the
+same stick directions or enable button while using live joystick control.
+
+## Calibrate the tracked foot
 
 1. Check at least three measured poses against the CAD view. Drag the view to
    orbit. Tune knee/crank gain and knee offset if the lower leg does not align.
-2. Set **Foot X/Y/Z in lower-leg link** to the physical contact point. Defaults
-   estimate the distal mesh tip; they are not measured contact coordinates.
-3. Pick a comfortable servo pose and press **Use current foot as centre**.
-4. Start with **Total up/down stroke = 10 mm**, **Cycle period = 4 s**, then
-   press **Preview up / down**. The solver coordinates all three servos, holds
-   base-frame X/Y constant and varies Z sinusoidally. Centre Z is the midpoint;
-   the two extremes are centre Z ± half the stroke. This is spatially vertical
-   motion with smooth reversals, not constant vertical speed.
-5. Move **Centre X/Y/Z**, reduce stroke, or change the seed pose if the entire
-   cycle cannot be reached. All 81 waypoints are checked before preview begins,
-   with a 0.1 mm Cartesian tolerance and current hardware limits. Dashed white
-   shows the requested path; blue shows the model foot trail. Servo interpolation
-   can introduce a small deviation between the checked waypoints.
+2. Set **Foot X/Y/Z in lower-leg link** to the point to track. Bundled leg meshes
+   default to the center of the circular foot, including its thickness; the dot,
+   trail and solver all use this point. Other meshes default to an estimated
+   distal tip. Adjust these coordinates for the physical contact point.
+3. Press **Apply calibration**, then preview joystick movement before live use.
 
-| Parameter | Starting value / purpose |
-| --- | --- |
-| Per-joint gain / offset | 1 / 0 rad; align the received angles to the model |
-| Per-servo lower / upper | Read-only current EEPROM limits, shared with Static Animator |
-| Knee / crank gain | -2.4 for right legs (13/23); 2.4 for left legs (33/43), from the URDF |
-| Knee offset | 0.527179134242642 rad for right legs; -2.112820865757358 rad for left legs |
-| Foot local X/Y/Z | Estimated mesh tip; replace with measured contact point |
-| Centre X/Y/Z | Capture from the current foot; coordinates are in the fixed base frame |
-| Stroke / period | 10 mm total / 4 s per cycle |
-| Export speed / torque | AX 100 / 300; hardware playback settings, not preview dynamics |
+The vertical-cycle generator, centre/stroke/period fields and sequence export
+have been removed from this tab. Use the joystick for Cartesian motion and the
+TimeLine tab for saved movement sequences.
+
+## Preview sequences and save calibration
 
 **Preview sequence** defaults to
 [BackSteps_working.json](../sequences/BackSteps_working.json). It resolves the
@@ -84,17 +132,9 @@ Waits and loop settings are respected. Until-reached transitions require hardwar
 feedback and are rejected for local preview. Speed/torque dynamics are not
 simulated; the display represents saved targets, not measured motion.
 
-**Export up/down sequence** saves 80 selected-leg snapshots and a version-2
-timeline compatible with TimeLine/Controller playback. The loop duration equals
-the requested period; the duplicate closing waypoint is omitted. Review the
-sequence and approach the centre pose before playback on hardware. The first
-transition begins from the hardware's current pose, which need not be on the
-vertical path. Motor speed limits, load and calibration affect actual motion.
-The selected AX speed is a ceiling; it must allow the servos to reach each
-waypoint in its duration. Other legs are omitted from the exported targets.
-
 **Save tuning / Load tuning** preserves the URDF path, leg, mappings,
-knee coupling, foot point and motion parameters. **Export single leg URDF** saves
+knee coupling and foot point. Legacy centre/stroke/period and export settings
+are ignored when loading older tuning files. **Export single leg URDF** saves
 the selected geometry and knee mimic calibration, with absolute mesh paths for
 local reuse. Servo mappings and the foot point are stored in tuning separately.
 Version-2 tuning files never save limits. When loading old version-1 tuning,
@@ -114,6 +154,6 @@ From the repository root, in a desktop Python environment:
 python -m unittest discover -s desktop/tests -p test_leg_urdf.py
 ```
 
-These tests cover URDF transforms, servo mappings, vertical paths, sequence
-preview, tuning, export and feedback cleanup. They validate the model and UI;
+These tests cover URDF transforms, servo mappings, Cartesian motion, sequence
+preview, tuning, URDF export and feedback cleanup. They validate the model and UI;
 physical calibration still requires measurements from the robot.

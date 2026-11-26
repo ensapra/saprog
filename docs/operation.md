@@ -67,7 +67,7 @@ radians, and available measured bounds are applied when targets are loaded,
 saved or sent. Motion Recorder captures and imports are clamped before entering
 the timeline.
 
-Entering any motion page requests current EEPROM angle limits through the existing
+Entering a hardware motion page requests current EEPROM angle limits through the existing
 serial-port owner, using the shared [limits service](../desktop/servo_limits/).
 A complete valid report updates every consumer immediately. Bounds are read-only
 and kept in memory for the current manager session; there is no limit file or
@@ -180,7 +180,9 @@ movement may finish unless a new manual target or torque request overrides it.
 ## Simulation
 
 The Simulation tab loads a selected URDF into Gazebo with gravity and a ground
-plane. Start is explicit; the tab initially requests no ROS provider. Defaults
+plane using an explicit simulation bounds profile without reading hardware limits.
+The profile name and provenance are displayed on Start. Start is explicit; the
+tab initially requests no ROS provider. Defaults
 are a headless server, 0.5× simulation speed and a 4 ms physics step. An optional
 viewer can be opened and closed while physics continues. Pause, Resume, Reset
 and Stop affect only this simulation. Joints move freely under gravity with the

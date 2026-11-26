@@ -15,7 +15,7 @@ from saprog_simulation.session import GazeboSession  # noqa: E402
 
 
 def synthetic_bounds():
-    """Explicit test input; production gets its limits from the shared EEPROM read."""
+    """Explicit synthetic input for the legacy direct-bounds command contract."""
     return {f"servo_{leg}{joint}": [-.25, 1.] for leg in (1, 2, 3, 4) for joint in (1, 2, 3)}
 
 
@@ -30,7 +30,9 @@ class GazeboSmokeTests(unittest.TestCase):
         urdf = PACKAGE.parents[1] / "urdf/urdf/URDF.urdf"
         started = time.monotonic()
         session.start({"urdf_path": str(urdf), "paused": True, "spawn_height": 0.6,
-                       "servo_bounds": synthetic_bounds()})
+                       "bounds_profile": json.loads((
+                           PACKAGE / "profiles/offline-baseline.json"
+                       ).read_text(encoding="utf-8"))})
         self.assertTrue(session.status()["running"])
         self.assertEqual(len(session.joints), 12)
         session.pause(False)

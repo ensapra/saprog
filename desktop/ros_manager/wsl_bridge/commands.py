@@ -33,8 +33,10 @@ def publish_position_command(node, publisher, command, message_type):
     message.header.stamp = node.get_clock().now().to_msg()
     message.name = command["joints"]
     message.position = command["positions"]
-    speed = command["speed"] * (0.111 * 2.0 * 3.141592653589793 / 60.0)
-    message.velocity = [speed] * len(message.name)
+    speeds = command["speed"]
+    if not isinstance(speeds, list):
+        speeds = [speeds] * len(message.name)
+    message.velocity = [value * (0.111 * 2.0 * 3.141592653589793 / 60.0) for value in speeds]
     message.effort = [float(command["torque"])] * len(message.name)
     publisher.publish(message)
     emit(

@@ -3,6 +3,7 @@
 import json
 import math
 import os
+import queue
 import sys
 import tempfile
 import time
@@ -14,9 +15,9 @@ from unittest.mock import Mock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from limit_fixtures import prime_limits  # noqa: E402
 from PySide6.QtCore import QEvent, QObject, QSettings, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
-from limit_fixtures import prime_limits  # noqa: E402
 from ros_manager import RosDataManager  # noqa: E402
 from ros_manager.ros_worker import RosWorker  # noqa: E402
 from ros_manager.wsl_bridge import cancel_pending_commands, publish_position_command  # noqa: E402
@@ -649,7 +650,67 @@ class ControllerTest(unittest.TestCase):
         self.assertIsNone(tab.playback.owner)
 
 
+class TopicRequestTests(unittest.TestCase):
+    def test_repeated_consumers_share_worker_and_do_not_repeat_info_logs(self):
+        manager = RosDataManager()
+        self.addCleanup(dispose, manager)
+        topic = "/saprog/joint_states"
+
+        def request():
+            return manager.request_topic(topic, "sensor_msgs/msg/JointState",
+                                         package="saprog_dynamixel", executable="dynamixel_control_node")
+
+        with patch("ros_manager.manager.RosWorker") as worker_type:
+            worker_type.return_value.is_alive.return_value = True
+            with self.assertLogs("saprog.ros_manager", level="DEBUG") as captured:
+                first = request()
+                manager._emit_status(topic, "Connected")
+                second = request()
+                manager.release(first)
+                third = request()
+            self.assertNotEqual(first, second)
+            self.assertEqual(len(manager._active_requests()), 2)
+            self.assertEqual(manager._topic_statuses[topic], "Connected")
+            self.assertEqual(sum(record.levelname == "INFO" for record in captured.records), 1)
+            self.assertEqual(sum("Sharing existing" in record.getMessage() for record in captured.records), 2)
+            worker_type.assert_called_once()
+            worker_type.return_value.start.assert_called_once()
+            worker_type.return_value.stop.assert_not_called()
+            manager.release(second)
+            manager.release(third)
+            self.assertNotIn(topic, manager._topic_statuses)
+            with self.assertLogs("saprog.ros_manager", level="INFO") as captured:
+                request()
+            self.assertIn("ROS topic requested", captured.output[0])
+            worker_type.return_value.start.assert_called_once()
+
+    def test_conflicting_request_keeps_original_subscription_and_worker(self):
+        manager = RosDataManager()
+        self.addCleanup(dispose, manager)
+        with patch("ros_manager.manager.RosWorker") as worker_type:
+            worker_type.return_value.is_alive.return_value = True
+            token = manager.request_topic("/saprog/joint_states", "sensor_msgs/msg/JointState",
+                                          package="saprog_dynamixel", executable="dynamixel_control_node")
+            with self.assertRaisesRegex(ValueError, "different type or provider"):
+                manager.request_topic("/saprog/joint_states", "sensor_msgs/msg/JointState",
+                                      package="other", executable="node")
+            self.assertEqual(list(manager._active_requests()), [token])
+            worker_type.return_value.start.assert_called_once()
+
+
 class CancellationTest(unittest.TestCase):
+    def test_per_joint_speeds_are_preserved_and_validated_before_queueing(self):
+        manager = RosDataManager()
+        self.addCleanup(dispose, manager)
+        prime_limits(manager)
+        with patch.object(manager, "_ensure_worker_locked"):
+            manager.publish_joint_command(["servo_12", "servo_13"], [.2, .3], [4, 9], 300)
+            self.assertEqual(manager._drain_commands()[0]["speed"], [4, 9])
+            for speeds in ([4], [4, 0], [4, 1024]):
+                with self.subTest(speeds=speeds), self.assertRaises(ValueError):
+                    manager.publish_joint_command(["servo_12", "servo_13"], [.2, .3], speeds, 300)
+            self.assertEqual(manager._drain_commands(), [])
+
     def test_torque_off_matches_real_manager_api(self):
         manager = RosDataManager()
         prime_limits(manager)
@@ -785,8 +846,49 @@ class PublisherMatchingTest(unittest.TestCase):
         self.publisher.publish.assert_not_called()
         self.assertFalse(emit.call_args.kwargs["success"])
 
+    def test_per_joint_speeds_reach_ros_in_the_same_joint_order(self):
+        self.publisher.get_subscription_count.return_value = 1
+        self.command.update(joints=["servo_12", "servo_13"], positions=[.2, .3], speed=[4, 9])
+        with patch("ros_manager.wsl_bridge.commands.emit"):
+            _publisher, completed = publish_position_command(
+                self.node, self.publisher, self.command, self.message_type,
+            )
+        self.assertTrue(completed)
+        message = self.publisher.publish.call_args.args[0]
+        self.assertEqual(message.name, ["servo_12", "servo_13"])
+        self.assertEqual(message.effort, [700., 700.])
+        for actual, speed in zip(message.velocity, [4, 9]):
+            self.assertAlmostEqual(actual, speed*(.111*2*math.pi/60))
+
 
 class WorkerProtocolTest(unittest.TestCase):
+    def test_outgoing_jog_does_not_wait_a_control_tick_for_bridge_output(self):
+        command = {"op": "publish_position", "id": "jog"}
+        worker = RosWorker(Mock(return_value={}), Mock(side_effect=[[], [command]]),
+                           Mock(), Mock(), Mock(), Mock(workspace=Path.cwd()))
+        process, output = Mock(), Mock()
+        process.poll.return_value = None
+        waited = 0.
+
+        def receive(*, timeout):
+            nonlocal waited
+            waited += timeout
+            if output.get.call_count == 1:
+                raise queue.Empty
+            return None
+
+        output.get.side_effect = receive
+        with patch("ros_manager.ros_worker.shutil.which", return_value="wsl.exe"), patch.object(
+            worker, "_wsl_path", return_value="/mnt/c/robot",
+        ), patch("ros_manager.ros_worker.subprocess.Popen", return_value=process), patch(
+            "ros_manager.ros_worker.threading.Thread",
+        ), patch("ros_manager.ros_worker.queue.Queue", return_value=output), patch.object(
+            worker, "_send_bridge_command",
+        ) as send:
+            worker._run_wsl_bridge()
+        send.assert_called_once_with(process, command)
+        self.assertLess(waited, .05)
+
     def test_ros_publication_barrier_is_forwarded_before_acknowledgement(self):
         callbacks = Mock()
         worker = RosWorker(
@@ -881,9 +983,10 @@ class DiscoveryTest(unittest.TestCase):
             joystick=SimpleNamespace(get_count=lambda: len(devices), Joystick=lambda index: devices[index]),
             error=RuntimeError, JOYDEVICEADDED=1, JOYDEVICEREMOVED=2,
         )
-        selected, inputs, discovered = [], [], []
+        selected, inputs, discovered, axes = [], [], [], []
         monitor.selected_changed.connect(selected.append)
         monitor.inputs_changed.connect(inputs.append)
+        monitor.axes_changed.connect(axes.append)
         monitor.devices_changed.connect(discovered.append)
         monitor.refresh()
         self.assertEqual(discovered[-1][0]["id"], 42)
@@ -891,11 +994,22 @@ class DiscoveryTest(unittest.TestCase):
         self.assertEqual(len(selected[-1]["controls"]), 8)
         monitor.poll()
         self.assertEqual(inputs[-1], {"button:1", "hat:0:left", "hat:0:up", "axis:0:+"})
+        self.assertEqual(axes[-1], (.9,))
+        stick.get_axis = lambda index: .25
+        monitor.poll()
+        self.assertEqual(axes[-1], (.25,))
+        self.assertEqual(inputs[-1], {"button:1", "hat:0:left", "hat:0:up"})
+        # Direct samples still report held inputs with no new SDL events.
+        self.assertEqual(monitor.read_state(), ((.25,), {"button:1", "hat:0:left", "hat:0:up"}))
+        stick.get_attached = lambda: False
+        self.assertEqual(monitor.read_state(), ((), set()))
+        self.assertIsNone(monitor.selected)
         devices.clear()
         events.append(SimpleNamespace(type=monitor.pygame.JOYDEVICEREMOVED))
         monitor.poll()
         self.assertIsNone(selected[-1])
         self.assertEqual(inputs[-1], set())
+        self.assertEqual(axes[-1], ())
         self.assertEqual(discovered[-1], [])
         monitor.close()
         dispose(monitor)

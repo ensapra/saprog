@@ -1,6 +1,8 @@
 """Own one isolated Gazebo server and an optional low-cost viewer."""
 
+import copy
 import importlib
+import json
 import math
 import os
 import signal
@@ -11,6 +13,7 @@ import time
 import uuid
 from pathlib import Path
 
+from .profile import validate_bounds_profile
 from .world import GUI_CONFIG, MODEL_NAME, WORLD_NAME, prepare_world
 
 
@@ -85,6 +88,11 @@ class GazeboSession:
         )
 
     def start(self, options):
+        options = copy.deepcopy(options)
+        if "bounds_profile" in options:
+            options["bounds_profile"] = validate_bounds_profile(options["bounds_profile"])
+            if options.get("servo_bounds") is not None:
+                raise ValueError("Choose bounds_profile or servo_bounds, not both")
         self.stop()
         if self.closing.is_set():
             raise RuntimeError("Simulation startup cancelled during shutdown")
@@ -97,6 +105,12 @@ class GazeboSession:
                 real_time_factor=options.get("real_time_factor", 0.5),
                 spawn_height=options.get("spawn_height", 0.3),
                 servo_bounds=options.get("servo_bounds"),
+                bounds_profile=options.get("bounds_profile"),
+            )
+            # Keep the resolved inputs alongside the generated world for this
+            # experiment. Reset reuses this owned copy, not an edited source file.
+            (Path(self.directory.name) / "run-inputs.json").write_text(
+                json.dumps(options, indent=2, allow_nan=False), encoding="utf-8",
             )
             self.log_file = open(Path(self.directory.name) / "gazebo.log", "w", encoding="utf-8")
             self._load_transport()
@@ -181,6 +195,7 @@ class GazeboSession:
             **stats, "running": running, "stale": stale,
             "viewer": self.viewer is not None and self.viewer.poll() is None,
             "joints": self.joints, "gravity": -9.81,
+            "bounds_profile": copy.deepcopy(self.options.get("bounds_profile")) if running else None,
         }
 
     def log_tail(self):

@@ -1,4 +1,4 @@
-"""Single-leg URDF calibration and vertical motion preview."""
+"""Single-leg URDF calibration, Cartesian joystick control and motion previews."""
 
 from .urdf_tab import SingleLegTestTab
 

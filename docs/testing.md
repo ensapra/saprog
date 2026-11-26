@@ -20,9 +20,12 @@ controllers and ROS endpoints; ROS and physical devices are not required.
 | [test_servo_limits.py](../desktop/tests/test_servo_limits.py) | Shared read-only live reports, refresh deduplication, failure invalidation, consumer updates and bridge routing |
 | [test_timeline_editor.py](../desktop/tests/test_timeline_editor.py) | Document migration, references, edits, atomic saves and window close handling |
 | [test_ros_launcher.py](../desktop/tests/test_ros_launcher.py) | Launch shell, USB preflight and parameter-file behavior with stub commands |
+| [test_ros_worker.py](../desktop/tests/test_ros_worker.py) | Slow WSL startup, bounded timeout, cancellation, process cleanup and path diagnostics |
 | [test_wsl_bridge.py](../desktop/tests/test_wsl_bridge.py) | Protocol, subscriptions, command dispatch and owned-process cleanup |
 | [test_simulation.py](../desktop/tests/test_simulation.py) | Lazy Gazebo startup, UI controls, isolated command/results, path conversion and world generation |
-| [test_leg_urdf.py](../desktop/tests/test_leg_urdf.py) | Single-leg mesh extraction, servo-name mapping, stale feedback, four-leg vertical IK, local preview, tuning and timeline export |
+| [test_leg_urdf.py](../desktop/tests/test_leg_urdf.py) | Single-leg mesh extraction, servo-name mapping, stale feedback, Cartesian reachability, local preview, calibration-only tuning and URDF export |
+| [test_leg_joystick.py](../desktop/tests/test_leg_joystick.py) | Analog Cartesian foot control, axis mappings, neutral/enable gating, feedback, command cancellation, timeouts and preview lifecycle |
+| [test_controller_selector.py](../desktop/tests/test_controller_selector.py) | Shared controller detection, GUID restoration after reconnect and stable selection on refresh |
 
 See the [single-leg guide](single-leg-test.md) for URDF preview and calibration
 limitations.
@@ -47,7 +50,18 @@ ruff check desktop
 
 ## ROS packages
 
-The simulation package has an opt-in headless Gazebo test for import, gravity,
+The simulation package also has pure offline bounds-profile tests:
+
+```sh
+python -m unittest discover -s ros2/saprog_simulation/test -p test_profile.py
+```
+
+These check schema/provenance, exact servo coverage, finite ordered bounds,
+zero-pose compatibility, input isolation and reset input preservation. Desktop
+simulation tests additionally check startup with unavailable hardware limits and
+that opening the tab never requests a hardware provider.
+
+The simulation package has an opt-in headless Gazebo test for profile import, gravity,
 pause, reset and cleanup. See its [guide](../ros2/saprog_simulation/README.md#validation).
 
 The current C++ tests are registered under BUILD_TESTING in each package's CMake

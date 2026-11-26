@@ -22,20 +22,25 @@ visualizations belong in [widgets](../desktop/widgets/).
 | Target fields, Puppet Mode and snapshot saving | [creator_view](../desktop/widgets/player/creator_view.py) |
 | Shared live hardware limits and EEPROM report validation | [servo_limits](../desktop/servo_limits/) |
 | Offline timeline document and editor | [timeline](../desktop/tabs/timeline/) |
-| Controller discovery and input polling | [devices](../desktop/tabs/controller/devices.py) |
+| Controller discovery and input polling | [controller_input](../desktop/controller_input/devices.py) |
+| Controller discovery UI and saved-device selection | [ControllerSelector](../desktop/widgets/controller_selector.py) |
 | Mappings and press/release routing | [Controller tab](../desktop/tabs/controller/__init__.py) |
 | Sequence execution and arrival monitoring | [playback](../desktop/tabs/controller/playback.py) |
+| Single-leg Cartesian motion and live hold-button gating | [joystick](../desktop/tabs/leg_test/joystick.py) |
+| Single-leg controller setup and saved axis profiles | [joystick_panel](../desktop/tabs/leg_test/joystick_panel.py) |
 | Gazebo startup and physics controls | [Simulation tab](../desktop/tabs/simulation/) |
 
 ## Shared documents
 
 Each ROS manager owns one [ServoLimits](../desktop/servo_limits/service.py) object.
-All motion consumers receive its read-only, live mapping. The service deduplicates
+Hardware motion consumers receive its read-only, live mapping. The service deduplicates
 EEPROM reads, validates all configured servos, converts directions/encoder zeros
 through the document unit helpers, handles timeouts and invalidates failed reads.
 It performs no persistence. The manager enforces these same bounds at the position
-publication boundary, and the simulation supervisor receives them in its start
-payload to build temporary joint stops. URDFs and tuning files are not limit sources.
+publication boundary. The Simulation tab instead sends an explicitly selected
+[offline bounds profile](../ros2/saprog_simulation/README.md#offline-bounds-profiles)
+to build temporary joint stops without reading hardware. URDFs and tuning files
+are not hardware limit sources.
 
 [documents](../desktop/documents/) imports neither ROS nor Qt.
 [snapshot_units.py](../desktop/documents/snapshot_units.py) validates radian poses

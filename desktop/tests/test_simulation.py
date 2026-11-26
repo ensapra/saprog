@@ -15,9 +15,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "desktop"))
 sys.path.insert(0, str(ROOT / "ros2/saprog_simulation"))
 
+from limit_fixtures import prime_limits  # noqa: E402
 from PySide6.QtCore import QEvent, QObject, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
-from limit_fixtures import prime_limits  # noqa: E402
 from ros_manager import RosDataManager  # noqa: E402
 from ros_manager.config import SIMULATION_STATUS  # noqa: E402
 from ros_manager.wsl_bridge.simulation import SimulationCommands  # noqa: E402
@@ -77,6 +77,34 @@ class SimulationTabTests(unittest.TestCase):
         self.assertIn("0.49×", self.tab.metrics.text())
         self.tab.pause()
         self.assertEqual(self.manager.simulation_command.call_args.args, ("pause",))
+
+    def test_show_and_start_need_no_hardware_report(self):
+        from servo_limits import get_servo_limits
+
+        get_servo_limits(self.manager).invalidate("No hardware connected")
+        self.tab.show()
+        _APP.processEvents()
+        self.tab.start()
+        self.manager.refresh_servo_limits.assert_not_called()
+        self.manager.request_topic.assert_called_once()
+        self.assertEqual(self.manager.request_topic.call_args.args[0], SIMULATION_STATUS.topic)
+        options = self.manager.simulation_command.call_args.kwargs
+        self.assertNotIn("servo_bounds", options)
+        self.assertEqual(len(options["bounds_profile"]["servo_bounds"]), 12)
+        self.assertIn("not measured EEPROM", self.tab.bounds_source.text())
+
+    def test_profile_is_resolved_on_desktop_and_missing_file_starts_nothing(self):
+        self.tab.profile_path.setText(str(ROOT / "missing-profile.json"))
+        self.tab.start()
+        self.manager.request_topic.assert_not_called()
+        self.manager.simulation_command.assert_not_called()
+
+    def test_hardware_report_changes_do_not_stop_offline_simulation(self):
+        from servo_limits import get_servo_limits
+
+        self.tab.state["running"] = True
+        get_servo_limits(self.manager).invalidate("Hardware disconnected")
+        self.manager.simulation_command.assert_not_called()
 
     def test_manager_never_routes_simulation_actions_to_hardware(self):
         manager = RosDataManager()
@@ -190,7 +218,7 @@ class WorldTests(unittest.TestCase):
 
     def test_no_saved_limits_fallback_before_gazebo_conversion(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(world.subprocess, "run") as convert:
-            with self.assertRaisesRegex(ValueError, "Current EEPROM limits"):
+            with self.assertRaisesRegex(ValueError, "Explicit servo bounds"):
                 world.prepare_world(ROOT / "urdf/urdf/URDF.urdf", directory)
             convert.assert_not_called()
 

@@ -4,7 +4,7 @@ import math
 from collections import deque
 
 import numpy as np
-from desktop_style import ACCENT_LIGHT, BACKGROUND, FOREGROUND, GRID, MUTED
+from desktop_style import ACCENT_LIGHT, BACKGROUND, GRID, MUTED
 from pyqtgraph import functions as pg_functions
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF
@@ -31,7 +31,6 @@ class UrdfLegView(QWidget):
         self.model = None
         self.values = {}
         self.trail = deque(maxlen=600)
-        self.target_path = []
         self.azimuth, self.elevation = 35., 20.
         self.drag = None
         self.center = np.zeros(3)
@@ -52,7 +51,6 @@ class UrdfLegView(QWidget):
             return
         if model is not self.model:
             self.trail.clear()
-            self.target_path = []
             transforms, _ = model.transforms(values)
             root = transforms[model.joints[0].find("child").get("link")][:3, 3]
             self.center = (root + model.foot_position(values)) / 2
@@ -136,18 +134,16 @@ class UrdfLegView(QWidget):
             mesh_painter.end()
             self._mesh_key = key
         painter.drawPixmap(0, 0, self._mesh_cache)
-        for path, color, style in ((self.target_path, FOREGROUND, Qt.PenStyle.DashLine),
-                                   (self.trail, ACCENT_LIGHT, Qt.PenStyle.SolidLine)):
-            if len(path) > 1:
-                painter.setPen(QPen(QColor(color), 2, style))
-                painter.drawPolyline(QPolygonF([point(p) for p in project(path)]))
+        if len(self.trail) > 1:
+            painter.setPen(QPen(QColor(ACCENT_LIGHT), 2))
+            painter.drawPolyline(QPolygonF([point(p) for p in project(self.trail)]))
         painter.setPen(QPen(QColor(ACCENT_LIGHT), 2))
         painter.setBrush(QColor(ACCENT_LIGHT))
         p = point(project([foot])[0])
         painter.drawEllipse(p, 4, 4)
         painter.drawText(p + QPointF(8, -8), "Foot")
         painter.setPen(QColor(MUTED))
-        painter.drawText(12, self.height()-12, "Blue: foot trail | dashed: requested vertical path")
+        painter.drawText(12, self.height()-12, "Blue: foot trail")
 
     def draw_meshes(self, painter, camera, project):
         """Render a changed pose. Geometry, normals and Qt point storage are reused."""

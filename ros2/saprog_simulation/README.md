@@ -27,9 +27,9 @@ Gazebo. The selected URDF path is sent by the desktop and translated with
 
 ## Controls
 
-- **Start:** use the shared current EEPROM limits, import the URDF, load a ground
-  plane and enable `0 0 -9.81` gravity. Entering the tab refreshes limits using the
-  same process as Static Animator. A successful hardware read is required.
+- **Start:** load the selected simulation bounds profile, import the URDF, load
+  a ground plane and enable `0 0 -9.81` gravity. This works without connected
+  servos or an EEPROM read. The profile name and provenance appear in the tab.
 - **Pause / Resume:** control the physics clock. Gravity stays configured.
 - **Reset:** restart the owned server with the same URDF and settings, clearing
   body motion. The current pause/viewer choices persist.
@@ -56,12 +56,11 @@ small, stiff mechanisms; lower it if contact or joint motion becomes unstable.
 Lowering simulation speed reduces CPU demand without changing the physics step.
 
 The supplied meshes, collision geometry, masses, inertia, joint axes and mimic
-relationships are retained. Current hardware limits arrive as `servo_bounds` in
-the start payload; a temporary copy receives those motor stops and the derived
+relationships are retained. Explicit simulation limits arrive in `bounds_profile`
+in the start payload; a temporary copy receives those motor stops and the derived
 mimic ranges. Saved URDF angle limits are not used as a fallback. Only that copy
 has mesh URIs resolved and gravity enabled. The source URDF is never saved.
-A changed or invalidated hardware report stops the desktop-owned simulation so
-its next start imports the new limits.
+Changes to live hardware limits do not affect this offline experiment.
 The checked-in `saprog_description` package can be resolved directly from the
 URDF's parent package directory. Other package meshes use the ament index.
 
@@ -69,6 +68,33 @@ Each supervisor owns a unique Gazebo Transport partition. Its ROS topics live
 under `/saprog/simulation`; it never subscribes to hardware position commands,
 publishes hardware joint states, opens USB devices or changes physical torque.
 Other desktop tabs retain their existing hardware startup behavior.
+
+## Offline bounds profiles
+
+The default [baseline](profiles/offline-baseline.json) assumes symmetric +/-150
+degree stops for all twelve servos. These are simulation assumptions, not measured
+EEPROM limits or verified mechanical clearances. Select another JSON profile to
+use different explicit stops. The supervisor requires exactly these fields:
+
+- `schema_version`: integer `1`.
+- `name`: nonempty display name.
+- `provenance`: nonempty description of where the bounds came from.
+- `units`: `radians`.
+- `servo_bounds`: all twelve `servo_N` names, each with finite `[lower, upper]`
+  values, with `lower < upper`. Each range must include zero for the current
+  zero-joint initial state.
+
+The URDF must map exactly once to every profile servo. The supervisor rejects
+invalid profiles and ambiguous bounds sources before launching Gazebo. The
+desktop resolves the profile JSON before sending it, so it needs no WSL path
+conversion. The resolved start options are saved as `run-inputs.json` alongside
+the temporary world for the session lifetime and reused on Reset. Stop removes
+these temporary files. The status includes the resolved profile while running.
+
+This implements only the offline bounds portion of the
+[motion replay plan](../../docs/simulation-motion-replay-plan.md). Full calibration,
+configurable initial joint poses, body support, actuation and replay remain pending.
+Profiles do not feed the live hardware limits service or hardware command validation.
 
 Gazebo processes are terminated when the supervisor receives normal ROS shutdown.
 The desktop bridge stops its owned supervisor when the application exits.
@@ -85,7 +111,10 @@ All three topics use `std_msgs/msg/String` containing JSON:
 
 Start options: `urdf_path` (required Linux path), `step_size` (seconds, default
 0.004), `real_time_factor` (default 0.5), `spawn_height` (metres, default 0.3),
-`paused` and `viewer` (both false). Other actions are `stop`, `pause`, `resume`,
+`paused` and `viewer` (both false), and `bounds_profile` (required validated profile
+object for offline starts). Direct clients may instead supply `servo_bounds`
+explicitly for compatibility; omitting both or supplying both is rejected.
+Other actions are `stop`, `pause`, `resume`,
 `reset`, `show_viewer`, and `hide_viewer`.
 Long actions run on one worker thread; concurrent requests get a busy response.
 Gazebo startup has a 25-second readiness deadline. Desktop command delivery and

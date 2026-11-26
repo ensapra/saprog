@@ -8,6 +8,7 @@ import shlex
 import shutil
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from .models import TopicRequest
 from .node_launcher import RosNodeLauncher
 
 _LOGGER = logging.getLogger("saprog.ros_manager")
+_WSL_STARTUP_TIMEOUT = 60.0
 
 
 class RosWorker(threading.Thread):
@@ -60,8 +62,13 @@ class RosWorker(threading.Thread):
 
             distro = os.environ.get("SAPROG_WSL_DISTRO", "Ubuntu-24.04")
             bridge = Path(__file__).with_name("wsl_bridge")
+            self._on_status("", f"Starting WSL ({distro})")
             workspace = self._wsl_path(wsl, distro, self._launcher.workspace)
+            if workspace is None:
+                return
             bridge_path = self._wsl_path(wsl, distro, bridge)
+            if bridge_path is None or self._stopping.is_set():
+                return
             ros_distro = os.environ.get("ROS_DISTRO", "jazzy")
             command = (
                 f"source /opt/ros/{shlex.quote(ros_distro)}/setup.bash && "
@@ -96,7 +103,9 @@ class RosWorker(threading.Thread):
                     self._send_bridge_command(process, command)
 
                 try:
-                    line = output_queue.get(timeout=0.1)
+                    # Check outgoing commands more often than the 50 ms jog
+                    # tick, even when no telemetry or acknowledgement arrives.
+                    line = output_queue.get(timeout=0.01)
                 except queue.Empty:
                     continue
                 if line is None:
@@ -185,16 +194,43 @@ class RosWorker(threading.Thread):
         process.stdin.write(json.dumps(command, separators=(",", ":")) + "\n")
         process.stdin.flush()
 
-    @staticmethod
-    def _wsl_path(wsl: str, distro: str, windows_path: Path) -> str:
-        result = subprocess.run(
+    def _wsl_path(self, wsl: str, distro: str, windows_path: Path) -> str | None:
+        """Allow WSL to cold-boot, but stop promptly when the desktop closes."""
+        if self._stopping.is_set():
+            return None
+        process = subprocess.Popen(
             [wsl, "--distribution", distro, "--exec", "wslpath", "-u", str(windows_path)],
-            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=10,
-            check=False,
         )
-        if result.returncode != 0:
-            details = result.stderr.strip() or "wslpath failed"
+        deadline = time.monotonic() + _WSL_STARTUP_TIMEOUT
+        try:
+            while not self._stopping.is_set():
+                try:
+                    stdout, stderr = process.communicate(timeout=0.2)
+                    break
+                except subprocess.TimeoutExpired:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeError(
+                            f"WSL distribution {distro!r} did not respond within "
+                            f"{_WSL_STARTUP_TIMEOUT:g} seconds. Check that it starts with: "
+                            f'wsl --distribution "{distro}" --exec /bin/true'
+                        ) from None
+            else:
+                return None
+        finally:
+            if process.poll() is None:
+                process.kill()
+                try:
+                    process.communicate(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    _LOGGER.warning("Timed out cleaning up WSL path conversion")
+        if process.returncode != 0:
+            details = stderr.strip() or stdout.strip() or "wslpath failed"
             raise RuntimeError(details)
-        return result.stdout.strip()
+        path = stdout.strip()
+        if not path:
+            raise RuntimeError(f"wslpath returned an empty path for {windows_path}")
+        return path
